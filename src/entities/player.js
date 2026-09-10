@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sweepAABB, aabbOverlapsBlock, aabbFits } from './physics.js';
-import { BLOCKS } from '../world/blocks.js';
+import { BLOCKS, isSolid } from '../world/blocks.js';
 import { Inventory } from '../items/inventory.js';
 
 const PI_2 = Math.PI / 2;
@@ -17,10 +17,26 @@ const SWIM_SPEED = 2.2;
 const SWIM_SPRINT_SPEED = 5.2;
 const FLY_SPEED = 10.9;
 const FLY_SPRINT_SPEED = 21.8;
+// JUMP_SPEED/gravity(32, dimension.js) already give apex = v^2/(2g) =
+// 81/64 = 1.266 blocks — within the ~1.25-block-apex target as-is, so
+// left alone (revision pass section 2 asked to tune both, but there was
+// nothing to fix here). A *running* jump needs its own boost, though:
+// with these same constants, sprint speed x jump hang time only covers
+// ~2.94 blocks — real Minecraft's ~4.5-block sprint jump doesn't come
+// from different gravity/jump-speed at all (it uses this same physics),
+// it comes from an actual forward-velocity lunge applied the instant you
+// jump while sprinting. Modeled the same way here instead of touching
+// gravity, which would also change fall damage timing and swim physics.
 const JUMP_SPEED = 9;
+const SPRINT_JUMP_BOOST_SPEED = 11.5; // tuned by direct simulation to clear a 4-block gap with margin — velocity decays back toward SPRINT_SPEED over the jump's air time, so this can't be derived from the launch speed alone
 const STEP_HEIGHT = 1.0;
 
 const isWater = (id) => id === BLOCKS.WATER;
+
+/** Whether the AABB footprint at (x,y,z) has solid ground directly beneath its feet. */
+function hasFootingAt(chunkManager, x, y, z, size) {
+  return aabbOverlapsBlock(chunkManager, { x, y: y - 0.1, z }, { width: size.width, height: 0.1 }, isSolid);
+}
 
 export class Player {
   constructor(dimension) {
@@ -58,6 +74,12 @@ export class Player {
     // Multiplier on BASE_MOUSE_SENSITIVITY — phase 9's settings slider
     // scales this directly instead of touching the base constant.
     this.sensitivityScale = 1;
+
+    // Revision pass section 2: off by default — walking into a ledge
+    // stops cleanly with zero vertical motion unless the player explicitly
+    // opts into the old step-assist behavior (now a real jump impulse
+    // when it triggers, not a position teleport — see _updateGround).
+    this.autoJumpEnabled = false;
   }
 
   get selectedItem() {
@@ -218,10 +240,62 @@ export class Player {
       this.velocity.z *= this.onGround ? 0.7 : 0.95;
     }
 
-    this.velocity.y -= dim.gravity * dt;
-    if (input.wasPressed('flyUp') && this.onGround) this.velocity.y = JUMP_SPEED;
+    // Sneaking prevents walking off a ledge: per-axis, so sliding along
+    // an edge (blocked one way, clear the other) still works instead of
+    // freezing entirely the instant either axis would drop you.
+    if (this.sneaking) {
+      const nextX = this.position.x + this.velocity.x * dt;
+      const nextZ = this.position.z + this.velocity.z * dt;
+      if (this.velocity.x !== 0 && !hasFootingAt(chunkManager, nextX, this.position.y, this.position.z, this.size)) {
+        this.velocity.x = 0;
+      }
+      if (this.velocity.z !== 0 && !hasFootingAt(chunkManager, this.position.x, this.position.y, nextZ, this.size)) {
+        this.velocity.z = 0;
+      }
+    }
 
-    this._sweepWithStepUp(dt, chunkManager);
+    this.velocity.y -= dim.gravity * dt;
+    if (input.wasPressed('flyUp') && this.onGround) {
+      this.velocity.y = JUMP_SPEED;
+      if (this.sprinting) {
+        // Sprint-jump lunge — see SPRINT_JUMP_BOOST_SPEED's comment.
+        // Scales the current horizontal velocity up to the boost speed
+        // in whatever direction it's already pointed, rather than
+        // assuming straight-forward, so strafing sprint-jumps keep their
+        // own direction.
+        const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+        if (horizSpeed > 0.1) {
+          const scale = SPRINT_JUMP_BOOST_SPEED / horizSpeed;
+          this.velocity.x *= scale;
+          this.velocity.z *= scale;
+        }
+      }
+    } else if (this.autoJumpEnabled && this.onGround) {
+      this._tryAutoJump(dt, chunkManager);
+    }
+
+    this._sweep(dt, chunkManager);
+  }
+
+  /**
+   * Opt-in (default off) replacement for the old step-assist: instead of
+   * teleporting the position up by a block the instant a 1-block ledge
+   * is detected (the actual cause of the "lifts partway then snaps back"
+   * bug — an instant position change fighting the same-frame gravity/
+   * collision resolution below it), this triggers a real jump impulse
+   * and lets normal physics carry the player over it smoothly, exactly
+   * like pressing jump manually would.
+   */
+  _tryAutoJump(dt, chunkManager) {
+    if (this.velocity.x === 0 && this.velocity.z === 0) return;
+    const size = this.size;
+    const destX = this.position.x + this.velocity.x * dt;
+    const destZ = this.position.z + this.velocity.z * dt;
+    const blockedAtFoot = !aabbFits(chunkManager, { x: destX, y: this.position.y, z: destZ }, size);
+    const clearOneUp =
+      aabbFits(chunkManager, { x: this.position.x, y: this.position.y + STEP_HEIGHT, z: this.position.z }, size) &&
+      aabbFits(chunkManager, { x: destX, y: this.position.y + STEP_HEIGHT, z: destZ }, size);
+    if (blockedAtFoot && clearOneUp) this.velocity.y = JUMP_SPEED;
   }
 
   _updateSwim(dt, input, chunkManager) {
@@ -248,7 +322,7 @@ export class Player {
     else this.velocity.y += 6 * dt; // idle buoyancy toward the surface
     this.velocity.y = Math.max(-4, Math.min(4, this.velocity.y));
 
-    this._sweepWithStepUp(dt, chunkManager);
+    this._sweep(dt, chunkManager);
 
     // Bob at the surface with the head above water when floating with no
     // vertical input and not sprint-diving.
@@ -257,20 +331,16 @@ export class Player {
     }
   }
 
-  _sweepWithStepUp(dt, chunkManager) {
+  /**
+   * Plain swept-AABB collision, nothing else — no step-up probe here.
+   * Revision-pass section 2: the horizontal collision pass must not
+   * apply vertical correction, and this (the vertical/collision pass)
+   * must not run a step-up probe of its own. Auto-jump, when enabled,
+   * is handled entirely in _updateGround before this ever runs, as a
+   * velocity change, not a position hack.
+   */
+  _sweep(dt, chunkManager) {
     const size = this.size;
-    const wantsMove = this.velocity.x !== 0 || this.velocity.z !== 0;
-
-    if (wantsMove && this.onGround) {
-      const stepped = { x: this.position.x, y: this.position.y + STEP_HEIGHT, z: this.position.z };
-      const destX = this.position.x + this.velocity.x * dt;
-      const destZ = this.position.z + this.velocity.z * dt;
-      const blockedAtFoot = !aabbFits(chunkManager, { x: destX, y: this.position.y, z: destZ }, size);
-      const clearOneUp =
-        aabbFits(chunkManager, stepped, size) && aabbFits(chunkManager, { x: destX, y: stepped.y, z: destZ }, size);
-      if (blockedAtFoot && clearOneUp) this.position.y += STEP_HEIGHT;
-    }
-
     const result = sweepAABB(chunkManager, this.position, size, this.velocity, dt);
     const wasOnGround = this.onGround;
     this.position = result.position;

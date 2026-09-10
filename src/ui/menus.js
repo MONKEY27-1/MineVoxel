@@ -47,10 +47,20 @@ export class MenuController {
     this._blockVolume = 1;
     this._mobVolume = 1;
 
+    this.autoJumpToggleEl = document.getElementById('auto-jump-toggle');
+    this._wireAutoJumpToggle();
     this._wireModeButtons();
     this._wireSliders();
     this._wireButtons();
     this._buildKeybindRows();
+  }
+
+  _wireAutoJumpToggle() {
+    this.autoJumpToggleEl.checked = this.player.autoJumpEnabled;
+    this.autoJumpToggleEl.addEventListener('change', () => {
+      playUIClick();
+      this.player.autoJumpEnabled = this.autoJumpToggleEl.checked;
+    });
   }
 
   _wireModeButtons() {

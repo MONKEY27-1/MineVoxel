@@ -246,6 +246,60 @@ section, each verified and committed independently.
       sitting on the ocean floor, opening into open water rather than a
       hillside — fixed by excluding ocean/lake locations from entrance
       placement entirely.
+- [x] **Section 2 — Movement: remove auto-step, fix the ledge bug.**
+      Root cause confirmed by reading, not guessed: `Player`'s old
+      `_sweepWithStepUp` detected a 1-block ledge and *teleported*
+      `position.y` up by a full block, then immediately called the
+      normal swept-AABB collision on top of that already-moved position
+      in the same tick — the "lifts partway, then snaps back" the spec
+      described was that instant position hack fighting its own
+      same-frame gravity/collision resolution. Fixed at the root: the
+      collision pass (`_sweep`, renamed from `_sweepWithStepUp`) is now
+      plain swept-AABB with no step probe at all, and horizontal
+      movement applies zero vertical correction — verified directly by
+      simulating 3 seconds of walking into a 1-block wall and confirming
+      `position.y` never changed by even a fraction of a block. A
+      `Player.autoJumpEnabled` setting (default **off**, toggle added to
+      the settings panel) replaces the old behavior properly instead of
+      deleting it: when enabled, the same ledge detection triggers a real
+      jump impulse (`velocity.y = JUMP_SPEED`) rather than a position
+      teleport, so it's a smooth physics arc over the step instead of a
+      snap. Jump apex was already ~1.27-1.34 blocks under the existing
+      gravity(32)/JUMP_SPEED(9) constants (measured by simulation) — within
+      the "~1.25 with small margin" target as-is. A running jump needed
+      real work, though: with those same constants, sprint speed × jump
+      hang time only covers ~2.94 blocks, well short of the 4-block-gap
+      target — not a gravity/jump-speed problem (real Minecraft uses
+      near-identical constants and still gets ~4.5-block sprint jumps),
+      but a dedicated forward-velocity lunge applied the instant you jump
+      while sprinting, modeled the same way here
+      (`SPRINT_JUMP_BOOST_SPEED`, tuned by direct simulation of an actual
+      4-block-wide bottomless gap to clear it with a small margin — the
+      value can't be derived analytically since the boosted velocity
+      decays back toward normal sprint speed over the jump's air time).
+      Sneaking now blocks per-axis movement that would walk off a ledge
+      (checked independently for X and Z so sliding along an edge still
+      works), verified by simulation: without sneaking the player walks
+      straight off and falls, with it they stop right at the edge every
+      time. Mobs got the identical fix — `Mob._updatePhysics` had copied
+      the exact same step-teleport bug from `Player`, now replaced with
+      the same real-jump-impulse reaction (own `JUMP_SPEED=7`, tuned for
+      the mob's separately-hardcoded gravity=20 to match the same ~1.25
+      apex) — verified a zombie mid-chase smoothly jumps a 1-block step
+      instead of gliding or teleporting up it.
+      **Scoped down from the full spec, and worth being explicit about
+      why:** this codebase has no pathfinding of any kind today — mobs
+      just walk straight at their target (see phase 8's own AI
+      description) — so "an explicit jump action in the A*, with a cost
+      penalty favoring flat routes" has no A* to add a jump action or
+      cost penalty *to*. Building real pathfinding is a much bigger
+      feature than this section's actual ask (fix the movement bug); what's
+      implemented is the reactive part alone (detect a 1-block obstacle,
+      jump over it), without route-planning around anything taller. No
+      slime mob exists in this game to exercise the "can't jump, must
+      path around" case, and spider wall-climbing remains unimplemented
+      (already a documented phase 8 simplification) — spiders get the
+      same ground-jump reaction as every other mob for now.
 
 ## Known simplifications (revisit later)
 

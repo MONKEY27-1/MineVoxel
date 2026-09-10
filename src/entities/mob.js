@@ -4,6 +4,7 @@ import { MOB_TYPES } from './mobTypes.js';
 
 const GRAVITY = 20; // mobs don't carry a Dimension reference (only players/chunks do) — matches the overworld's own gravity value directly
 const STEP_HEIGHT = 1.0;
+const JUMP_SPEED = 7; // apex = v^2/(2*GRAVITY) = 49/40 = 1.225 blocks, matching the player's ~1.25-block jump apex under this mob's own (lighter) gravity
 const KNOCKBACK_HORIZ = 5;
 const KNOCKBACK_UP = 4;
 
@@ -225,16 +226,27 @@ export class Mob {
     this.velocity.z = this._moveDir.z * this.def.walkSpeed;
     this.velocity.y -= GRAVITY * dt;
 
-    // Same step-up-a-single-block pattern as player.js's _sweepWithStepUp,
-    // just without the player's swim/fly branches mobs don't need.
-    const wantsMove = this.velocity.x !== 0 || this.velocity.z !== 0;
-    if (wantsMove && this.onGround) {
-      const stepped = { x: this.position.x, y: this.position.y + STEP_HEIGHT, z: this.position.z };
+    // Revision-pass section 2: no gliding/teleporting up blocks for mobs
+    // either — this used to teleport position.y up by a block the
+    // instant a 1-block ledge was detected (copied from player.js's old
+    // step-assist, which had the exact same "lifts then snaps back" bug).
+    // Real pathfinding (A*, with a cost penalty favoring flat routes) is
+    // a bigger feature this codebase doesn't have yet — mob movement is
+    // still "walk straight at the target," no route-finding around
+    // obstacles — so this is scoped to just the jump reaction the spec
+    // asks for: detect a 1-block obstacle exactly like the player's own
+    // auto-jump check and jump over it, using the same physics. Every
+    // current mob type gets this (none of them are a no-jump mob like a
+    // slime, and spider wall-climbing isn't implemented — ground mob for
+    // now, a documented simplification already).
+    if (this.onGround && (this.velocity.x !== 0 || this.velocity.z !== 0)) {
       const destX = this.position.x + this.velocity.x * dt;
       const destZ = this.position.z + this.velocity.z * dt;
       const blockedAtFoot = !aabbFits(chunkManager, { x: destX, y: this.position.y, z: destZ }, size);
-      const clearOneUp = aabbFits(chunkManager, stepped, size) && aabbFits(chunkManager, { x: destX, y: stepped.y, z: destZ }, size);
-      if (blockedAtFoot && clearOneUp) this.position.y += STEP_HEIGHT;
+      const clearOneUp =
+        aabbFits(chunkManager, { x: this.position.x, y: this.position.y + STEP_HEIGHT, z: this.position.z }, size) &&
+        aabbFits(chunkManager, { x: destX, y: this.position.y + STEP_HEIGHT, z: destZ }, size);
+      if (blockedAtFoot && clearOneUp) this.velocity.y = JUMP_SPEED;
     }
 
     const result = sweepAABB(chunkManager, this.position, size, this.velocity, dt);

@@ -573,6 +573,16 @@ html, body {
   width: 100%;
 }
 
+.settings-checkbox-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-checkbox-row label {
+  margin-bottom: 0;
+}
+
 #keybind-list {
   display: flex;
   flex-direction: column;
