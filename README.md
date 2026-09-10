@@ -445,6 +445,74 @@ section, each verified and committed independently.
       double-chest support would build on, but adding double chests
       themselves is a new-feature scope well beyond "unify how breaking a
       container works."
+- [x] **Section 7 — World saving, made actually complete.** A full
+      IndexedDB persistence layer (`src/persistence/db.js`: 5 object
+      stores — worlds, chunkDiffs, blockEntities, playerState,
+      entitySnapshots — keyed by `'|'`-joined strings so
+      `IDBKeyRange.bound(prefix, prefix+'￿')` selects "everything for
+      world X" without a secondary index) plus an orchestration layer
+      (`src/persistence/worldSave.js`) that ties it to the existing
+      simulation state. `saveGame`/`loadGame` cover every item on the
+      checklist: per-dimension chunk block diffs (`ChunkColumn.modifiedBlocks`,
+      populated only inside `ChunkManager.setBlock` — verified generation
+      itself never touches that path, so a save really is just "what
+      changed from regenerating the seed again"), block-entity contents
+      (chest/furnace slots plus *unopened* dungeon-loot references —
+      `containerRegistry.js`'s `pendingLoot` map is otherwise pure
+      in-memory state, and skipping it would silently empty any loot
+      chest a player saved without ever opening), player state
+      (position/rotation/health/breath/xp/inventory/selected
+      hotbar/game mode) and time of day, and persistent mobs/item drops
+      in loaded chunks. Chunk diffs write in one batched IndexedDB
+      transaction (`dbPutMany`) rather than one round trip per chunk.
+      Autosave runs on a configurable interval (new settings-panel
+      slider, 10-300s, default 60s, re-read live so a mid-game change
+      takes effect on the next cycle without a restart), on "pause"
+      (losing pointer lock during actual gameplay — this project's only
+      pause signal), and best-effort on `beforeunload`; an explicit
+      **Save and Quit** button on the pause screen awaits a real flush
+      before reloading back to the title screen. The start screen grew a
+      saved-worlds list (name, mode, seed, last-played) with
+      rename/duplicate/delete, sitting alongside the existing seed/mode
+      fields (now labeled "Create New World" to disambiguate from
+      loading a save). Every world record carries a `schemaVersion`
+      and routes through a `migrateWorld` function on load — a no-op
+      today (schema version 1 is the only one that's ever existed) but a
+      real seam, not a placeholder, for the day the format changes.
+      **Scoped out**: true multi-frame-spread saving (a worker or a
+      budgeted per-frame chunk-diff upload loop, mirroring
+      `ChunkManager`'s own generation/mesh-upload budgeting) — IndexedDB
+      writes are already asynchronous and don't block the main thread,
+      and typical dirty-chunk counts (tens, not thousands, between
+      autosaves) make the synchronous array-building work before the
+      transaction negligible; revisit if a save is ever profiled at
+      >1-2ms.
+      Verified end-to-end via direct state manipulation (this
+      environment's browser sandbox refuses real pointer lock —
+      `WrongDocumentError` — so interaction was driven through the
+      existing `window.__MINEVOXEL__` debug hook instead of mouse/
+      keyboard, same as e.g. section 5's mob tests): placed a stone
+      block, a chest, and a furnace next to spawn; stocked the chest with
+      a plain stack and a durability-40 tool, the furnace with an
+      in-progress smelt and a live burn timer; set health to 7, XP to
+      42, and the selected hotbar slot; spawned a zombie and a ground
+      item nearby. Saved, reloaded the page (a real fresh module
+      evaluation, not a cache hit), and reopened the same world: every
+      block, the chest's two slots (durability included), the furnace's
+      burn state, health/XP/hotbar/inventory, and both the mob and the
+      item drop came back exactly — confirmed by reading the actual
+      IndexedDB records back out, not just visually. Also verified world
+      metadata CRUD directly: create → list → rename → duplicate (new id,
+      independent copy of chunk diffs/containers/player state) → delete
+      (world record and every associated store entry gone). While
+      testing the delete/rename/duplicate UI, found and fixed a real bug
+      unrelated to the data layer: this section's new confirm/prompt
+      modal (`src/ui/modal.js` — a small DOM-based replacement for native
+      `confirm()`/`prompt()`, needed because this testing sandbox
+      disables native dialogs outright, and because the rest of this
+      codebase never uses them either) was rendering at a lower z-index
+      than the start screen, so its buttons were visually present but
+      unclickable — one line, `z-index: 50`.
 
 ## Known simplifications (revisit later)
 
@@ -575,6 +643,13 @@ camera is actually showing, while looking completely plausible in code
 review. Verified correct by comparing `lookDirection` against three.js's
 own `camera.getWorldDirection()`; if you touch this again, re-check
 against that, not against intuition.
+- **The crafting-table/bench grid and player velocity aren't part of a
+  world save.** The persistence spec (revision-pass section 7) only
+  asks for position/rotation/health/hunger/XP/inventory/game mode —
+  the 2x2/3x3 crafting grids are transient UI state everywhere else in
+  this codebase, and velocity already resets to zero the same way a
+  fresh spawn does, so a loaded world's player starts at rest exactly
+  like a new one.
 
 ## Architecture
 

@@ -628,3 +628,142 @@ html, body {
   border-color: #8a742f;
   color: #fff;
 }
+
+/* --- World list (revision-pass section 7) ------------------------------ */
+
+#world-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.world-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #1e1e22;
+  border: 2px solid #3a3a42;
+  border-radius: 3px;
+  padding: 8px 10px;
+}
+
+.world-row:hover {
+  border-color: #5a5a64;
+}
+
+.world-row-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.world-row-name {
+  font-size: 13px;
+  color: #eee;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.world-row-meta {
+  font-size: 11px;
+  font-family: 'Consolas', monospace;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+
+.world-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.world-row-actions button {
+  background: #3a3a42;
+  border: 1px solid #4a4a52;
+  border-radius: 3px;
+  color: #eee;
+  padding: 4px 8px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.world-row-actions button:hover {
+  background: #46464e;
+}
+
+.world-row-actions button.danger:hover {
+  background: #7a3a34;
+  border-color: #8f463f;
+}
+
+#save-indicator {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: rgba(20, 20, 24, 0.75);
+  border: 1px solid #3a3a42;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #ccc;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+#save-indicator.visible {
+  opacity: 1;
+}
+
+/* --- Confirm/prompt modal (revision-pass section 7) --------------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50; /* above every other overlay (start screen 25, settings panel 26, inv-cursor 40) so a modal is always reachable regardless of what's open behind it */
+}
+
+.modal-box {
+  min-width: 300px;
+  text-align: center;
+}
+
+.modal-text {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.modal-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  padding: 8px 10px;
+  background: #1e1e22;
+  border: 2px solid #3a3a42;
+  border-radius: 3px;
+  color: #eee;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.modal-btn-row {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-btn-row button {
+  flex: 1;
+  margin: 0;
+}

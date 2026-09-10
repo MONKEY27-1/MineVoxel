@@ -60,3 +60,65 @@ export function removeContainerAt(x, y, z) {
 export function allFurnaces() {
   return furnaces.values();
 }
+
+/**
+ * Revision-pass section 7: dump/restore this module's entire in-memory
+ * state as plain, structured-clone-safe data (no Map/Set, positions
+ * flattened to x/y/z fields) — `worldSave.js` is the only caller. Loot
+ * chests that were never opened have to round-trip too, not just ones
+ * that were: `pendingLoot` is otherwise pure in-memory state, and losing
+ * it on reload would mean any dungeon chest a player saved without
+ * opening comes back permanently empty instead of still holding its
+ * (not-yet-rolled) loot.
+ */
+export function serializeContainers() {
+  const chestData = [];
+  for (const [k, inv] of chests) {
+    const [x, y, z] = k.split(',').map(Number);
+    chestData.push({ x, y, z, slots: inv.slots });
+  }
+  const furnaceData = [];
+  for (const [k, f] of furnaces) {
+    const [x, y, z] = k.split(',').map(Number);
+    furnaceData.push({
+      x,
+      y,
+      z,
+      slots: f.slots,
+      burnTimeRemaining: f.burnTimeRemaining,
+      burnTimeTotal: f.burnTimeTotal,
+      cookProgress: f.cookProgress,
+      isBurning: f.isBurning,
+    });
+  }
+  const pendingLootData = [];
+  for (const [k, p] of pendingLoot) {
+    const [x, y, z] = k.split(',').map(Number);
+    pendingLootData.push({ x, y, z, tableId: p.tableId, seed: p.seed });
+  }
+  return { chests: chestData, furnaces: furnaceData, pendingLoot: pendingLootData };
+}
+
+/** Replaces all current container state — call this once, right after loading a save, before anything else touches the registry. */
+export function restoreContainers(data) {
+  chests.clear();
+  furnaces.clear();
+  pendingLoot.clear();
+  for (const c of data?.chests ?? []) {
+    const inv = new Inventory(27);
+    inv.slots = c.slots;
+    chests.set(key(c.x, c.y, c.z), inv);
+  }
+  for (const f of data?.furnaces ?? []) {
+    const furnace = new Furnace();
+    furnace.slots = f.slots;
+    furnace.burnTimeRemaining = f.burnTimeRemaining;
+    furnace.burnTimeTotal = f.burnTimeTotal;
+    furnace.cookProgress = f.cookProgress;
+    furnace.isBurning = f.isBurning;
+    furnaces.set(key(f.x, f.y, f.z), furnace);
+  }
+  for (const p of data?.pendingLoot ?? []) {
+    pendingLoot.set(key(p.x, p.y, p.z), { tableId: p.tableId, seed: p.seed });
+  }
+}

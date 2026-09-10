@@ -1,4 +1,6 @@
 import { playUIClick } from '../audio/synth.js';
+import { listWorlds, createWorld, renameWorld, deleteWorld, duplicateWorld } from '../persistence/worldSave.js';
+import { showConfirm, showPrompt } from './modal.js';
 
 // Phase 9: start screen (seed + game mode), and a settings panel reachable
 // both from the start screen and from the existing pointer-lock-overlay
@@ -22,24 +24,30 @@ function actionLabel(action) {
 }
 
 export class MenuController {
-  constructor({ input, audioEngine, chunkManager, player, viewModel, onPlay }) {
+  constructor({ input, audioEngine, chunkManager, player, viewModel, saveSettings, onPlay }) {
     this.input = input;
     this.audioEngine = audioEngine;
     this.chunkManager = chunkManager;
     this.player = player;
     this.viewModel = viewModel;
-    this.onPlay = onPlay; // (seed:number, mode:'survival'|'creative') => void
+    this.saveSettings = saveSettings; // { intervalSec } — mutated directly by the autosave slider, read live by main.js's autosave loop
+    this.onPlay = onPlay; // (worldRecord, {isNew}) => void — main.js boots the actual game/world-load from this
 
     this.startScreenEl = document.getElementById('start-screen');
     this.pointerLockOverlayEl = document.getElementById('pointer-lock-overlay');
     this.settingsPanelEl = document.getElementById('settings-panel');
     this.seedInputEl = document.getElementById('seed-input');
+    this.worldNameInputEl = document.getElementById('world-name-input');
     this.modeChoiceEl = document.getElementById('mode-choice');
     this.playBtnEl = document.getElementById('play-btn');
     this.startSettingsBtnEl = document.getElementById('start-settings-btn');
     this.pauseSettingsBtnEl = document.getElementById('pause-settings-btn');
+    this.saveQuitBtnEl = document.getElementById('save-quit-btn');
     this.settingsBackBtnEl = document.getElementById('settings-back-btn');
     this.keybindListEl = document.getElementById('keybind-list');
+    this.worldListSectionEl = document.getElementById('world-list-section');
+    this.worldListEl = document.getElementById('world-list');
+    this.onSaveAndQuit = null; // set by main.js — actually flushes the running game's save before this reloads
 
     this.selectedMode = 'survival';
     this._rebindingAction = null;
@@ -57,6 +65,78 @@ export class MenuController {
     this._wireSliders();
     this._wireButtons();
     this._buildKeybindRows();
+    this._refreshWorldList();
+  }
+
+  /** Repaints the start screen's saved-worlds list. Async (IndexedDB) — safe to call multiple times in flight, each call just repaints from its own fetch. */
+  async _refreshWorldList() {
+    const worlds = await listWorlds();
+    this.worldListSectionEl.classList.toggle('hidden', worlds.length === 0);
+    this.worldListEl.innerHTML = '';
+    for (const w of worlds) {
+      const row = document.createElement('div');
+      row.className = 'world-row';
+
+      const info = document.createElement('div');
+      info.className = 'world-row-info';
+      const name = document.createElement('div');
+      name.className = 'world-row-name';
+      name.textContent = w.name;
+      const meta = document.createElement('div');
+      meta.className = 'world-row-meta';
+      meta.textContent = `${w.mode} · seed ${w.seed} · ${new Date(w.lastPlayedAt).toLocaleString()}`;
+      info.appendChild(name);
+      info.appendChild(meta);
+      info.addEventListener('click', () => {
+        playUIClick();
+        this.startScreenEl.classList.add('hidden');
+        this.pointerLockOverlayEl.classList.remove('hidden');
+        this.onPlay(w, { isNew: false });
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'world-row-actions';
+
+      const renameBtn = document.createElement('button');
+      renameBtn.textContent = 'Rename';
+      renameBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        playUIClick();
+        const next = await showPrompt('Rename world', w.name);
+        if (next && next.trim()) {
+          await renameWorld(w.id, next.trim());
+          this._refreshWorldList();
+        }
+      });
+
+      const dupeBtn = document.createElement('button');
+      dupeBtn.textContent = 'Duplicate';
+      dupeBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        playUIClick();
+        await duplicateWorld(w.id, `${w.name} (Copy)`);
+        this._refreshWorldList();
+      });
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        playUIClick();
+        if (await showConfirm(`Delete "${w.name}"? This can't be undone.`)) {
+          await deleteWorld(w.id);
+          this._refreshWorldList();
+        }
+      });
+
+      actions.appendChild(renameBtn);
+      actions.appendChild(dupeBtn);
+      actions.appendChild(deleteBtn);
+      row.appendChild(info);
+      row.appendChild(actions);
+      this.worldListEl.appendChild(row);
+    }
   }
 
   _wireAutoJumpToggle() {
@@ -153,6 +233,16 @@ export class MenuController {
       this.audioEngine.setCategoryVolume('blocks', this._blockVolume);
     });
 
+    const autosave = document.getElementById('autosave-interval-slider');
+    const autosaveVal = document.getElementById('autosave-interval-val');
+    autosave.value = this.saveSettings.intervalSec;
+    autosaveVal.textContent = `${autosave.value}s`;
+    autosave.addEventListener('input', () => {
+      const v = Number(autosave.value);
+      autosaveVal.textContent = `${v}s`;
+      this.saveSettings.intervalSec = v;
+    });
+
     const mob = document.getElementById('mob-vol-slider');
     const mobVal = document.getElementById('mob-vol-val');
     this._mobVolume = Number(mob.value) / 100;
@@ -175,13 +265,23 @@ export class MenuController {
   }
 
   _wireButtons() {
-    this.playBtnEl.addEventListener('click', () => {
+    this.playBtnEl.addEventListener('click', async () => {
       playUIClick();
       const raw = this.seedInputEl.value.trim();
       const seed = raw ? hashSeed(raw) : (Math.random() * 0xffffffff) >>> 0;
+      const name = this.worldNameInputEl.value.trim();
+      const record = await createWorld({ name, seed, mode: this.selectedMode });
       this.startScreenEl.classList.add('hidden');
       this.pointerLockOverlayEl.classList.remove('hidden');
-      this.onPlay(seed, this.selectedMode);
+      this.onPlay(record, { isNew: true });
+    });
+
+    this.saveQuitBtnEl.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      playUIClick();
+      if (!(await showConfirm('Save and quit to the title screen?'))) return;
+      await Promise.resolve(this.onSaveAndQuit?.());
+      window.location.reload();
     });
 
     this.startSettingsBtnEl.addEventListener('click', () => {

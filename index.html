@@ -26,11 +26,20 @@
       <div id="breath-bar" class="vital-bar"><div id="breath-fill" class="vital-fill breath"></div></div>
     </div>
     <div id="hotbar"></div>
+    <div id="save-indicator">Saving world&hellip;</div>
   </div>
 
   <div id="start-screen">
     <div class="menu-box">
       <h1>MineVoxel</h1>
+      <div id="world-list-section" class="menu-field hidden">
+        <label>Saved worlds</label>
+        <div id="world-list"></div>
+      </div>
+      <div class="menu-field">
+        <label for="world-name-input">New world name</label>
+        <input id="world-name-input" type="text" placeholder="New World" autocomplete="off" />
+      </div>
       <div class="menu-field">
         <label for="seed-input">World seed</label>
         <input id="seed-input" type="text" placeholder="Random" autocomplete="off" />
@@ -42,7 +51,7 @@
           <button type="button" class="mode-btn" data-mode="creative">Creative</button>
         </div>
       </div>
-      <button id="play-btn" class="menu-primary-btn">Play</button>
+      <button id="play-btn" class="menu-primary-btn">Create New World</button>
       <button id="start-settings-btn" class="menu-secondary-btn">Settings</button>
     </div>
   </div>
@@ -54,6 +63,7 @@
       <p class="hint">WASD to move &middot; Space to jump/fly &middot; double-tap Space to toggle flight &middot; C to sneak/descend &middot; Shift to sprint</p>
       <p class="hint">Left-click break &middot; Right-click place &middot; 1-9 select block &middot; Esc to release mouse &middot; F3 for debug</p>
       <button id="pause-settings-btn" class="menu-secondary-btn">Settings</button>
+      <button id="save-quit-btn" class="menu-secondary-btn">Save and Quit</button>
     </div>
   </div>
 
@@ -83,6 +93,10 @@
       <div class="settings-row">
         <label>Mob/combat volume <span id="mob-vol-val" class="settings-val">100%</span></label>
         <input id="mob-vol-slider" type="range" min="0" max="100" step="1" value="100" />
+      </div>
+      <div class="settings-row">
+        <label>Autosave interval <span id="autosave-interval-val" class="settings-val">60s</span></label>
+        <input id="autosave-interval-slider" type="range" min="10" max="300" step="10" value="60" />
       </div>
       <div class="settings-row settings-checkbox-row">
         <label for="auto-jump-toggle">Auto-jump</label>

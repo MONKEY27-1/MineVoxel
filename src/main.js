@@ -29,11 +29,13 @@ import { Hud } from './ui/hud.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
+import { saveGame, loadGame, saveChunkDiff } from './persistence/worldSave.js';
 
 const WORLD_SEED = 1337; // matches genWorker.js until the world-creation menu (phase 9) picks one
 const FIXED_DT = 1 / 60;
 const MAX_FRAME_DT = 0.25;
 const FOOTSTEP_STRIDE = 1.15; // blocks of horizontal travel between footstep triggers
+const DEFAULT_AUTOSAVE_INTERVAL = 60; // seconds — see saveSettings, menus.js's autosave slider mutates this live
 
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
@@ -59,6 +61,10 @@ function main() {
   input.onLockChange = (locked) => {
     overlayEl.classList.toggle('hidden', locked || inventoryUI.isOpen);
     crosshairEl.classList.toggle('hidden', !locked);
+    // "on pause" per the world-saving spec — losing pointer lock during
+    // actual gameplay (not the very first click-to-lock from the start
+    // screen, guarded by `started`) is this project's only pause signal.
+    if (!locked && started) persistNow();
   };
   overlayEl.addEventListener('click', () => {
     audioEngine.ensureStarted(); // must happen inside a real user-gesture handler
@@ -120,27 +126,100 @@ function main() {
     player.breath = player.maxBreath;
   }
 
-  // Phase 9: the world/renderer/player above are all constructed eagerly
-  // (cheap — chunkManager's workers sit idle until something actually
-  // calls .update(), which only happens inside tick() below), but no
-  // chunk was ever requested and the render loop hasn't started yet. The
-  // start screen picks a real seed + game mode, then this rebuilds both
-  // the main-thread climate generator and every gen worker's copy
-  // (chunkManager.setSeed — see its own comment for why order matters)
-  // before the very first chunk request goes out, and finally kicks off
-  // requestAnimationFrame(tick) for the first time.
-  let started = false;
-  function startGame(seed, mode) {
-    if (started) return;
-    started = true;
-    chunkManager.setSeed(seed);
-    climateGenerator = createOverworldGenerator(seed);
-    player.setGameMode(mode);
-    respawnPlayer();
-    requestAnimationFrame(tick);
+  // --- Persistence: current world id, autosave scheduling ------------
+  let currentWorldId = null;
+  const saveIndicatorEl = document.getElementById('save-indicator');
+  const saveSettings = { intervalSec: DEFAULT_AUTOSAVE_INTERVAL };
+  let autosaveTimer = null;
+
+  async function persistNow() {
+    if (!currentWorldId) return;
+    saveIndicatorEl.classList.add('visible');
+    try {
+      await saveGame(currentWorldId, { chunkManager, player, dayNight, mobManager, itemDrops });
+    } finally {
+      saveIndicatorEl.classList.remove('visible');
+    }
   }
 
-  const menuController = new MenuController({ input, audioEngine, chunkManager, player, viewModel, onPlay: startGame });
+  function scheduleAutosave() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(async () => {
+      await persistNow();
+      scheduleAutosave(); // re-read saveSettings.intervalSec each cycle so a live slider change takes effect on the next tick, not just after a restart
+    }, saveSettings.intervalSec * 1000);
+  }
+
+  // Phase 9 (extended in revision-pass section 7): the world/renderer/
+  // player above are all constructed eagerly (cheap — chunkManager's
+  // workers sit idle until something actually calls .update(), which
+  // only happens inside tick() below), but no chunk was ever requested
+  // and the render loop hasn't started yet. The start screen either
+  // creates a brand-new world record or picks a saved one (menus.js owns
+  // that decision and the metadata CRUD — this only ever receives the
+  // finished record), then this rebuilds both the main-thread climate
+  // generator and every gen worker's copy (chunkManager.setSeed — see
+  // its own comment for why order matters), replays any saved chunk
+  // diffs/containers/player state/entities for an existing world, and
+  // finally kicks off requestAnimationFrame(tick) for the first time.
+  let started = false;
+  async function startGame(worldRecord, { isNew }) {
+    if (started) return;
+    started = true;
+    currentWorldId = worldRecord.id;
+    chunkManager.setSeed(worldRecord.seed);
+    climateGenerator = createOverworldGenerator(worldRecord.seed);
+    player.setGameMode(worldRecord.mode);
+
+    if (isNew) {
+      respawnPlayer();
+    } else {
+      const { playerState, entities } = await loadGame(worldRecord.id, { chunkManager });
+      if (playerState) {
+        player.position = { ...playerState.position };
+        player.yaw = playerState.yaw;
+        player.pitch = playerState.pitch;
+        player.health = playerState.health;
+        player.maxHealth = playerState.maxHealth;
+        player.breath = playerState.breath;
+        player.xp = playerState.xp;
+        player.selectedHotbar = playerState.selectedHotbar;
+        player.inventory.slots = playerState.inventory;
+        dayNight.timeOfDay = playerState.timeOfDay;
+      } else {
+        respawnPlayer();
+      }
+      for (const m of entities.mobs) {
+        const mob = mobManager.spawn(m.typeId, { x: m.x, y: m.y, z: m.z });
+        mob.health = m.health;
+        mob.yaw = m.yaw;
+      }
+      for (const d of entities.drops) {
+        itemDrops.spawn({ x: d.x, y: d.y, z: d.z }, d.itemId, d.count, d.durability);
+      }
+    }
+
+    requestAnimationFrame(tick);
+    scheduleAutosave();
+  }
+
+  const menuController = new MenuController({ input, audioEngine, chunkManager, player, viewModel, saveSettings, onPlay: startGame });
+  menuController.onSaveAndQuit = persistNow;
+
+  // A column can stream out (player walks far enough away) between
+  // autosaves — persist its diff immediately rather than waiting, so a
+  // quick edit-then-leave isn't lost if the tab closes before the next
+  // autosave tick. Fire-and-forget, matching every other injected hook.
+  chunkManager.onChunkUnloadDirty = (cx, cz, diffs) => {
+    if (currentWorldId) saveChunkDiff(currentWorldId, cx, cz, diffs);
+  };
+
+  // Best-effort — beforeunload can't reliably await an async IndexedDB
+  // write, but firing the save request here still beats losing an
+  // unsaved interval's worth of progress on an accidental tab close.
+  window.addEventListener('beforeunload', () => {
+    if (started) persistNow();
+  });
 
   // One shared 3x3 grid reused by every crafting table — single-player,
   // so there's no need to key it per block position the way chests/
@@ -391,6 +470,8 @@ function main() {
     respawnPlayer,
     menuController,
     startGame,
+    persistNow,
+    get currentWorldId() { return currentWorldId; },
   };
 }
 

@@ -21,6 +21,13 @@ export class ChunkColumn {
     this.meshDirty = new Array(NUM_SECTIONS).fill(false);
     this.meshPending = new Array(NUM_SECTIONS).fill(false);
     this.connectivity = new Array(NUM_SECTIONS).fill(null); // number[6] per section, see mesh/connectivity.js
+
+    // Revision-pass section 7: every player-driven edit to this column
+    // (never anything generation writes — see ChunkManager.setBlock,
+    // the only place that touches this) recorded as local-index -> block
+    // id, so a save only needs to persist the diff from what generation
+    // would produce again, not the whole column.
+    this.modifiedBlocks = new Map();
   }
 
   get key() {

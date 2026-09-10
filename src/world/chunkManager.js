@@ -56,6 +56,13 @@ export class ChunkManager {
     this.pendingGenerate = new Set();
     this.pendingMeshCount = 0;
     this.meshResultQueue = [];
+    // Revision-pass section 7: saved diffs waiting for their column to
+    // finish (re)generating, keyed the same as `columns` — populated by
+    // the persistence layer before requesting a saved world's chunks,
+    // consumed (and removed) the moment _onGenerated sees them.
+    this.pendingDiffsToApply = new Map();
+    // Fire-and-forget hook — see _unloadColumn.
+    this.onChunkUnloadDirty = null;
 
     this.materials = {
       opaque: createAtlasMaterial(atlasTexture),
@@ -196,6 +203,22 @@ export class ChunkManager {
     }
     col.state = 'generated';
     col.meshDirty.fill(true);
+
+    // Revision-pass section 7: replay any saved edits on top of the
+    // freshly (re)generated baseline, same as loading a real world would
+    // — a saved diff only makes sense relative to generation producing
+    // the same terrain it always would, which it does (deterministic
+    // from seed + coordinates, unchanged by this feature).
+    const savedDiffs = this.pendingDiffsToApply.get(key);
+    if (savedDiffs) {
+      this.pendingDiffsToApply.delete(key);
+      for (const [localKey, id] of savedDiffs) {
+        const [lx, ly, lz] = localKey.split(',').map(Number);
+        col.setBlock(lx, ly, lz, id);
+        col.modifiedBlocks.set(localKey, id);
+      }
+      recomputeColumnLight(col);
+    }
 
     for (const c of chests ?? []) registerLootChest(c.x, c.y, c.z, c.tableId, c.seed);
     for (const sp of spawners ?? []) registerSpawner(sp.x, sp.y, sp.z, sp.mobType);
@@ -431,6 +454,14 @@ export class ChunkManager {
   }
 
   _unloadColumn(col) {
+    // Best-effort persist of any edits before this column's diff data is
+    // gone for good — otherwise a block changed just before the chunk
+    // streams out (walking away quickly) would be lost even though the
+    // periodic autosave/save-and-quit both cover everything that was
+    // still loaded at the time they ran. Fire-and-forget: the callback
+    // does its own (async, IndexedDB-backed) write; nothing here waits
+    // on it, matching every other injected-callback pattern in this file.
+    if (col.modifiedBlocks.size > 0) this.onChunkUnloadDirty?.(col.cx, col.cz, [...col.modifiedBlocks.entries()]);
     for (let sy = 0; sy < NUM_SECTIONS; sy++) this._disposeSectionMeshes(col, sy);
     this.columns.delete(col.key);
     this.pendingGenerate.delete(col.key);
@@ -473,6 +504,20 @@ export class ChunkManager {
     return { sky: section.skyLight[idx], block: section.blockLight[idx] };
   }
 
+  /** Every currently-loaded column with at least one player-driven edit, for saving. */
+  getDirtyColumns() {
+    const out = [];
+    for (const col of this.columns.values()) {
+      if (col.modifiedBlocks.size > 0) out.push({ cx: col.cx, cz: col.cz, diffs: [...col.modifiedBlocks.entries()] });
+    }
+    return out;
+  }
+
+  /** Registers saved diffs to replay onto (cx,cz) the moment it's (re)generated — call before requesting a saved world's chunks. */
+  queueDiffsFor(cx, cz, diffs) {
+    this.pendingDiffsToApply.set(columnKey(cx, cz), diffs);
+  }
+
   setBlock(wx, wy, wz, id) {
     const cx = Math.floor(wx / SECTION_SIZE);
     const cz = Math.floor(wz / SECTION_SIZE);
@@ -482,6 +527,14 @@ export class ChunkManager {
     const lx = ((wx % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
     const lz = ((wz % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
     if (!col.setBlock(lx, wy, lz, id)) return false;
+
+    // Revision-pass section 7: this is the only place a block changes
+    // outside of generation writing straight into a Section (see
+    // _onGenerated) — recording every edit here, not per-caller, is what
+    // lets save/load work regardless of *why* a block changed (mining,
+    // placing, and eventually explosions/fire/griefing all funnel
+    // through here already).
+    col.modifiedBlocks.set(`${lx},${wy},${lz}`, id);
 
     // A single placed/broken block can change sky light anywhere below it
     // in the column (e.g. capping a shaft open to the sky), so light is
