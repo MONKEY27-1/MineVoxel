@@ -1,6 +1,6 @@
 import { BLOCKS, getBlock } from '../world/blocks.js';
 import { isBlockItem, getNonBlockItem, getMaxStack } from '../items/items.js';
-import { getBlockDrop } from '../items/drops.js';
+import { destroyBlock } from '../world/destroyBlock.js';
 
 const REACH = 6;
 const PLACE_COOLDOWN = 0.2;
@@ -149,8 +149,12 @@ export class InteractionController {
 
     if (this.breakProgress >= 1) {
       const [x, y, z] = this.target.blockPos;
-      const brokenId = this.target.blockId;
-      chunkManager.setBlock(x, y, z, BLOCKS.AIR);
+      // destroyBlock (revision-pass section 6) is the single path every
+      // block removal goes through — it also wipes any chest/furnace at
+      // this position from the container registry and hands back its
+      // contents, so this no longer needs its own separate
+      // CONTAINER_BLOCKS check the way main.js used to.
+      const result = destroyBlock(chunkManager, x, y, z);
 
       const held = player.selectedItem;
       if (player.gameMode !== 'creative' && held && !isBlockItem(held.itemId)) {
@@ -161,8 +165,13 @@ export class InteractionController {
         }
       }
 
-      const drop = player.gameMode === 'creative' ? null : getBlockDrop(brokenId);
-      this.justBroke = { position: { x: x + 0.5, y: y + 0.5, z: z + 0.5 }, blockId: brokenId, drop };
+      const dropItems = player.gameMode !== 'creative';
+      this.justBroke = {
+        position: { x: x + 0.5, y: y + 0.5, z: z + 0.5 },
+        blockId: result.blockId,
+        drop: dropItems ? result.blockDrop : null,
+        containerDrops: dropItems ? result.containerDrops : null,
+      };
       this.breakProgress = 0;
       this._breakingKey = null;
     }

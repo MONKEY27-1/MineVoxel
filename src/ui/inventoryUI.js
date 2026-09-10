@@ -127,7 +127,7 @@ export class InventoryUI {
     this.root.classList.add('hidden');
     if (this.cursor) {
       const leftover = this.playerInventory.addItem(this.cursor.itemId, this.cursor.count, this.cursor.durability);
-      if (leftover > 0) this.spawnDrop(this.cursor.itemId, leftover);
+      if (leftover > 0) this.spawnDrop(this.cursor.itemId, leftover, this.cursor.durability);
       this.cursor = null;
     }
     // Closing mid-drag (e.g. Escape while the mouse button is still
@@ -155,7 +155,7 @@ export class InventoryUI {
 
   _dropCursorInWorld() {
     if (!this.cursor) return;
-    this.spawnDrop(this.cursor.itemId, this.cursor.count);
+    this.spawnDrop(this.cursor.itemId, this.cursor.count, this.cursor.durability);
     this.cursor = null;
     this.render();
   }
@@ -470,7 +470,7 @@ export class InventoryUI {
     const slot = inv?.slots[idx];
     if (!slot) return;
     const count = dropAll ? slot.count : 1;
-    this.spawnDrop(slot.itemId, count);
+    this.spawnDrop(slot.itemId, count, slot.durability);
     slot.count -= count;
     if (slot.count <= 0) inv.slots[idx] = null;
     this.render();

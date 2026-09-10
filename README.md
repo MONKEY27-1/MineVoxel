@@ -411,6 +411,40 @@ section, each verified and committed independently.
       scope, not an improvement to an existing one) and ear/tail
       secondary motion (a cosmetic detail with a low payoff-to-effort
       ratio against everything else in this section).
+- [x] **Section 6 — Breaking a container drops its contents.** Every
+      block removal now goes through one function,
+      `world/destroyBlock.js`'s `destroyBlock(chunkManager, x, y, z)` —
+      verified by grepping the whole codebase for any other
+      `setBlock(..., BLOCKS.AIR)` and finding none; mining
+      (`entities/interaction.js`) is the only caller today since this
+      game has no explosions/fire/gravity-destruction/mob-griefing yet,
+      but whenever any of those get built they have exactly one place to
+      call. Chests and furnaces (the only block-entities that exist) are
+      *always* wiped from the container registry the moment they're
+      destroyed regardless of whether items actually drop (creative vs.
+      survival is the caller's decision, not destroyBlock's) — verified
+      directly: re-opening the same position afterward returns a brand
+      new empty container, not the old one's contents. A furnace's burn
+      timer/cook progress are explicitly zeroed on destruction (on top of
+      being removed from the registry, which would stop it ticking
+      either way). Fixed a real, pre-existing metadata-loss gap while
+      wiring this up: `ItemDropManager` never threaded a dropped item's
+      `durability` through at all — every tool became fresh/full-durability
+      the moment it touched the ground, container-dropped or not,
+      regardless of this section. Fixed for every drop path (container
+      contents, block drops, hotbar `Q`, and inventory-screen drops) and
+      verified with a full round trip: a stone pickaxe dropped at
+      durability 22 falls, settles, gets picked back up, and lands in the
+      inventory at durability 22, not full. Durability-bearing items also
+      no longer merge into a same-itemId stack on the ground (there's no
+      sensible shared durability for a merged "stack of 2 tools"). **Not
+      applicable**: double-chest split-on-break — no double chest exists
+      in this codebase at all (single-chest-only is an existing, already-
+      documented simplification below); the per-position container
+      registry `destroyBlock` already uses is exactly the mechanism
+      double-chest support would build on, but adding double chests
+      themselves is a new-feature scope well beyond "unify how breaking a
+      container works."
 
 ## Known simplifications (revisit later)
 
@@ -565,8 +599,9 @@ against that, not against intuition.
 - `src/world/` — block registry, the `Dimension`/`World` abstraction,
   chunk data structures (`section.js`, `chunkColumn.js`), the streaming
   `chunkManager.js`, noise (`noise.js`), biome definitions (`biomes.js`),
-  the terrain generator (`generator.js`), lighting (`lighting.js`), and
-  `dayNightCycle.js`.
+  the terrain generator (`generator.js`), lighting (`lighting.js`),
+  `dayNightCycle.js`, and `destroyBlock.js` (revision-pass section 6 —
+  the one path every block removal goes through).
 - `src/world/structures/` — `caves.js`/`ravines.js` (carved directly
   during terrain generation), `caveNetwork.js` (revision-pass section 1:
   the region-grid cave-connectivity graph — chambers, connector tunnels,

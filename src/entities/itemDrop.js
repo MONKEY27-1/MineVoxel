@@ -33,11 +33,17 @@ export class ItemDropManager {
     this.drops = [];
   }
 
-  spawn(position, itemId, count) {
-    for (const d of this.drops) {
-      if (d.itemId === itemId && d.mesh.position.distanceTo(position) < MERGE_RADIUS) {
-        d.count += count;
-        return;
+  spawn(position, itemId, count, durability) {
+    // Durability-bearing items (tools, maxStack 1) never merge — there's
+    // no sensible "count: 2" for two tools with two different remaining
+    // durabilities, so any item carrying metadata always gets its own
+    // entity instead of folding into a same-itemId stack nearby.
+    if (durability === undefined) {
+      for (const d of this.drops) {
+        if (d.itemId === itemId && d.durability === undefined && d.mesh.position.distanceTo(position) < MERGE_RADIUS) {
+          d.count += count;
+          return;
+        }
       }
     }
     const mesh = buildItemMesh(itemId, this.atlasUV, this.material);
@@ -46,6 +52,7 @@ export class ItemDropManager {
     this.drops.push({
       itemId,
       count,
+      durability,
       mesh,
       physicsY: position.y,
       vy: 2 + Math.random(),
@@ -84,7 +91,7 @@ export class ItemDropManager {
           // onPickup returns the leftover count that didn't fit (a full
           // inventory) — keep the entity around at that reduced count
           // instead of deleting items the player never actually received.
-          const leftover = onPickup(d.itemId, d.count) ?? 0;
+          const leftover = onPickup(d.itemId, d.count, d.durability) ?? 0;
           if (leftover >= d.count) {
             d.pickupDelay = 0.5; // inventory's full — stop retrying every frame
           } else if (leftover <= 0) {

@@ -12,7 +12,7 @@ import { DayNightCycle } from './world/dayNightCycle.js';
 import { __selfTestTravel } from './world/travel.js';
 import { __selfTestLighting } from './world/lighting.js';
 import { Player } from './entities/player.js';
-import { InteractionController, CONTAINER_BLOCKS } from './entities/interaction.js';
+import { InteractionController } from './entities/interaction.js';
 import { ParticleSystem } from './entities/particles.js';
 import { ItemDropManager } from './entities/itemDrop.js';
 import { XPOrbManager } from './entities/xpOrb.js';
@@ -21,7 +21,7 @@ import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
-import { getOrCreateChest, getOrCreateFurnace, removeContainerAt, allFurnaces } from './items/containerRegistry.js';
+import { getOrCreateChest, getOrCreateFurnace, allFurnaces } from './items/containerRegistry.js';
 import { audioEngine } from './audio/audio.js';
 import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt } from './audio/synth.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
@@ -147,10 +147,10 @@ function main() {
   // furnaces are (see items/containerRegistry.js).
   const benchCraftingGrid = new Inventory(9);
 
-  function spawnDropNearPlayer(itemId, count) {
+  function spawnDropNearPlayer(itemId, count, durability) {
     const eye = player.eyePosition;
     const look = player.lookDirection;
-    itemDrops.spawn({ x: eye.x + look.x * 0.6, y: eye.y + look.y * 0.6, z: eye.z + look.z * 0.6 }, itemId, count);
+    itemDrops.spawn({ x: eye.x + look.x * 0.6, y: eye.y + look.y * 0.6, z: eye.z + look.z * 0.6 }, itemId, count, durability);
   }
 
   const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer });
@@ -240,19 +240,16 @@ function main() {
         if (interaction.justBroke) {
           particles.spawnBlockBreak(interaction.justBroke.position, interaction.justBroke.blockId);
           playBlockBreak(interaction.justBroke.blockId);
-          if (CONTAINER_BLOCKS.has(interaction.justBroke.blockId)) {
+          // Container contents (chest/furnace) already came back from
+          // destroyBlock via interaction.justBroke.containerDrops — no
+          // separate CONTAINER_BLOCKS check needed here anymore now that
+          // destroyBlock (revision-pass section 6) is the one place that
+          // logic lives.
+          if (interaction.justBroke.containerDrops) {
             const p = interaction.justBroke.position;
-            const bx = Math.floor(p.x);
-            const by = Math.floor(p.y);
-            const bz = Math.floor(p.z);
-            const slots =
-              interaction.justBroke.blockId === BLOCKS.CHEST
-                ? getOrCreateChest(bx, by, bz).slots
-                : getOrCreateFurnace(bx, by, bz).slots;
-            if (player.gameMode !== 'creative') {
-              for (const slot of slots) if (slot) spawnDropNearPlayer(slot.itemId, slot.count);
+            for (const slot of interaction.justBroke.containerDrops) {
+              spawnDropNearPlayer(slot.itemId, slot.count, slot.durability);
             }
-            removeContainerAt(bx, by, bz);
           }
           if (interaction.justBroke.drop) spawnDropNearPlayer(interaction.justBroke.drop.itemId, interaction.justBroke.drop.count);
         }
@@ -264,7 +261,7 @@ function main() {
 
         if (input.wasPressed('drop') && player.selectedItem) {
           const slot = player.selectedItem;
-          spawnDropNearPlayer(slot.itemId, 1);
+          spawnDropNearPlayer(slot.itemId, 1, slot.durability);
           slot.count -= 1;
           if (slot.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
         }
@@ -272,7 +269,7 @@ function main() {
         interaction.target = null;
       }
 
-      itemDrops.update(FIXED_DT, player.position, chunkManager, (itemId, count) => player.inventory.addItem(itemId, count));
+      itemDrops.update(FIXED_DT, player.position, chunkManager, (itemId, count, durability) => player.inventory.addItem(itemId, count, durability));
       xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
       mobManager.update(FIXED_DT, player, chunkManager, dayNight);
