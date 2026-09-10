@@ -333,6 +333,38 @@ section, each verified and committed independently.
       real code with nothing to trigger it yet (no food items exist —
       see known simplifications). Settings gained view-model visibility,
       FOV, and hand side (left/right).
+- [x] **Section 4 — Inventory: full drag and drop.** `ui/inventoryUI.js`
+      already had click-to-pick-up/place, right-click-for-half,
+      right-click-to-place-one, and shift-click quick-move from phase 6
+      (verified still correct, not rebuilt). Added the rest: a real
+      multi-slot drag session (mousedown on a slot while the cursor
+      already holds something starts tracking every slot the pointer
+      subsequently enters; mouseup finalizes it) — left-drag splits the
+      held stack evenly across every valid target (empty, or already
+      holding the same item under its stack cap), right-drag places
+      exactly one per slot, and a single-slot "drag" with no real motion
+      falls through to the exact pre-existing click behavior so nothing
+      already working changed. Double-clicking a held stack gathers every
+      matching item from the whole open UI into it (detected via timing
+      on the same slot across two mousedowns, not the native `dblclick`
+      event — that fires *after* two independent mousedown/mouseup pairs
+      already ran, which would otherwise place the stack back down before
+      the gather ever got a chance to see it holding anything). `Q`/
+      `Ctrl+Q` drop one/all from whichever slot the mouse is hovering.
+      Releasing a drag anywhere outside `#inv-panel` — the darkened
+      background or literally outside the window — drops the whole stack
+      into the world. Every new path moves exact counts between cursor
+      and slots (verified directly: a 5-stack split across 3 slots via
+      left-drag, right-drag, and gather all summed back to exactly 5 or
+      9, never more or less). Caught one real duplication/crash risk by
+      reasoning through the close-mid-drag case rather than stumbling on
+      it live: closing the screen (Escape) while a drag was in progress
+      left `_dragButton` set, so the mouse button coming back up *after*
+      close fired `_finishDrag` against an already-nulled `this.context`
+      and threw trying to read a group's inventory out of it — fixed by
+      clearing drag state in `close()`; verified the exact repro no
+      longer throws. Slot hover highlighting already existed from phase
+      6; tooltips now include stack count and durability, not just name.
 
 ## Known simplifications (revisit later)
 

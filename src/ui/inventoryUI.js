@@ -35,6 +35,21 @@ export class InventoryUI {
     this.context = null;
     this.cursor = null;
     this._searchInputEl = null;
+
+    // Revision-pass section 4: drag-distribute state (mousedown on a
+    // slot while the cursor already holds something starts tracking a
+    // drag instead of acting immediately; mouseup finalizes it), the
+    // hovered slot (for Q/Ctrl+Q drop), and same-slot-double-click
+    // detection (done via timing on our own mousedown handler rather
+    // than the native dblclick event, which would otherwise race with —
+    // and get its cursor state clobbered by — the two separate
+    // mousedown/mouseup pairs a real double-click also fires).
+    this._dragButton = null;
+    this._dragKeys = null;
+    this._hoveredSlot = null;
+    this._lastClickKey = null;
+    this._lastClickTime = 0;
+
     this._buildDom();
   }
 
@@ -57,6 +72,7 @@ export class InventoryUI {
       <div id="inv-cursor" class="inv-slot hidden"></div>
     `;
     document.body.appendChild(this.root);
+    this.panelEl = this.root.querySelector('#inv-panel');
     this.secondaryEl = this.root.querySelector('#inv-secondary');
     this.craftingEl = this.root.querySelector('#inv-crafting');
     this.titleEl = this.root.querySelector('#inv-title');
@@ -71,6 +87,21 @@ export class InventoryUI {
     window.addEventListener('mousemove', (e) => {
       this.cursorEl.style.left = `${e.clientX}px`;
       this.cursorEl.style.top = `${e.clientY}px`;
+    });
+    // Finalizing a drag on mouseup (not on the slot itself, but on
+    // window) is what lets "release outside the window/panel" register
+    // as a drop-into-world even when the pointer left every slot (and
+    // the panel) before the button came up.
+    window.addEventListener('mouseup', (e) => {
+      if (this._dragButton === null) return;
+      this._finishDrag(e);
+    });
+    window.addEventListener('keydown', (e) => {
+      if (!this.isOpen || !this._hoveredSlot) return;
+      if (e.code === 'KeyQ') {
+        e.preventDefault();
+        this._dropFromSlot(this._hoveredSlot.group, this._hoveredSlot.idx, e.ctrlKey);
+      }
     });
   }
 
@@ -99,6 +130,14 @@ export class InventoryUI {
       if (leftover > 0) this.spawnDrop(this.cursor.itemId, leftover);
       this.cursor = null;
     }
+    // Closing mid-drag (e.g. Escape while the mouse button is still
+    // down) must not leave a pending drag around: the eventual mouseup
+    // would otherwise call _finishDrag with a now-null this.context,
+    // throwing the instant it tried to read a 'crafting'/'secondary'
+    // group's inventory out of it.
+    this._dragButton = null;
+    this._dragKeys = null;
+    this._hoveredSlot = null;
   }
 
   update() {
@@ -294,14 +333,158 @@ export class InventoryUI {
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this._handleClick(group, idx, e.button, e.shiftKey);
+      this._onSlotMouseDown(group, idx, e.button, e.shiftKey);
+    });
+    el.addEventListener('mouseenter', () => {
+      this._hoveredSlot = { group, idx };
+      if (this._dragButton !== null) this._dragKeys.add(`${group}:${idx}`);
+    });
+    el.addEventListener('mouseleave', () => {
+      if (this._hoveredSlot && this._hoveredSlot.group === group && this._hoveredSlot.idx === idx) {
+        this._hoveredSlot = null;
+      }
     });
     return el;
   }
 
+  /**
+   * Routes every non-shift, non-output slot mousedown through here
+   * instead of straight to _handleClick, so a click on a slot while the
+   * cursor already holds something can turn into either (a) a same-slot
+   * double-click gather, (b) the start of a multi-slot drag, or (c) —
+   * if neither of those pan out by the time mouseup fires — the exact
+   * same single-click behavior _handleClick has always had.
+   */
+  _onSlotMouseDown(group, idx, button, shiftKey) {
+    if (group === 'craftingOutput' || (shiftKey && button === 0)) {
+      this._handleClick(group, idx, button, shiftKey);
+      this._lastClickKey = null;
+      return;
+    }
+
+    const key = `${group}:${idx}`;
+    const now = performance.now();
+    if (this.cursor && button === 0 && this._lastClickKey === key && now - this._lastClickTime < 350) {
+      this._gatherIntoCursor();
+      this._lastClickKey = null;
+      return;
+    }
+    this._lastClickKey = key;
+    this._lastClickTime = now;
+
+    if (!this.cursor) {
+      this._handleClick(group, idx, button, shiftKey);
+      return;
+    }
+    this._dragButton = button;
+    this._dragKeys = new Set([key]);
+  }
+
+  _finishDrag(event) {
+    const button = this._dragButton;
+    const keys = [...this._dragKeys];
+    this._dragButton = null;
+    this._dragKeys = null;
+    if (!this.cursor) return;
+
+    if (!this.panelEl.contains(event.target)) {
+      this._dropCursorInWorld();
+      return;
+    }
+
+    if (keys.length <= 1) {
+      const [group, idxStr] = keys[0].split(':');
+      this._handleClick(group, Number(idxStr), button, false);
+      return;
+    }
+
+    // A real multi-slot drag: only slots that are empty or already hold
+    // the same item are valid targets — matches vanilla's own rule so a
+    // drag can't silently eat or merge into an incompatible stack.
+    const targets = [];
+    for (const key of keys) {
+      const [group, idxStr] = key.split(':');
+      const idx = Number(idxStr);
+      const inv = this._invForGroup(group);
+      if (!inv) continue;
+      const slot = inv.slots[idx];
+      if (slot && (slot.itemId !== this.cursor.itemId || slot.count >= getMaxStack(slot.itemId))) continue;
+      targets.push({ inv, idx, slot });
+    }
+    if (targets.length === 0) {
+      this.render();
+      return;
+    }
+
+    if (button === 2) {
+      // Right-drag: exactly one item per slot visited, until the cursor runs out.
+      for (const { inv, idx, slot } of targets) {
+        if (this.cursor.count <= 0) break;
+        if (slot) slot.count += 1;
+        else inv.slots[idx] = { itemId: this.cursor.itemId, count: 1, durability: this.cursor.durability };
+        this.cursor.count -= 1;
+      }
+    } else {
+      // Left-drag: split the cursor stack evenly across every target
+      // (capped by each slot's remaining room), remainder stays on cursor.
+      const per = Math.floor(this.cursor.count / targets.length);
+      if (per > 0) {
+        for (const { inv, idx, slot } of targets) {
+          const room = slot ? getMaxStack(slot.itemId) - slot.count : getMaxStack(this.cursor.itemId);
+          const add = Math.min(per, room, this.cursor.count);
+          if (add <= 0) continue;
+          if (slot) slot.count += add;
+          else inv.slots[idx] = { itemId: this.cursor.itemId, count: add, durability: this.cursor.durability };
+          this.cursor.count -= add;
+        }
+      }
+    }
+    if (this.cursor.count <= 0) this.cursor = null;
+    this.render();
+  }
+
+  /** Double-click a held stack: pulls every matching item from every open group into it, up to max stack. */
+  _gatherIntoCursor() {
+    if (!this.cursor) return;
+    const targetId = this.cursor.itemId;
+    const maxStack = getMaxStack(targetId);
+    for (const group of ['player', 'crafting', 'secondary']) {
+      const inv = this._invForGroup(group);
+      if (!inv) continue;
+      for (let i = 0; i < inv.slots.length; i++) {
+        if (this.cursor.count >= maxStack) break;
+        const slot = inv.slots[i];
+        if (!slot || slot.itemId !== targetId) continue;
+        const take = Math.min(slot.count, maxStack - this.cursor.count);
+        this.cursor.count += take;
+        slot.count -= take;
+        if (slot.count <= 0) inv.slots[i] = null;
+      }
+    }
+    this.render();
+  }
+
+  /** Q (drop one) / Ctrl+Q (drop the whole stack) on whichever slot the mouse is hovering. */
+  _dropFromSlot(group, idx, dropAll) {
+    const inv = this._invForGroup(group);
+    const slot = inv?.slots[idx];
+    if (!slot) return;
+    const count = dropAll ? slot.count : 1;
+    this.spawnDrop(slot.itemId, count);
+    slot.count -= count;
+    if (slot.count <= 0) inv.slots[idx] = null;
+    this.render();
+  }
+
   _fillSlotVisual(el, slotData) {
     applyIcon(el, itemIconTile(slotData.itemId), this.atlasUV, SLOT_SIZE - 4);
-    el.title = itemDisplayName(slotData.itemId);
+    const tooltipLines = [itemDisplayName(slotData.itemId).replace(/_/g, ' ')];
+    if (slotData.count > 1) tooltipLines.push(`Count: ${slotData.count}`);
+    if (!isBlockItem(slotData.itemId) && slotData.durability !== undefined) {
+      const def = getNonBlockItem(slotData.itemId);
+      if (def?.maxDurability) tooltipLines.push(`Durability: ${slotData.durability}/${def.maxDurability}`);
+    }
+    el.title = tooltipLines.join('\n');
     if (slotData.count > 1) {
       const badge = document.createElement('span');
       badge.className = 'inv-count';
