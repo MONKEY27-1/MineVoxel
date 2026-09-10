@@ -1,0 +1,618 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  user-select: none;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+#crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 10;
+}
+
+#crosshair::before,
+#crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+#crosshair::before {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+
+#crosshair::after {
+  top: 50%;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  transform: translateY(-50%);
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#debug-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #e8e8e8;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  border-radius: 4px;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+}
+
+.hidden {
+  display: none !important;
+}
+
+#underwater-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(30, 90, 160, 0.18) 0%, rgba(15, 60, 120, 0.42) 100%);
+  box-shadow: inset 0 0 120px 40px rgba(10, 50, 100, 0.5);
+}
+
+#vitals {
+  position: absolute;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 220px;
+}
+
+.vital-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.vital-fill {
+  height: 100%;
+  width: 100%;
+  transition: width 0.15s ease-out;
+}
+
+.vital-fill.health {
+  background: linear-gradient(#e34b4b, #b52c2c);
+}
+
+.vital-fill.breath {
+  background: linear-gradient(#5fb8e8, #2c86b5);
+}
+
+#hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+}
+
+.hotbar-slot {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  background: rgba(20, 20, 24, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #eee;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 10px;
+  text-align: center;
+  line-height: 1.2;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+}
+
+.hotbar-slot.selected {
+  border-color: #fff;
+  background: rgba(60, 60, 70, 0.7);
+}
+
+#hotbar-name-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 68px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  text-transform: capitalize;
+  pointer-events: none;
+}
+
+.hotbar-slot .inv-count {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 11px;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* --- Inventory / crafting / furnace / chest screen --------------------- */
+
+#inventory-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#inv-panel {
+  position: relative;
+  background: #2b2b31;
+  border: 3px solid #1a1a1e;
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 400px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+
+#inv-title {
+  color: #eee;
+  font-size: 13px;
+  font-family: 'Consolas', monospace;
+  opacity: 0.8;
+}
+
+#inv-secondary.hidden,
+#inv-crafting.hidden {
+  display: none;
+}
+
+.chest-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 40px);
+  gap: 4px;
+}
+
+.crafting-grid {
+  display: grid;
+  gap: 4px;
+}
+
+#inv-crafting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-end;
+}
+
+.crafting-arrow {
+  color: #ccc;
+  font-size: 20px;
+}
+
+.creative-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.creative-search {
+  background: #1e1e22;
+  border: 2px solid #3a3a42;
+  border-radius: 3px;
+  color: #eee;
+  padding: 4px 8px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.creative-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.creative-grid {
+  display: grid;
+  grid-template-columns: repeat(9, 40px);
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.creative-scroll-btn {
+  width: 100%;
+  background: #3a3a42;
+  color: #eee;
+  border: 1px solid #4a4a52;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 0;
+  line-height: 1;
+}
+
+.creative-scroll-btn:hover {
+  background: #4a4a54;
+}
+
+.furnace-layout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.furnace-middle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 40px;
+}
+
+.furnace-flame {
+  height: 16px;
+  text-align: center;
+  color: #555;
+}
+.furnace-flame::before {
+  content: '🔥';
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+.furnace-flame.lit::before {
+  opacity: 1;
+  filter: none;
+}
+
+.furnace-progress {
+  width: 100%;
+  height: 6px;
+  background: #1a1a1e;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.furnace-progress-fill {
+  height: 100%;
+  background: #e0a23a;
+}
+
+#inv-main,
+#inv-hotbar {
+  display: grid;
+  grid-template-columns: repeat(9, 40px);
+  gap: 4px;
+}
+
+.inv-slot {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  background: #1e1e22;
+  border: 2px solid #3a3a42;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.inv-slot.output-slot {
+  border-color: #6a6a44;
+  background: #26261e;
+}
+
+.inv-slot:hover {
+  border-color: #7a7a86;
+}
+
+.inv-count {
+  position: absolute;
+  bottom: 1px;
+  right: 3px;
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000;
+}
+
+.inv-durability {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.inv-durability div {
+  height: 100%;
+}
+
+#inv-cursor {
+  position: fixed;
+  width: 36px;
+  height: 36px;
+  pointer-events: none;
+  z-index: 40;
+  transform: translate(-18px, -18px);
+  background-color: transparent;
+  border: none;
+  cursor: default;
+}
+
+#pointer-lock-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 18, 0.72);
+  z-index: 20;
+  cursor: pointer;
+  text-align: center;
+  color: #fff;
+}
+
+#pointer-lock-box h1 {
+  font-size: 42px;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+#pointer-lock-box p {
+  font-size: 16px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+#pointer-lock-box .hint {
+  font-size: 13px;
+  opacity: 0.6;
+  margin-top: 14px;
+}
+
+#pointer-lock-box .menu-secondary-btn {
+  margin-top: 16px;
+}
+
+/* --- Start screen / pause settings (phase 9) --------------------------- */
+
+#start-screen,
+#settings-panel {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 18, 0.82);
+  z-index: 25;
+  color: #fff;
+}
+
+#settings-panel {
+  z-index: 26; /* sits above pointer-lock-overlay/start-screen when opened from either */
+}
+
+.menu-box {
+  background: #2b2b31;
+  border: 3px solid #1a1a1e;
+  border-radius: 6px;
+  padding: 24px 28px;
+  min-width: 320px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.menu-box h1 {
+  font-size: 34px;
+  letter-spacing: 2px;
+  margin-bottom: 18px;
+}
+
+.menu-box h2 {
+  font-size: 20px;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+}
+
+.menu-field {
+  text-align: left;
+  margin-bottom: 14px;
+}
+
+.menu-field label {
+  display: block;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  opacity: 0.75;
+  margin-bottom: 5px;
+}
+
+#seed-input {
+  width: 100%;
+  background: #1e1e22;
+  border: 2px solid #3a3a42;
+  border-radius: 3px;
+  color: #eee;
+  padding: 7px 9px;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.mode-choice {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-btn {
+  flex: 1;
+  background: #1e1e22;
+  border: 2px solid #3a3a42;
+  border-radius: 3px;
+  color: #ccc;
+  padding: 8px 0;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mode-btn:hover {
+  border-color: #5a5a64;
+}
+
+.mode-btn.selected {
+  border-color: #6fae4a;
+  background: #2a3a24;
+  color: #fff;
+}
+
+.menu-primary-btn,
+.menu-secondary-btn {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  padding: 10px 0;
+  font-family: 'Consolas', monospace;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.menu-primary-btn {
+  background: #4a8f3f;
+  border: 2px solid #3a7030;
+  color: #fff;
+}
+
+.menu-primary-btn:hover {
+  background: #57a349;
+}
+
+.menu-secondary-btn {
+  background: #3a3a42;
+  border: 2px solid #4a4a52;
+  color: #eee;
+}
+
+.menu-secondary-btn:hover {
+  background: #46464e;
+}
+
+.settings-box {
+  min-width: 360px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.settings-row {
+  text-align: left;
+  margin-bottom: 14px;
+}
+
+.settings-row label {
+  display: block;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  opacity: 0.8;
+  margin-bottom: 5px;
+}
+
+.settings-val {
+  opacity: 0.65;
+}
+
+.settings-row input[type='range'] {
+  width: 100%;
+}
+
+#keybind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.keybind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #1e1e22;
+  border: 1px solid #3a3a42;
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+}
+
+.keybind-row .keybind-name {
+  color: #ccc;
+  text-transform: capitalize;
+}
+
+.keybind-row button {
+  background: #3a3a42;
+  border: 1px solid #4a4a52;
+  border-radius: 3px;
+  color: #eee;
+  padding: 3px 10px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  min-width: 80px;
+}
+
+.keybind-row button.listening {
+  background: #6a5a2a;
+  border-color: #8a742f;
+  color: #fff;
+}
