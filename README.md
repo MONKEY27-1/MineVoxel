@@ -300,6 +300,39 @@ section, each verified and committed independently.
       path around" case, and spider wall-climbing remains unimplemented
       (already a documented phase 8 simplification) — spiders get the
       same ground-jump reaction as every other mob for now.
+- [x] **Section 3 — Held items: real 3D models.** Replaced flat 2D held-
+      item sprites with a proper view-model pass: `entities/viewModel.js`
+      owns its own scene + `PerspectiveCamera` (independent FOV, a
+      settings slider), rendered *after* the world with the depth buffer
+      cleared (`Renderer.renderOverlay`, one line —
+      `this.three.clearDepth()` before rendering the overlay scene) so
+      the held item can never clip into nearby geometry the way parenting
+      it into the world camera would. Block items get an actual cube
+      (`BoxGeometry` with the atlas rect for each face — top/side/bottom
+      can differ, verified visually on an oak log: correct ring pattern
+      on top, correct bark texture on the sides). Everything else (tools,
+      materials) is built by a **generic** sprite-extrusion function
+      (`entities/heldItemModel.js`), not per-item geometry: it reads the
+      item's actual 16x16 icon tile's pixel alpha straight off the atlas
+      canvas, emits one front/back quad pair for the whole silhouette,
+      and emits a thin (1/16-block-deep) side quad at every pixel edge
+      where opaque meets transparent or the tile boundary — verified by
+      rendering a wooden pickaxe standalone and confirming the silhouette
+      keeps its actual pixel-art staircase edges instead of being a flat
+      cutout. Caught one real bug while writing this: an early version of
+      the per-pixel UV lookup had a stray `* size` factor that would have
+      scrambled every side quad's texture coordinate — caught by tracing
+      the math, not by the (still-correct-looking, since side quads are
+      tiny) render output. Models are cached by item id and cloned per
+      use (`getItemModel`), and the same function backs dropped-item
+      entities and would back mob-held items whenever a mob holds one
+      (none do yet). Animations: idle sway/bob scaled by current
+      horizontal speed, a swing arc on left-click (mining or attacking),
+      a shorter forward-thrust place animation, a lower-then-raise
+      transition on hotbar switch, and an eat/drink animation that's
+      real code with nothing to trigger it yet (no food items exist —
+      see known simplifications). Settings gained view-model visibility,
+      FOV, and hand side (left/right).
 
 ## Known simplifications (revisit later)
 

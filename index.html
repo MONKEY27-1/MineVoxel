@@ -88,6 +88,21 @@
         <label for="auto-jump-toggle">Auto-jump</label>
         <input id="auto-jump-toggle" type="checkbox" />
       </div>
+      <div class="settings-row settings-checkbox-row">
+        <label for="viewmodel-toggle">Held item view model</label>
+        <input id="viewmodel-toggle" type="checkbox" checked />
+      </div>
+      <div class="settings-row">
+        <label>View model FOV <span id="viewmodel-fov-val" class="settings-val">70</span></label>
+        <input id="viewmodel-fov-slider" type="range" min="30" max="110" step="1" value="70" />
+      </div>
+      <div class="settings-row">
+        <label>Hand side</label>
+        <div class="mode-choice" id="hand-side-choice">
+          <button type="button" class="mode-btn selected" data-hand="right">Right</button>
+          <button type="button" class="mode-btn" data-hand="left">Left</button>
+        </div>
+      </div>
       <div class="settings-row">
         <label>Controls</label>
         <div id="keybind-list"></div>

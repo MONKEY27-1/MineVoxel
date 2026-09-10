@@ -16,6 +16,7 @@ import { InteractionController, CONTAINER_BLOCKS } from './entities/interaction.
 import { ParticleSystem } from './entities/particles.js';
 import { ItemDropManager } from './entities/itemDrop.js';
 import { MobManager } from './entities/mobManager.js';
+import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
@@ -91,8 +92,14 @@ function main() {
   player.position = { x: 0.5, y: 92, z: 0.5 };
   player.pitch = -0.35;
   player.setGameMode('creative');
-  renderer.onResize = (w, h) => player.setAspect(w / h);
+
+  const viewModel = new ViewModel({ atlasTexture, atlasCanvas, atlasUV });
+  renderer.onResize = (w, h) => {
+    player.setAspect(w / h);
+    viewModel.setAspect(w / h);
+  };
   player.setAspect(window.innerWidth / window.innerHeight);
+  viewModel.setAspect(window.innerWidth / window.innerHeight);
 
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
@@ -131,7 +138,7 @@ function main() {
     requestAnimationFrame(tick);
   }
 
-  const menuController = new MenuController({ input, audioEngine, chunkManager, player, onPlay: startGame });
+  const menuController = new MenuController({ input, audioEngine, chunkManager, player, viewModel, onPlay: startGame });
 
   // One shared 3x3 grid reused by every crafting table — single-player,
   // so there's no need to key it per block position the way chests/
@@ -226,6 +233,7 @@ function main() {
         interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player));
         mobManager.tryPlayerAttack(player, input);
         if (mobManager.justHit) playMobHit();
+        if (input.wasMousePressed(0)) viewModel.triggerSwing();
 
         if (interaction.justBroke) {
           particles.spawnBlockBreak(interaction.justBroke.position, interaction.justBroke.blockId);
@@ -246,7 +254,10 @@ function main() {
           }
           if (interaction.justBroke.drop) spawnDropNearPlayer(interaction.justBroke.drop.itemId, interaction.justBroke.drop.count);
         }
-        if (interaction.justPlaced) playBlockPlace(interaction.justPlaced.blockId);
+        if (interaction.justPlaced) {
+          playBlockPlace(interaction.justPlaced.blockId);
+          viewModel.triggerPlace();
+        }
         if (interaction.wantsOpenContainer) openContainer(interaction.wantsOpenContainer);
 
         if (input.wasPressed('drop') && player.selectedItem) {
@@ -337,6 +348,10 @@ function main() {
     chunkManager.update(player.position);
     chunkManager.updateVisibility(player.camera);
     renderer.render(player.camera);
+
+    viewModel.setItem(player.selectedItem && !inventoryUI.isOpen ? player.selectedItem.itemId : null);
+    viewModel.update(dt, Math.hypot(player.velocity.x, player.velocity.z));
+    renderer.renderOverlay(viewModel.scene, viewModel.camera);
 
     hud.update(player, interaction, dt);
 

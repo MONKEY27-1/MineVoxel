@@ -29,6 +29,18 @@ export class Renderer {
     this.three.render(this.scene, camera);
   }
 
+  /**
+   * Revision-pass section 3: the held-item view model is a separate
+   * scene/camera, drawn after the world with the depth buffer cleared —
+   * without that clear, the world's own depth values (often very close
+   * to the near plane right in front of the camera) would make the held
+   * item clip into nearby blocks instead of always drawing on top.
+   */
+  renderOverlay(scene, camera) {
+    this.three.clearDepth();
+    this.three.render(scene, camera);
+  }
+
   dispose() {
     window.removeEventListener('resize', this._onResize);
     this.three.dispose();

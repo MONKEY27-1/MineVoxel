@@ -22,11 +22,12 @@ function actionLabel(action) {
 }
 
 export class MenuController {
-  constructor({ input, audioEngine, chunkManager, player, onPlay }) {
+  constructor({ input, audioEngine, chunkManager, player, viewModel, onPlay }) {
     this.input = input;
     this.audioEngine = audioEngine;
     this.chunkManager = chunkManager;
     this.player = player;
+    this.viewModel = viewModel;
     this.onPlay = onPlay; // (seed:number, mode:'survival'|'creative') => void
 
     this.startScreenEl = document.getElementById('start-screen');
@@ -48,7 +49,10 @@ export class MenuController {
     this._mobVolume = 1;
 
     this.autoJumpToggleEl = document.getElementById('auto-jump-toggle');
+    this.viewmodelToggleEl = document.getElementById('viewmodel-toggle');
+    this.handSideChoiceEl = document.getElementById('hand-side-choice');
     this._wireAutoJumpToggle();
+    this._wireViewModelControls();
     this._wireModeButtons();
     this._wireSliders();
     this._wireButtons();
@@ -61,6 +65,32 @@ export class MenuController {
       playUIClick();
       this.player.autoJumpEnabled = this.autoJumpToggleEl.checked;
     });
+  }
+
+  _wireViewModelControls() {
+    this.viewmodelToggleEl.checked = this.viewModel.enabled;
+    this.viewmodelToggleEl.addEventListener('change', () => {
+      playUIClick();
+      this.viewModel.enabled = this.viewmodelToggleEl.checked;
+    });
+
+    const fovSlider = document.getElementById('viewmodel-fov-slider');
+    const fovVal = document.getElementById('viewmodel-fov-val');
+    fovSlider.value = this.viewModel.fov;
+    fovSlider.addEventListener('input', () => {
+      const v = Number(fovSlider.value);
+      fovVal.textContent = v;
+      this.viewModel.setFov(v);
+    });
+
+    for (const btn of this.handSideChoiceEl.querySelectorAll('.mode-btn')) {
+      btn.addEventListener('click', () => {
+        playUIClick();
+        for (const b of this.handSideChoiceEl.querySelectorAll('.mode-btn')) b.classList.remove('selected');
+        btn.classList.add('selected');
+        this.viewModel.handSide = btn.dataset.hand;
+      });
+    }
   }
 
   _wireModeButtons() {
