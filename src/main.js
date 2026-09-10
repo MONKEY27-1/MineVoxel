@@ -15,6 +15,7 @@ import { Player } from './entities/player.js';
 import { InteractionController, CONTAINER_BLOCKS } from './entities/interaction.js';
 import { ParticleSystem } from './entities/particles.js';
 import { ItemDropManager } from './entities/itemDrop.js';
+import { XPOrbManager } from './entities/xpOrb.js';
 import { MobManager } from './entities/mobManager.js';
 import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
@@ -104,11 +105,12 @@ function main() {
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
   const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV);
+  const xpOrbs = new XPOrbManager(renderer.scene);
   const highlight = new BlockHighlight(renderer.scene);
   const dayNight = new DayNightCycle({ cycleDuration: 300 });
   const debugOverlay = new DebugOverlay(debugEl);
   const hud = new Hud(atlasUV);
-  const mobManager = new MobManager(renderer.scene, { particles, itemDrops });
+  const mobManager = new MobManager(renderer.scene, { particles, itemDrops, xpOrbs });
 
   function respawnPlayer() {
     const { height } = climateGenerator.heightAndBiome(0.5, 0.5);
@@ -271,6 +273,7 @@ function main() {
       }
 
       itemDrops.update(FIXED_DT, player.position, chunkManager, (itemId, count) => player.inventory.addItem(itemId, count));
+      xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
       mobManager.update(FIXED_DT, player, chunkManager, dayNight);
       if (mobManager.justKilled) playMobDeath();

@@ -2,10 +2,19 @@ import { ITEMS } from '../items/items.js';
 
 // Data-driven mob registry (phase 8) — mirrors world/blocks.js's pattern:
 // stats + a `shape` tag (which builder in mob.js assembles the blocky
-// body) + a small color palette per body part, rather than a real model
-// format. `drops` entries roll independently (chance each, not a shared
-// weighted pool like items/lootTables.js — mob drops in vanilla are
-// simple independent per-item rolls, not "pick one of these").
+// body). Textures are procedural (mobTexture.js), keyed by type name, so
+// no per-type texture reference lives here.
+//
+// `drops` entries roll independently (chance each, not a shared weighted
+// pool like items/lootTables.js — mob drops in vanilla are simple
+// independent per-item rolls, not "pick one of these"). Revision-pass
+// section 5 additions: `lootingBoost` (this entry's max count scales
+// with a looting/luck multiplier — see mobManager.js's
+// getLootingMultiplier, a hook with nothing plugged into it yet since
+// there's no enchanting system, always returns 1 today) and
+// `playerKillOnly` (only rolls if MobManager.tryPlayerAttack dealt the
+// kill, not e.g. fall damage or drowning — mobs can't yet kill each
+// other or die any other way, but the flag is real and checked).
 
 function hostile(def) {
   return { category: 'hostile', ...def };
@@ -26,8 +35,11 @@ export const MOB_TYPES = {
     attackRange: 1.3,
     attackCooldown: 1.0,
     aggroRange: 16,
-    colors: { head: 0x4c8f4c, body: 0x2a5f5f, limb: 0x2b3b6b, accent: 0x3a6b3a },
-    drops: [{ itemId: ITEMS.ROTTEN_FLESH.id, min: 0, max: 2, chance: 0.9 }],
+    particleColor: 0x4c8f4c,
+    drops: [
+      { itemId: ITEMS.ROTTEN_FLESH.id, min: 0, max: 2, chance: 0.9, lootingBoost: true },
+      { itemId: ITEMS.IRON_INGOT.id, min: 1, max: 1, chance: 0.03, playerKillOnly: true }, // rare "zombie dropped its loot" chance, real kills only
+    ],
   }),
   skeleton: hostile({
     name: 'skeleton',
@@ -39,10 +51,10 @@ export const MOB_TYPES = {
     attackRange: 1.3,
     attackCooldown: 0.9,
     aggroRange: 16,
-    colors: { head: 0xd8d3c0, body: 0xc2bca8, limb: 0xb8b2a0, accent: 0xd8d3c0 },
+    particleColor: 0xd8d3c0,
     drops: [
-      { itemId: ITEMS.BONE.id, min: 0, max: 2, chance: 0.9 },
-      { itemId: ITEMS.ARROW.id, min: 0, max: 2, chance: 0.6 },
+      { itemId: ITEMS.BONE.id, min: 0, max: 2, chance: 0.9, lootingBoost: true },
+      { itemId: ITEMS.ARROW.id, min: 0, max: 2, chance: 0.6, lootingBoost: true, playerKillOnly: true },
     ],
   }),
   spider: hostile({
@@ -55,8 +67,8 @@ export const MOB_TYPES = {
     attackRange: 1.6,
     attackCooldown: 1.0,
     aggroRange: 14,
-    colors: { head: 0x1c1c22, body: 0x24242c, limb: 0x15151a, accent: 0xcc2222 },
-    drops: [{ itemId: ITEMS.STRING.id, min: 0, max: 2, chance: 0.85 }],
+    particleColor: 0x24242c,
+    drops: [{ itemId: ITEMS.STRING.id, min: 0, max: 2, chance: 0.85, lootingBoost: true }],
   }),
   cow: passive({
     name: 'cow',
@@ -64,10 +76,11 @@ export const MOB_TYPES = {
     size: { width: 0.9, height: 1.4 },
     maxHealth: 10,
     walkSpeed: 1.3,
-    colors: { head: 0x5b3a22, body: 0x6b4527, limb: 0x4a3018, accent: 0xe8e0d0 },
+    babyChance: 0.1,
+    particleColor: 0x6b4527,
     drops: [
-      { itemId: ITEMS.RAW_BEEF.id, min: 1, max: 3, chance: 1 },
-      { itemId: ITEMS.LEATHER.id, min: 0, max: 2, chance: 0.7 },
+      { itemId: ITEMS.RAW_BEEF.id, min: 1, max: 3, chance: 1, lootingBoost: true },
+      { itemId: ITEMS.LEATHER.id, min: 0, max: 2, chance: 0.7, lootingBoost: true },
     ],
   }),
   pig: passive({
@@ -76,8 +89,9 @@ export const MOB_TYPES = {
     size: { width: 0.9, height: 0.9 },
     maxHealth: 10,
     walkSpeed: 1.3,
-    colors: { head: 0xe8a0a8, body: 0xeaa8b0, limb: 0xd6909a, accent: 0xcf7e88 },
-    drops: [{ itemId: ITEMS.PORKCHOP.id, min: 1, max: 3, chance: 1 }],
+    babyChance: 0.1,
+    particleColor: 0xe8a0a8,
+    drops: [{ itemId: ITEMS.PORKCHOP.id, min: 1, max: 3, chance: 1, lootingBoost: true }],
   }),
   chicken: passive({
     name: 'chicken',
@@ -85,9 +99,10 @@ export const MOB_TYPES = {
     size: { width: 0.4, height: 0.7 },
     maxHealth: 4,
     walkSpeed: 1.5,
-    colors: { head: 0xf2f2f2, body: 0xf5f5f0, limb: 0xe0972e, accent: 0xcc3333 },
+    babyChance: 0.1,
+    particleColor: 0xf2f2f2,
     drops: [
-      { itemId: ITEMS.FEATHER.id, min: 0, max: 2, chance: 0.8 },
+      { itemId: ITEMS.FEATHER.id, min: 0, max: 2, chance: 0.8, lootingBoost: true },
       { itemId: ITEMS.RAW_CHICKEN.id, min: 1, max: 1, chance: 1 },
     ],
   }),

@@ -32,10 +32,11 @@ const ATTACK_COOLDOWN = 0.5;
  * tests, much simpler than extending the voxel DDA to also hit AABBs).
  */
 export class MobManager {
-  constructor(scene, { particles, itemDrops } = {}) {
+  constructor(scene, { particles, itemDrops, xpOrbs } = {}) {
     this.scene = scene;
     this.particles = particles;
     this.itemDrops = itemDrops;
+    this.xpOrbs = xpOrbs;
     this.mobs = [];
     this._naturalTimer = 0;
     this._spawnerTimer = 0;
@@ -62,7 +63,7 @@ export class MobManager {
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
       if (mob.dead) {
-        this._onDeath(mob);
+        this._onDeath(mob, player);
         this.mobs.splice(i, 1);
         continue;
       }
@@ -93,13 +94,26 @@ export class MobManager {
     }
   }
 
-  _onDeath(mob) {
+  /**
+   * A hook for a future enchantment/luck system to plug into — nothing
+   * grants looting today, so this always returns 1, but every
+   * `lootingBoost` drop entry already asks for it and will pick it up
+   * for free the moment something real feeds a level in here.
+   */
+  getLootingMultiplier(player) {
+    return 1;
+  }
+
+  _onDeath(mob, player) {
     this.justKilled = { mobTypeId: mob.typeId };
     this.scene.remove(mob.mesh);
     mob.dispose();
+    const lootMult = this.getLootingMultiplier(player);
     for (const d of mob.def.drops) {
+      if (d.playerKillOnly && !mob.killedByPlayer) continue;
       if (Math.random() > d.chance) continue;
-      const count = d.min + Math.floor(Math.random() * (d.max - d.min + 1));
+      const max = d.lootingBoost ? d.max + Math.round((lootMult - 1) * (d.max - d.min)) : d.max;
+      const count = d.min + Math.floor(Math.random() * (max - d.min + 1));
       if (count > 0) {
         this.itemDrops?.spawn(
           { x: mob.position.x, y: mob.position.y + mob.size.height * 0.4, z: mob.position.z },
@@ -108,9 +122,13 @@ export class MobManager {
         );
       }
     }
+    if (player && player.gameMode === 'survival' && this.xpOrbs) {
+      const xp = mob.def.category === 'hostile' ? 5 : 1 + Math.floor(Math.random() * 3);
+      this.xpOrbs.spawn({ x: mob.position.x, y: mob.position.y + mob.size.height * 0.5, z: mob.position.z }, xp);
+    }
     this.particles?.spawnBurst(
       { x: mob.position.x, y: mob.position.y + mob.size.height * 0.5, z: mob.position.z },
-      mob.def.colors.body,
+      mob.def.particleColor ?? 0xaaaaaa,
       10,
       3
     );
@@ -255,6 +273,7 @@ export class MobManager {
     const dz = target.position.z - player.position.z;
     const len = Math.hypot(dx, dz) || 1;
     target.takeDamage(damage, { x: dx / len, z: dz / len });
+    target.killedByPlayer = true; // "died from a player hit" for playerKillOnly drops — set on any hit, not just the fatal one, same spirit as vanilla's "last hurt by player" tracking
     this.particles?.spawnBurst(
       { x: target.position.x, y: target.position.y + target.size.height * 0.6, z: target.position.z },
       0xcc2222,

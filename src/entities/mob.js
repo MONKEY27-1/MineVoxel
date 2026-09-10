@@ -1,32 +1,41 @@
 import * as THREE from 'three';
 import { sweepAABB, aabbFits } from './physics.js';
 import { MOB_TYPES } from './mobTypes.js';
+import { getMobTextureSheet, setBoxFaceUVs } from './mobTexture.js';
 
 const GRAVITY = 20; // mobs don't carry a Dimension reference (only players/chunks do) — matches the overworld's own gravity value directly
 const STEP_HEIGHT = 1.0;
 const JUMP_SPEED = 7; // apex = v^2/(2*GRAVITY) = 49/40 = 1.225 blocks, matching the player's ~1.25-block jump apex under this mob's own (lighter) gravity
 const KNOCKBACK_HORIZ = 5;
 const KNOCKBACK_UP = 4;
+const BABY_SCALE = 0.55;
+const RARE_VARIANT_CHANCE = 0.05;
 
 // --- Blocky body builders --------------------------------------------
-// No skeletal/rig format, no texturing — just grouped BoxGeometry parts
-// with flat per-part colors (matching itemDrop.js's fully-unlit
-// MeshBasicMaterial convention, since the scene has no THREE lights —
-// see core/renderer.js). "Limbs" are wrapped in a pivot Group offset to
-// the joint so rotating the pivot swings the part like a real hinge
+// Revision-pass section 5: each mob now carries a real procedural
+// texture (mobTexture.js) instead of a flat MeshBasicMaterial color —
+// one shared material per mob instance, with each box's faces UV-mapped
+// onto the appropriate named region (head-front carries the face, other
+// head faces + body/limb get their own regions). "Limbs" (and the head,
+// for look-at rotation) are wrapped in a pivot Group offset to the
+// joint so rotating the pivot swings/turns the part like a real hinge
 // instead of spinning around its own center.
 
-function addStaticBox(parent, dims, pos, color) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), new THREE.MeshBasicMaterial({ color }));
+function addStaticBox(parent, dims, pos, material, region, frontRegion) {
+  const geo = new THREE.BoxGeometry(...dims);
+  setBoxFaceUVs(geo, region, frontRegion);
+  const mesh = new THREE.Mesh(geo, material);
   mesh.position.set(...pos);
   parent.add(mesh);
   return mesh;
 }
 
-function addLimb(parent, dims, jointPos, color) {
+function addLimb(parent, dims, jointPos, material, region, frontRegion) {
   const pivot = new THREE.Group();
   pivot.position.set(...jointPos);
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(...dims), new THREE.MeshBasicMaterial({ color }));
+  const geo = new THREE.BoxGeometry(...dims);
+  setBoxFaceUVs(geo, region, frontRegion);
+  const mesh = new THREE.Mesh(geo, material);
   mesh.position.set(0, -dims[1] / 2, 0);
   pivot.add(mesh);
   parent.add(pivot);
@@ -34,7 +43,7 @@ function addLimb(parent, dims, jointPos, color) {
 }
 
 /** Humanoid: zombie, skeleton. */
-function buildBiped(size, colors) {
+function buildBiped(size, uv, material) {
   const legH = size.height * 0.42;
   const bodyH = size.height * 0.36;
   const headH = size.height * 0.22;
@@ -44,17 +53,17 @@ function buildBiped(size, colors) {
   const headW = size.width * 0.62;
 
   const group = new THREE.Group();
-  const legL = addLimb(group, [legW, legH, legW], [-legW * 0.55, legH, 0], colors.limb);
-  const legR = addLimb(group, [legW, legH, legW], [legW * 0.55, legH, 0], colors.limb);
-  addStaticBox(group, [bodyW, bodyH, bodyD], [0, legH + bodyH / 2, 0], colors.body);
-  const armL = addLimb(group, [legW, bodyH, legW], [-(bodyW / 2 + legW / 2), legH + bodyH, 0], colors.limb);
-  const armR = addLimb(group, [legW, bodyH, legW], [bodyW / 2 + legW / 2, legH + bodyH, 0], colors.limb);
-  addStaticBox(group, [headW, headH, headW], [0, legH + bodyH + headH / 2, 0], colors.head);
-  return { group, swingPairs: [[legL, 1], [armR, 1], [legR, -1], [armL, -1]] };
+  const legL = addLimb(group, [legW, legH, legW], [-legW * 0.55, legH, 0], material, uv.limb);
+  const legR = addLimb(group, [legW, legH, legW], [legW * 0.55, legH, 0], material, uv.limb);
+  addStaticBox(group, [bodyW, bodyH, bodyD], [0, legH + bodyH / 2, 0], material, uv.body);
+  const armL = addLimb(group, [legW, bodyH, legW], [-(bodyW / 2 + legW / 2), legH + bodyH, 0], material, uv.limb);
+  const armR = addLimb(group, [legW, bodyH, legW], [bodyW / 2 + legW / 2, legH + bodyH, 0], material, uv.limb);
+  const head = addLimb(group, [headW, headH, headW], [0, legH + bodyH + headH, 0], material, uv.headSide, uv.headFront);
+  return { group, head, swingPairs: [[legL, 1], [armR, 1], [legR, -1], [armL, -1]] };
 }
 
 /** Four-legged: cow, pig. Diagonal-pair gait (front-left+back-right together). */
-function buildQuadruped(size, colors) {
+function buildQuadruped(size, uv, material) {
   const legH = size.height * 0.45;
   const bodyH = size.height * 0.42;
   const bodyW = size.width * 0.6;
@@ -64,15 +73,16 @@ function buildQuadruped(size, colors) {
   const legOffZ = bodyLen / 2 - legW * 1.2;
 
   const group = new THREE.Group();
-  const legFL = addLimb(group, [legW, legH, legW], [-legOffX, legH, -legOffZ], colors.limb);
-  const legFR = addLimb(group, [legW, legH, legW], [legOffX, legH, -legOffZ], colors.limb);
-  const legBL = addLimb(group, [legW, legH, legW], [-legOffX, legH, legOffZ], colors.limb);
-  const legBR = addLimb(group, [legW, legH, legW], [legOffX, legH, legOffZ], colors.limb);
-  addStaticBox(group, [bodyW, bodyH, bodyLen], [0, legH + bodyH / 2, 0], colors.body);
+  const legFL = addLimb(group, [legW, legH, legW], [-legOffX, legH, -legOffZ], material, uv.limb);
+  const legFR = addLimb(group, [legW, legH, legW], [legOffX, legH, -legOffZ], material, uv.limb);
+  const legBL = addLimb(group, [legW, legH, legW], [-legOffX, legH, legOffZ], material, uv.limb);
+  const legBR = addLimb(group, [legW, legH, legW], [legOffX, legH, legOffZ], material, uv.limb);
+  addStaticBox(group, [bodyW, bodyH, bodyLen], [0, legH + bodyH / 2, 0], material, uv.body);
   const headSize = size.width * 0.42;
-  addStaticBox(group, [headSize, headSize, headSize], [0, legH + bodyH * 0.75, -bodyLen / 2 - headSize / 2], colors.head);
+  const head = addLimb(group, [headSize, headSize, headSize], [0, legH + bodyH * 0.75 + headSize / 2, -bodyLen / 2], material, uv.headSide, uv.headFront);
   return {
     group,
+    head,
     swingPairs: [
       [legFL, 1],
       [legBR, 1],
@@ -83,7 +93,7 @@ function buildQuadruped(size, colors) {
 }
 
 /** Chicken. */
-function buildBird(size, colors) {
+function buildBird(size, uv, material) {
   const legH = size.height * 0.35;
   const bodyH = size.height * 0.5;
   const bodyW = size.width * 0.8;
@@ -92,40 +102,36 @@ function buildBird(size, colors) {
   const legOffZ = bodyLen * 0.15;
 
   const group = new THREE.Group();
-  const legL = addLimb(group, [legW, legH, legW], [-legW, legH, legOffZ], colors.limb);
-  const legR = addLimb(group, [legW, legH, legW], [legW, legH, legOffZ], colors.limb);
-  addStaticBox(group, [bodyW, bodyH, bodyLen], [0, legH + bodyH / 2, 0], colors.body);
+  const legL = addLimb(group, [legW, legH, legW], [-legW, legH, legOffZ], material, uv.limb);
+  const legR = addLimb(group, [legW, legH, legW], [legW, legH, legOffZ], material, uv.limb);
+  addStaticBox(group, [bodyW, bodyH, bodyLen], [0, legH + bodyH / 2, 0], material, uv.body);
   const headSize = size.width * 0.5;
   const headY = legH + bodyH + headSize * 0.3;
-  addStaticBox(group, [headSize, headSize, headSize], [0, headY, -bodyLen / 2], colors.head);
-  addStaticBox(group, [headSize * 0.4, headSize * 0.3, headSize * 0.5], [0, headY - headSize * 0.1, -bodyLen / 2 - headSize * 0.55], colors.accent);
-  addStaticBox(group, [headSize * 0.25, headSize * 0.3, headSize * 0.25], [0, headY + headSize * 0.45, -bodyLen / 2 + headSize * 0.1], colors.accent);
-  return { group, swingPairs: [[legL, 1], [legR, -1]] };
+  const head = addLimb(group, [headSize, headSize, headSize], [0, headY + headSize / 2, -bodyLen / 2], material, uv.headSide, uv.headFront);
+  return { group, head, swingPairs: [[legL, 1], [legR, -1]] };
 }
 
 /** Spider: static (unanimated) legs — a deliberate simplification, see README. */
-function buildSpider(size, colors) {
+function buildSpider(size, uv, material) {
   const bodyH = size.height * 0.7;
   const abdomenSize = size.width * 0.5;
   const headSize = size.width * 0.32;
 
   const group = new THREE.Group();
-  addStaticBox(group, [abdomenSize, abdomenSize * 0.85, abdomenSize], [0, bodyH / 2, abdomenSize * 0.25], colors.body);
+  addStaticBox(group, [abdomenSize, abdomenSize * 0.85, abdomenSize], [0, bodyH / 2, abdomenSize * 0.25], material, uv.body);
   const headZ = -abdomenSize / 2 - headSize / 2 + abdomenSize * 0.25;
-  addStaticBox(group, [headSize, headSize * 0.8, headSize], [0, bodyH / 2, headZ], colors.head);
-  addStaticBox(group, [headSize * 0.15, headSize * 0.15, headSize * 0.1], [-headSize * 0.2, bodyH / 2 + headSize * 0.15, headZ - headSize * 0.5], colors.accent);
-  addStaticBox(group, [headSize * 0.15, headSize * 0.15, headSize * 0.1], [headSize * 0.2, bodyH / 2 + headSize * 0.15, headZ - headSize * 0.5], colors.accent);
+  const head = addLimb(group, [headSize, headSize * 0.8, headSize], [0, bodyH / 2 + headSize * 0.4, headZ], material, uv.headSide, uv.headFront);
 
   const legLen = size.width * 0.55;
   const legW = size.width * 0.06;
   for (let i = 0; i < 4; i++) {
     const zOff = (i - 1.5) * abdomenSize * 0.28;
     for (const side of [-1, 1]) {
-      const leg = addStaticBox(group, [legLen, legW, legW], [side * (abdomenSize / 2 + (legLen / 2) * 0.6), bodyH * 0.55, zOff], colors.limb);
+      const leg = addStaticBox(group, [legLen, legW, legW], [side * (abdomenSize / 2 + (legLen / 2) * 0.6), bodyH * 0.55, zOff], material, uv.limb);
       leg.rotation.z = side * 0.5;
     }
   }
-  return { group, swingPairs: [] };
+  return { group, head, swingPairs: [] };
 }
 
 const BUILDERS = { biped: buildBiped, quadruped: buildQuadruped, bird: buildBird, spider: buildSpider };
@@ -143,23 +149,42 @@ export class Mob {
     this.health = this.def.maxHealth;
     this.onGround = false;
     this.dead = false;
+    this.despawning = false; // true during the post-death "lying on its side" animation, before actual removal
+
+    // Baby versions: real Minecraft scales the whole animal down and
+    // gives it a proportionally larger head — approximated here as a
+    // uniform mesh/hitbox shrink plus an extra head-only scale-up so it
+    // still reads as "baby," not just "smaller adult."
+    this.baby = this.def.category === 'passive' && Math.random() < (this.def.babyChance ?? 0.1);
+    this.isRareVariant = Math.random() < RARE_VARIANT_CHANCE;
 
     this.aiState = 'idle'; // idle | chase | attack (hostile only — passive mobs just wander)
     this._moveDir = { x: 0, z: 0 };
     this._wanderTimer = 0;
     this._attackCooldownTimer = 0;
     this._hurtFlash = 0;
+    this._deathT = 0;
+    this._breathPhase = Math.random() * Math.PI * 2;
     this.walkCycle = 0;
 
-    const built = BUILDERS[this.def.shape](this.def.size, this.def.colors);
+    const sheet = getMobTextureSheet(typeId, this.isRareVariant ? 1 : 0);
+    this.material = new THREE.MeshBasicMaterial({ map: sheet.texture, color: 0xffffff });
+
+    const built = BUILDERS[this.def.shape](this.def.size, sheet.uv, this.material);
     this.mesh = built.group;
+    this.head = built.head;
     this.swingPairs = built.swingPairs;
     this.mesh.position.set(position.x, position.y, position.z);
     this.mesh.rotation.y = this.yaw;
+    if (this.baby) {
+      this.mesh.scale.setScalar(BABY_SCALE);
+      if (this.head) this.head.scale.setScalar(1.35);
+    }
   }
 
   get size() {
-    return this.def.size;
+    if (!this.baby) return this.def.size;
+    return { width: this.def.size.width * BABY_SCALE, height: this.def.size.height * BABY_SCALE };
   }
 
   takeDamage(amount, knockbackDir) {
@@ -170,17 +195,42 @@ export class Mob {
       this.velocity.z += knockbackDir.z * KNOCKBACK_HORIZ;
       this.velocity.y = KNOCKBACK_UP;
     }
-    if (this.health <= 0) this.dead = true;
+    if (this.health <= 0 && !this.despawning) {
+      this.despawning = true;
+      this._deathT = 0;
+    }
+  }
+
+  /** True once the death-flop animation has finished and the mob can actually be removed. */
+  get readyToRemove() {
+    return this.despawning && this._deathT >= 1;
   }
 
   update(dt, chunkManager, player) {
+    if (this.despawning) {
+      this._deathT = Math.min(1, this._deathT + dt / 0.6);
+      // Rotate onto its side as it despawns, then let physics keep it
+      // grounded — no AI/attacks/movement once death has started.
+      this.velocity.x *= 0.9;
+      this.velocity.z *= 0.9;
+      this.velocity.y -= GRAVITY * dt;
+      const result = sweepAABB(chunkManager, this.position, this.size, this.velocity, dt);
+      this.position = result.position;
+      this.velocity = result.velocity;
+      this.mesh.position.set(this.position.x, this.position.y, this.position.z);
+      this.mesh.rotation.z = (this.yaw > 0 ? 1 : -1) * (Math.PI / 2) * Math.min(1, this._deathT * 1.5);
+      const fade = 1 - this._deathT;
+      this.mesh.scale.set((this.baby ? BABY_SCALE : 1) * fade + 0.001, (this.baby ? BABY_SCALE : 1) * fade + 0.001, (this.baby ? BABY_SCALE : 1) * fade + 0.001);
+      if (this._deathT >= 1) this.dead = true;
+      return;
+    }
     if (this.dead) return;
     this._attackCooldownTimer = Math.max(0, this._attackCooldownTimer - dt);
     this._hurtFlash = Math.max(0, this._hurtFlash - dt);
 
     this._updateAI(dt, player);
     this._updatePhysics(dt, chunkManager);
-    this._updateAnimation(dt);
+    this._updateAnimation(dt, player);
     this._syncMesh();
   }
 
@@ -221,7 +271,7 @@ export class Mob {
   }
 
   _updatePhysics(dt, chunkManager) {
-    const size = this.def.size;
+    const size = this.size;
     this.velocity.x = this._moveDir.x * this.def.walkSpeed;
     this.velocity.z = this._moveDir.z * this.def.walkSpeed;
     this.velocity.y -= GRAVITY * dt;
@@ -255,28 +305,65 @@ export class Mob {
     this.onGround = result.onGround;
   }
 
-  _updateAnimation(dt) {
-    const moving = Math.hypot(this.velocity.x, this.velocity.z) > 0.3;
+  _updateAnimation(dt, player) {
+    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    const moving = speed > 0.3;
     if (moving) this.walkCycle += dt * 8;
-    const target = moving ? 0.9 : 0;
+    // Amplitude now scales with actual speed (capped) instead of a flat
+    // moving/not-moving switch, so a slow wander swings less than a full
+    // chase sprint.
+    const target = Math.min(1, speed / this.def.walkSpeed) * 0.9;
     const lerpT = Math.min(1, dt * 12);
     for (const [part, sign] of this.swingPairs) {
       const targetAngle = Math.sin(this.walkCycle) * sign * target;
       part.rotation.x += (targetAngle - part.rotation.x) * lerpT;
     }
+
+    // Head look-at: turn toward the player when they're roughly in
+    // front, within a reach-ish radius — cheap approximation of "notice
+    // and glance at nearby players" without a full head-tracking rig.
+    if (this.head) {
+      let targetYawOffset = 0;
+      let targetPitch = 0;
+      const dx = player.position.x - this.position.x;
+      const dz = player.position.z - this.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 8 && dist > 0.01) {
+        const worldYaw = Math.atan2(-dx, -dz);
+        let rel = worldYaw - this.yaw;
+        rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi,pi]
+        targetYawOffset = Math.max(-0.7, Math.min(0.7, rel));
+        const dy = player.position.y - this.position.y;
+        targetPitch = Math.max(-0.5, Math.min(0.5, Math.atan2(dy, dist) * 0.5));
+      }
+      this.head.rotation.y += (targetYawOffset - this.head.rotation.y) * Math.min(1, dt * 6);
+      this.head.rotation.x += (targetPitch - this.head.rotation.x) * Math.min(1, dt * 6);
+    }
+
+    // Idle breathing: a very small body-scale pulse when not moving.
+    this._breathPhase += dt * 1.5;
+    this._idleBreath = moving ? 0 : Math.sin(this._breathPhase) * 0.02;
   }
 
   _syncMesh() {
     this.mesh.position.set(this.position.x, this.position.y, this.position.z);
     this.mesh.rotation.y = this.yaw;
     const squash = 1 - (this._hurtFlash / 0.15) * 0.25;
-    this.mesh.scale.set(1 / squash, squash, 1 / squash);
+    const breath = 1 + (this._idleBreath ?? 0);
+    const baseScale = this.baby ? BABY_SCALE : 1;
+    this.mesh.scale.set(baseScale * breath * (1 / squash), baseScale * squash, baseScale * breath * (1 / squash));
+    // Red hurt flash: MeshBasicMaterial.color multiplies the texture, so
+    // tinting it red-and-bright then easing back to white over the same
+    // window as the squash reads as a hit flash without needing a
+    // separate shader or duplicate materials.
+    const flashT = this._hurtFlash / 0.15;
+    this.material.color.setRGB(1, 1 - flashT * 0.7, 1 - flashT * 0.7);
   }
 
   dispose() {
     this.mesh.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) obj.material.dispose();
     });
+    this.material.dispose();
   }
 }

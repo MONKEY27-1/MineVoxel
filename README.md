@@ -365,6 +365,52 @@ section, each verified and committed independently.
       clearing drag state in `close()`; verified the exact repro no
       longer throws. Slot hover highlighting already existed from phase
       6; tooltips now include stack count and durability, not just name.
+- [x] **Section 5 — Mobs: textures, motion, loot.** Replaced flat
+      single-color materials with a real procedural texture per mob
+      (`entities/mobTexture.js`): a small 64x64 sheet of named 16x16
+      regions (head-front carrying the face, head-side, body, limb),
+      painted with shading and speckled fur/scale detail, plus tattered-
+      hem detailing for the zombie and rib-cage lines for the skeleton.
+      `setBoxFaceUVs` maps each body-part box's forward face to its
+      "front" region and every other face to the generic region — one
+      shared `MeshBasicMaterial` per mob instance, all parts sampling the
+      same sheet. **Caught and fixed a real bug via direct visual
+      verification, not by inspection**: the sheet-layout helper's `put()`
+      registered each named region using *already-pixel-scale* arguments
+      (every call site passes canvas pixel offsets like `16`, `32`, `48`)
+      but then multiplied them by the tile size *again* internally — every
+      mob rendered as a stretched, wrapped mess of the wrong texture
+      region before this was caught by rendering an actual zombie/cow/
+      spider and comparing the output against the intended colors/
+      patterns; fixed by making `put()` accept pixel coordinates directly,
+      matching how it was already being called everywhere. Baby versions
+      (uniform mesh/hitbox shrink plus a proportionally larger head, ~10%
+      chance on passive mobs) and rare "shiny" skin variants (a generic
+      whole-sheet brighten, ~5% chance, works for any mob type without
+      per-type code) both verified. Animation: limb-swing amplitude now
+      scales with actual velocity instead of a flat moving/not-moving
+      switch, a head pivot turns to look at a nearby player (clamped to a
+      believable turn range) with a subtle idle-breathing scale pulse
+      when still, a red hurt-flash tints the shared material color
+      (verified: tints on hit, eases back to white), and death now plays
+      a real animation — a mob keeps falling/sliding and rotates onto its
+      side over 0.6s before actually despawning (verified: `despawning`
+      goes true immediately on a lethal hit, `dead` — which is what
+      `MobManager` still keys removal/loot off — only goes true once the
+      animation finishes). Loot tables gained a `lootingBoost` flag (an
+      entry's max count scales with a looting/luck multiplier — a real
+      hook, `MobManager.getLootingMultiplier`, with nothing plugged into
+      it yet since there's no enchanting system) and `playerKillOnly`
+      (only rolls if `tryPlayerAttack` actually dealt the hit — verified
+      directly: 0/40 trials dropped a skeleton's arrow without a player
+      kill, arrows did drop across 60 trials with one). XP orbs
+      (`entities/xpOrb.js`, and a new `player.xp` counter — neither
+      existed before this) spawn on kill in survival only, verified
+      against both game modes directly. **Not implemented**: sheep wool
+      colors (no sheep mob exists in this game — adding one is new-mob
+      scope, not an improvement to an existing one) and ear/tail
+      secondary motion (a cosmetic detail with a low payoff-to-effort
+      ratio against everything else in this section).
 
 ## Known simplifications (revisit later)
 
@@ -503,10 +549,14 @@ against that, not against intuition.
 - `src/entities/` — `player.js` (movement/gravity/swimming state
   machine), `physics.js` (swept-AABB collision, reused by mobs too),
   `interaction.js` (raycasting + break/place), `particles.js`,
-  `itemDrop.js`, `mobTypes.js` (data-driven mob registry — stats + a
-  blocky-body shape tag), `mob.js` (body builders + per-mob AI/physics/
-  animation), `mobManager.js` (spawning, despawning, and the player's
-  melee-attack resolution against mobs).
+  `itemDrop.js`, `xpOrb.js` (revision-pass section 5), `mobTypes.js`
+  (data-driven mob registry — stats + a blocky-body shape tag + loot
+  table), `mobTexture.js` (revision-pass section 5: procedural per-mob
+  texture sheets + the UV-mapping helper `mob.js` uses), `mob.js` (body
+  builders + per-mob AI/physics/animation), `mobManager.js` (spawning,
+  despawning, and the player's melee-attack resolution against mobs),
+  `heldItemModel.js` + `viewModel.js` (revision-pass section 3: real 3D
+  held-item models and the first-person view-model render pass).
 - `src/items/` — `items.js` (tools/materials registry), `inventory.js`
   (stack merge/split/quick-move primitives shared by every UI),
   `crafting.js`/`recipes.js`, `furnace.js`, `containerRegistry.js`

@@ -58,6 +58,7 @@ export class Player {
     this.health = 20;
     this.maxHealth = 20;
     this.justHurt = false;
+    this.xp = 0; // revision-pass section 5 — real but minimal: a counter with nothing to spend it on yet (no levels/enchanting)
     this.breath = 10;
     this.maxBreath = 10;
     this._fallStartY = null;
@@ -111,6 +112,10 @@ export class Player {
     if (this.gameMode !== 'creative') return;
     this.flying = !this.flying;
     if (this.flying) this.velocity.y = 0;
+  }
+
+  addXP(amount) {
+    this.xp += amount;
   }
 
   /** Mob-attack damage — gated the same way fall damage/drowning already are. */
