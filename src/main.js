@@ -71,8 +71,33 @@ function main() {
 
   // --- Input --------------------------------------------------------
   const input = new Input(canvas);
+
+  // The "Click to play" pause overlay should only appear when the player
+  // actually pressed Escape — not for every way pointer lock can be lost
+  // (losing window focus/alt-tab, the browser silently dropping it,
+  // etc.), which would otherwise flash the overlay for reasons that have
+  // nothing to do with the player choosing to pause. Tracked via a raw
+  // keydown rather than input.wasPressed('pause') since the pause action
+  // is rebindable and this must follow the physical Escape key
+  // regardless (same reasoning as core/fullscreen.js's own Escape
+  // handling, which is a separate concern — hold-to-exit fullscreen —
+  // but observes the same key the same way).
+  let escapeTriggeredLockLoss = false;
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.code === 'Escape' && input.pointerLocked) escapeTriggeredLockLoss = true;
+    },
+    true
+  );
+
   input.onLockChange = (locked) => {
-    overlayEl.classList.toggle('hidden', locked || inventoryUI.isOpen);
+    if (locked) {
+      overlayEl.classList.add('hidden');
+    } else if (escapeTriggeredLockLoss && !inventoryUI.isOpen) {
+      overlayEl.classList.remove('hidden');
+    }
+    escapeTriggeredLockLoss = false;
     crosshairEl.classList.toggle('hidden', !locked);
     // "on pause" per the world-saving spec — losing pointer lock during
     // actual gameplay (not the very first click-to-lock from the start
@@ -84,6 +109,15 @@ function main() {
     menuController.applyAudioSettings(); // re-push slider values now that the AudioContext actually exists
     if (settings.controls.startFullscreen) fullscreenController.enter().then(() => input.requestLock());
     else input.requestLock();
+  });
+  // Fallback so a non-Escape lock loss (window blur, browser-forced
+  // release) never strands the player with no visible way back in — the
+  // overlay stays hidden per the above, but the canvas itself is still a
+  // valid re-lock target once they click back into the game.
+  canvas.addEventListener('click', () => {
+    if (!input.pointerLocked && started && !inventoryUI.isOpen && overlayEl.classList.contains('hidden')) {
+      input.requestLock();
+    }
   });
 
   // --- Revision-pass section 9: fullscreen with hold-to-exit ----------
