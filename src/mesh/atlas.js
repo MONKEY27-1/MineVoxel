@@ -847,6 +847,10 @@ painters.raw_chicken = (ctx, ox, oy) => {
   ctx.fill();
 };
 
+painters.obsidian = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#0a0612', ['#1b0f33', '#2a1854', '#050308'], 0.4, 703);
+};
+
 const TILE_NAMES = Object.keys(painters);
 
 export function buildAtlas() {

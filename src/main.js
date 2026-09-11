@@ -17,6 +17,8 @@ import { InteractionController, raycastVoxel } from './entities/interaction.js';
 import { PlayerModel } from './entities/playerModel.js';
 import { ParticleSystem } from './entities/particles.js';
 import { ItemDropManager } from './entities/itemDrop.js';
+import { FallingBlockManager, checkFall } from './entities/fallingBlock.js';
+import { FluidSimulator } from './world/fluids.js';
 import { XPOrbManager } from './entities/xpOrb.js';
 import { MobManager } from './entities/mobManager.js';
 import { ViewModel } from './entities/viewModel.js';
@@ -232,6 +234,8 @@ function main() {
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
   const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV, particles);
+  const fallingBlocks = new FallingBlockManager(renderer.scene, atlasTexture, atlasUV);
+  const fluids = new FluidSimulator();
   const xpOrbs = new XPOrbManager(renderer.scene);
   const highlight = new BlockHighlight(renderer.scene);
   const dayNight = new DayNightCycle({ cycleDuration: 300 });
@@ -597,11 +601,31 @@ function main() {
             }
           }
           if (interaction.justBroke.drop) spawnDropNearPlayer(interaction.justBroke.drop.itemId, interaction.justBroke.drop.count);
+
+          // Physics reactions to the now-empty cell: a gravity block
+          // resting directly on it just lost its support, and any
+          // fluid touching it (or now able to reach it) needs to
+          // re-evaluate on its own next tick.
+          const bx = Math.floor(interaction.justBroke.position.x);
+          const by = Math.floor(interaction.justBroke.position.y);
+          const bz = Math.floor(interaction.justBroke.position.z);
+          checkFall(chunkManager, fallingBlocks, bx, by + 1, bz);
+          fluids.notify(bx, by, bz);
         }
         if (interaction.justPlaced) {
           playBlockPlace(interaction.justPlaced.blockId);
           viewModel.triggerPlace();
           particles.spawnBlockPlace(interaction.justPlaced.position, interaction.justPlaced.blockId);
+
+          // A placed gravity block might have nothing under it (place
+          // sand off a ledge); a placed solid block might cut off an
+          // existing flow, or a placed water/lava source needs to be
+          // able to start spreading.
+          const px = Math.floor(interaction.justPlaced.position.x);
+          const py = Math.floor(interaction.justPlaced.position.y);
+          const pz = Math.floor(interaction.justPlaced.position.z);
+          checkFall(chunkManager, fallingBlocks, px, py, pz);
+          fluids.notify(px, py, pz);
         }
         if (interaction.wantsOpenContainer) openContainer(interaction.wantsOpenContainer);
 
@@ -616,6 +640,12 @@ function main() {
       }
 
       itemDrops.update(FIXED_DT, player.position, chunkManager, (itemId, count, durability) => player.inventory.addItem(itemId, count, durability));
+      fallingBlocks.update(FIXED_DT, chunkManager, (blockId, x, y, z) => {
+        chunkManager.setBlock(x, y, z, blockId);
+        fluids.notify(x, y, z);
+        playBlockPlace(blockId);
+      });
+      fluids.update(FIXED_DT, chunkManager);
       xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
       mobManager.update(FIXED_DT, player, chunkManager, dayNight);
@@ -816,6 +846,8 @@ function main() {
       interaction,
       dayNight,
       itemDrops,
+      fallingBlocks,
+      fluids,
       xpOrbs,
       particles,
       inventoryUI,

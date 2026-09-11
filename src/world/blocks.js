@@ -223,6 +223,13 @@ export const BLOCKS = {
   HAY_BALE: define({ name: 'hay_bale', texture: { top: 'hay_top', side: 'hay_side', bottom: 'hay_top' }, hardness: 0.5 }),
   WHEAT_CROP: define({ name: 'wheat_crop', texture: { all: 'wheat_crop' }, solid: false, transparent: true, hardness: 0, cross: true, drops: null }),
   FARMLAND: define({ name: 'farmland', texture: { top: 'farmland_top', side: 'dirt', bottom: 'dirt' }, hardness: 0.6, tool: 'shovel' }),
+
+  // Appended, not inserted — every id above this point must keep its
+  // existing numeric value or old saves (which store raw block ids)
+  // break. See fluids.js: lava that touches a water SOURCE turns to
+  // this; flowing (non-source) lava touching water turns to the
+  // already-existing COBBLESTONE instead.
+  OBSIDIAN: define({ name: 'obsidian', texture: { all: 'obsidian' }, hardness: 8, tool: 'pickaxe' }),
 };
 
 export function getBlock(id) {
