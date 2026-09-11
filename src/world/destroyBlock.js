@@ -41,6 +41,15 @@ export function destroyBlock(chunkManager, x, y, z) {
       container.isBurning = false;
     }
     containerDrops = container.slots.filter(Boolean).map((s) => ({ itemId: s.itemId, count: s.count, durability: s.durability }));
+    // removeContainerAt only detaches this object from the registry map —
+    // it doesn't touch the object itself, and a still-open inventory
+    // screen on this exact container holds the same live reference (see
+    // main.js's InventoryUI context.secondary/furnace). Without clearing
+    // it here too, breaking a container while your own UI on it is still
+    // open would duplicate its contents: once as the item-drop entities
+    // above, and again as whatever the stale UI can still shift-click out
+    // of "its" slots.
+    container.slots.fill(null);
     removeContainerAt(x, y, z);
   }
 
