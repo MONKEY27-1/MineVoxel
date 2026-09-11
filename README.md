@@ -4,14 +4,78 @@ A browser-based voxel sandbox, built with vanilla ES modules + Three.js. No
 bundler, no backend — everything (textures, sounds, terrain) is generated
 at runtime.
 
+`POLISH.md` tracks the current/most recent stability, performance, and
+polish pass over this codebase (what's been fixed, what's deliberately
+left alone and why); `PERF.md` has the performance baselines it produced.
+Both are logs, not specs — read them for *why* something looks the way it
+does, not as a second source of truth for how to build/run the game.
+
 ## Running it
+
+The game is plain ES modules loaded straight by the browser — there's no
+build step, but `import`/`fetch` from a `file://` URL is blocked by CORS in
+every browser, so it still needs to be served over HTTP:
 
 ```bash
 python3 -m http.server 8000
+# or: npx serve .
+# or: node tools/devserver.js   (this repo's own no-cache dev server — see Browser support below)
 ```
 
-Open `http://localhost:8000`. Click the canvas to lock the pointer, `Esc`
-to release it, `F3` for the debug overlay.
+Open `http://localhost:8000`. Click the canvas to lock the pointer and
+start playing; `Esc` releases it back to the pause/settings screen.
+
+### Testing
+
+The game itself has no dependencies, but `tools/` holds a real Playwright
+(headless Chromium) test harness — the one thing in this repo that does
+need Node:
+
+```bash
+npm install && npx playwright install chromium   # one-time setup
+npm run smoke        # boots a world, walks/flies/breaks/places/opens every UI panel — the gate every commit should pass
+npm run perf         # samples frame time/draw calls/triangles/heap on a fixed route, writes perf-baseline.json
+npm run soak         # 10-minute continuous flight, heap sampled every 15s — catches leaks a short run wouldn't
+npm run test:gen     # 5 fixed seeds, hashes generated block data — catches unintended worldgen changes
+npm run test:save    # save/load round trip, deep-equal on blocks/containers/player state
+npm run test:dup     # item duplication/destruction audit (drag/drop, crafting, death, container-break edge cases)
+npm run test:save-fuzz  # corrupted-save graceful-failure + schema-migration checks
+npm run test:edge    # world-boundary/void/rapid-edit edge cases
+npm run test:feel    # movement/jump mechanics + the debug tuning panel
+npm run test:visual  # particle/fade-overlay event coverage
+npm run test:audio   # mute-on-blur, hurt-sound coverage
+```
+
+Every script drives `tools/devserver.js` (a plain no-cache static file
+server — the game's own bundler-free `src/` needs no build step, this
+just serves it) against a fresh headless browser; none of it touches your
+own browser or leaves anything running afterward.
+
+## Controls
+
+All bindings are rebindable in Settings → Controls except where noted.
+
+| Key | Action |
+|---|---|
+| `W` `A` `S` `D` | Move |
+| Mouse | Look |
+| Left click | Break block / attack |
+| Right click | Place block / use item / open a container |
+| `Space` | Jump (double-tap to toggle flight in creative); fly up while flying |
+| `Shift` | Sprint |
+| `C` | Sneak on ground; fly down while flying |
+| `1`–`9` / scroll | Select hotbar slot |
+| `Tab` | Inventory |
+| `Q` / `Ctrl+Q` | Drop one / drop the whole stack from the slot under the cursor |
+| `Esc` | Pause / settings |
+| `F3` | Debug overlay (position, FPS, chunk stats) |
+| `F5` | Cycle camera: first-person → third-person-back → third-person-front |
+| `F2` | Screenshot |
+| `F11` / the in-game Fullscreen button | Fullscreen (hold `Esc` to exit — see Browser support below) |
+| `F6` *(debug builds only, `?debug=1`)* | Live movement/jump tuning panel — see `POLISH.md` |
+
+`F2`, `F5`, and the debug-only `F6` are not currently rebindable (they're
+handled outside the `input.bindings` table everything else goes through).
 
 ## Status
 
@@ -77,8 +141,9 @@ is verified in a real browser before moving to the next.
       cook progress, output stacking — `items/furnace.js`) and chests,
       both stored per-world-position (`items/containerRegistry.js`); and
       a searchable creative palette (all registered blocks/items, click
-      to grab a full stack) as an alternative E-inventory screen in
-      creative mode.
+      to grab a full stack) as the creative-mode inventory screen (`Tab`
+      — see Controls above; this was `E` earlier in development and moved
+      to `Tab` afterward, matching this file's default binding).
 - [x] **Phase 7 — Structures (partial — see below).** Caves (open "cheese"
       caverns + winding "spaghetti" tunnels + rare thin "noodle" tunnels,
       all pseudo-3D noise — folding Y into a second argument of the
@@ -722,11 +787,12 @@ section, each verified and committed independently.
 - **Key rebinding has no conflict detection** — binding two actions to the
   same physical key silently lets both fire together; nothing warns or
   blocks it.
-- **No settings/world persistence** — render distance, sensitivity,
-  volumes, and keybinds all reset to defaults on reload, same as every
-  other piece of world state (see the container-storage simplification
-  above). A reload also means picking a world seed again from scratch;
-  there's no "continue last world."
+- ~~No settings/world persistence~~ — **fixed in the Revision pass**
+  (Sections 7-8 below): worlds save/load through IndexedDB with a saved-
+  worlds list, and graphics/audio/controls/performance settings persist to
+  `localStorage`. Left here (struck through) rather than deleted so the
+  history stays honest — this bullet was true when first written and the
+  fix is exactly what Section 7/8 describe.
 - **The start screen's seed hash is a trivial string hash**, not
   anything cryptographic — fine for "type the same word, get the same
   world," not collision-resistant.
@@ -740,10 +806,12 @@ section, each verified and committed independently.
   from falling and drowning.
 - **Chests are single-chest only** — no adjacent-chest detection/merge
   into a 54-slot double chest.
-- **Container storage is in-memory, keyed by block position**
-  (`items/containerRegistry.js`) — there's no world save/load system yet
-  (a later phase), so chest/furnace contents don't survive a reload, same
-  as every other piece of world state today.
+- ~~Container storage is in-memory, keyed by block position, doesn't
+  survive a reload~~ — **fixed in the Revision pass** (Section 7):
+  `worldSave.js` serializes every chest/furnace's contents as part of a
+  save and restores them on load, before anything else can touch the
+  registry. The in-memory, position-keyed structure itself
+  (`items/containerRegistry.js`) is unchanged — only its persistence.
 - **Shift-clicking an item from the player inventory into an open
   furnace** guesses input-vs-fuel by item type (smeltable → input,
   known fuel → fuel) and only fills an empty slot — it won't top up a
@@ -948,6 +1016,64 @@ second dimension and a portal feature are built.
    never generated, or are unloaded and disposed once the player moves
    away.
 
+### Save format
+
+Everything lives in one IndexedDB database (`persistence/db.js`), split
+across five object stores (`persistence/worldSave.js`):
+
+- **`worlds`** — one record per saved world: id, name, seed, mode,
+  `dimensionId`, `schemaVersion`, timestamps. What the world-select screen
+  lists.
+- **`chunkDiffs`** — one record per *edited* chunk column
+  (`${worldId}|${dimensionId}|${cx},${cz}`), storing only the
+  local-coordinate → block-id edits (`ChunkColumn.modifiedBlocks`) — not
+  the whole column, since regeneration from the seed reproduces everything
+  else deterministically. Diffs replay onto a column the moment it
+  (re)generates (`ChunkManager._onGenerated`/`queueDiffsFor`).
+- **`blockEntities`** — one record per world: every chest/furnace's
+  contents, serialized from `items/containerRegistry.js` on save and
+  restored (before anything else can touch the registry) on load.
+- **`playerState`** — one record per world: position/rotation, health,
+  breath, xp, game mode, hotbar selection, full inventory, time of day, and
+  whatever item was held on the inventory-screen cursor at save time (so a
+  save mid-drag doesn't lose it — see `POLISH.md`).
+- **`entitySnapshots`** — one record per world: mobs and dropped items
+  that were loaded at save time (position, health/type for mobs;
+  item/count/durability for drops). Anything outside the loaded radius at
+  save time simply isn't captured — it regenerates or is gone, same as any
+  other unloaded-chunk content.
+
+**Version history**: `schemaVersion` has only ever been `1` — there's no
+migration history yet, just the seam for one. Every record carries its
+`schemaVersion`, and `migrateWorld()` (called by both `getWorld()` and
+`listWorlds()`, so every read path stays consistent) is where a future
+version bump's upgrade logic goes; it currently returns records unchanged
+except stamping the current version onto anything older. It does *not*
+write the migrated copy back to disk — see `POLISH.md` for why that's
+intentionally fine as long as every reader keeps re-migrating consistently.
+
+### Browser support
+
+Built against, and only tested in, **desktop Chromium** (Chrome/Edge).
+Firefox and Safari should mostly work — nothing here uses a
+Chromium-specific API for core gameplay — but haven't been verified.
+Hard requirements: ES modules + [import
+maps](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap)
+(no bundler, no transpilation — an old browser without import-map support
+won't even load `three`), [Pointer Lock
+API](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_Lock_API)
+(mouse look), [Web Audio
+API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API) (all
+sound is synthesized, not sample playback), and
+[IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+(world saves — a private-browsing window with storage disabled can create
+a world but won't be able to save it). One known, gracefully-degraded gap:
+hold-to-exit fullscreen needs the [Keyboard Lock
+API](https://developer.mozilla.org/en-US/docs/Web/API/Keyboard/lock)
+(`navigator.keyboard.lock`), which is Chromium-only; every other browser
+gets a plain "Click to resume" overlay instead the instant Escape exits
+fullscreen, with a tooltip in Settings → Controls explaining why.
+
 ### Adding a block
 
 Add one entry to the `define(...)` calls in `src/world/blocks.js` — id,
@@ -992,6 +1118,37 @@ override gate in `pickLandBiome()` and must be excluded from
    structure type hashed against the same region) depend on where you
    happened to check biome, which isn't deterministic-from-origin-alone
    the way everything else here is.
+
+### Adding a mob
+
+Add an entry to `MOB_TYPES` in `src/entities/mobTypes.js`, wrapped in
+`hostile({...})` or `passive({...})`: `name`, a `shape` (`biped`,
+`quadruped`, `bird`, or `spider` — one of `mob.js`'s `BUILDERS`, which
+determines the blocky body it gets assembled from), `size`, `maxHealth`,
+`walkSpeed`, `attackDamage`/`attackRange`/`attackCooldown`, `aggroRange`,
+a `particleColor` (used for its hit/death particle burst), and a `drops`
+list (`{ itemId, min, max, chance }`, each rolling independently — see the
+file's own comment on `lootingBoost`/`playerKillOnly` for the two optional
+flags). No texture reference is needed — `mobTexture.js` procedurally
+generates one per type name the same way `atlas.js` does for blocks.
+`mobManager.js`'s spawn logic picks from `MOB_TYPES` automatically; a
+structure can also spawn one directly via a `spawner: {mobType}` entry in
+its blueprint (see "Adding a discrete structure" above).
+
+### Adding a recipe
+
+Add an entry to the `RECIPES` array in `src/items/recipes.js`: either
+`shaped: true` with a `pattern` (rows of ingredients, `null` for an empty
+cell — matched at every offset within the crafting grid, so you only
+specify the smallest bounding box, not padding), or `shapeless: true` with
+an `ingredients` array (order doesn't matter, but every filled grid cell
+must match one). Ingredients are either a specific `itemId`/`BLOCKS.X`, or
+a `tag('name')` (see `tag()` and `ingredientMatches()` in the same file)
+for "any item in this category," e.g. `tag('planks')` or `tag('log')`.
+Every current recipe needs a bench (`requiresBench: true`) or not; set
+`outputId`/`outputCount` for the result. `crafting.js`'s
+`findMatchingRecipe()` and `consumeCraftingGrid()` need no changes — both
+already iterate `RECIPES` generically.
 
 ### How a new dimension would plug in
 
