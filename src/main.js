@@ -91,13 +91,27 @@ function main() {
     true
   );
 
+  // Set right before any of *our own* input.exitLock() calls (opening
+  // inventory/a container — see exitLockForUI below), so the overlay
+  // never shows for those regardless of `inventoryUI.isOpen`'s timing:
+  // pointerlockchange is an async browser event, and relying on
+  // inventoryUI already being open by the time it fires is a real race
+  // if the key that triggered it (Tab, in inventory's case) causes the
+  // lock to drop before our own tick()-loop code gets to open the UI.
+  let suppressOverlayOnUnlock = false;
+  function exitLockForUI() {
+    suppressOverlayOnUnlock = true;
+    input.exitLock();
+  }
+
   input.onLockChange = (locked) => {
     if (locked) {
       overlayEl.classList.add('hidden');
-    } else if (escapeTriggeredLockLoss && !inventoryUI.isOpen) {
+    } else if (escapeTriggeredLockLoss && !suppressOverlayOnUnlock && !inventoryUI.isOpen) {
       overlayEl.classList.remove('hidden');
     }
     escapeTriggeredLockLoss = false;
+    suppressOverlayOnUnlock = false;
     crosshairEl.classList.toggle('hidden', !locked);
     // "on pause" per the world-saving spec — losing pointer lock during
     // actual gameplay (not the very first click-to-lock from the start
@@ -428,14 +442,18 @@ function main() {
 
   function toggleInventory() {
     if (inventoryUI.isOpen) {
+      // Tab closing the inventory should just return straight to
+      // gameplay (re-lock the pointer), not pop the pause overlay —
+      // that's Escape's job specifically, per the pause-overlay logic
+      // above.
       inventoryUI.close();
-      overlayEl.classList.remove('hidden');
+      input.requestLock();
     } else if (player.gameMode === 'creative') {
       inventoryUI.open('creative', {}, 'Creative Inventory');
-      input.exitLock();
+      exitLockForUI();
     } else {
       inventoryUI.open('inventory', { craftingGrid: player.craftingGrid, gridW: 2, gridH: 2, benchAvailable: false }, 'Inventory');
-      input.exitLock();
+      exitLockForUI();
     }
   }
 
@@ -450,7 +468,7 @@ function main() {
     } else {
       return;
     }
-    input.exitLock();
+    exitLockForUI();
   }
 
   const prev = { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.yaw, pitch: player.pitch, eyeHeight: player.eyeHeight };
