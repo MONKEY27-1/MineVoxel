@@ -23,7 +23,18 @@
 
 const NODE_REGION_SIZE = 3; // chunks (~48 blocks) between nodes — dense enough for a real network
 const SEARCH_RADIUS = 2; // regions around a query chunk considered for nodes/edges
-const CONNECTIONS_PER_NODE = 2;
+// A plain 2-nearest-neighbor digraph (measured directly, see below) left
+// roughly a third of surface-entrance nodes stranded in small isolated
+// components with no *other* entrance reachable through the tunnel
+// network at all — walk in, dead-end, no second way out, contradicting
+// the whole point of a walk-in entrance. Measured across a 120x40-chunk
+// area (seed 12345): at 2 connections/node, 4/6 entrance nodes shared one
+// giant 486-node component (3 other entrances reachable each) while 2/6
+// sat in tiny 3-12 node islands with zero other entrances reachable. At 3
+// connections/node, all 6 joined a single 629-node component, each with 5
+// other entrances reachable and roughly half the hop-distance to the
+// nearest one. Bumped for that reason, not for tunnel density/aesthetics.
+const CONNECTIONS_PER_NODE = 3;
 const CHAMBER_BASE_RADIUS = 5;
 const TUNNEL_RADIUS = 2.1;
 const SHAFT_RADIUS = 1.8;
