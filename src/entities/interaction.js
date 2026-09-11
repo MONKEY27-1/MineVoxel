@@ -165,12 +165,17 @@ export class InteractionController {
         }
       }
 
-      const dropItems = player.gameMode !== 'creative';
+      const dropBlockItem = player.gameMode !== 'creative';
       this.justBroke = {
         position: { x: x + 0.5, y: y + 0.5, z: z + 0.5 },
         blockId: result.blockId,
-        drop: dropItems ? result.blockDrop : null,
-        containerDrops: dropItems ? result.containerDrops : null,
+        drop: dropBlockItem ? result.blockDrop : null,
+        // Container contents are player-placed items, not part of the
+        // block itself — they always drop regardless of game mode
+        // (matches genre convention). Gating this on dropBlockItem too
+        // meant breaking a stocked chest/furnace while in creative mode
+        // silently destroyed whatever was stored in it.
+        containerDrops: result.containerDrops,
       };
       this.breakProgress = 0;
       this._breakingKey = null;
