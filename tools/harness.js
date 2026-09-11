@@ -74,8 +74,12 @@ export async function readStats(page) {
     const stats = M.chunkManager.getStats();
     return {
       ...stats,
-      triangles: M.renderer.three.info.render.triangles,
-      drawCalls: M.renderer.three.info.render.calls,
+      // The main world render() call's info.render is overwritten by the
+      // view-model overlay's own render() pass later in the same frame —
+      // read main.js's captured pre-overlay snapshot, not the live
+      // renderer.three.info.render (see the fix in main.js's tick()).
+      triangles: M.lastWorldTriangles,
+      drawCalls: M.lastWorldDrawCalls,
       frameMs: M.lastFrameMs,
       heapMB: performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null,
     };
