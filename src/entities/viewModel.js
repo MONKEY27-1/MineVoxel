@@ -24,7 +24,7 @@ export class ViewModel {
     // so it inherits all of its bob/swing/place/raise transforms for
     // free instead of needing its own copy of them.
     const armMat = new THREE.MeshBasicMaterial({ color: 0xe0ac69 });
-    this.armMesh = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.6), armMat);
+    this.armMesh = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.95), armMat);
     // Below-left of the held item and noticeably closer to the camera
     // (a positive local z, vs. the item's own local origin) — both to
     // keep it from being fully swallowed by an opaque held block (an
@@ -153,8 +153,13 @@ export class ViewModel {
     const baseX = side * 0.35;
     const baseY = -0.32;
     const baseZ = -0.6;
-    // Always toward screen-center from the item, whichever side that is.
-    this.armMesh.position.x = -side * 0.5;
+    // A modest nudge toward screen-center from the item — enough to
+    // clear the item's own silhouette, not far enough to cross to the
+    // opposite side of the screen (a -0.5 offset here used to do exactly
+    // that: with the item itself at group-local x=0 and the whole group
+    // already pushed to `baseX`, the arm ended up left-of-center even on
+    // the "right hand" default).
+    this.armMesh.position.x = -side * 0.18;
 
     const bobX = Math.sin(this._bobPhase) * 0.008 * Math.min(moveSpeed, 6) * this.bobStrength;
     const bobY = Math.abs(Math.cos(this._bobPhase)) * 0.01 * Math.min(moveSpeed, 6) * this.bobStrength;
