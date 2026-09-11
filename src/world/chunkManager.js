@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { ChunkColumn, columnKey, NUM_SECTIONS } from './chunkColumn.js';
 import { Section, SECTION_SIZE, sectionIndex } from './section.js';
 import { createAtlasMaterial, setDayFactor, setMaterialTime, setSwayStrength, setWaterTint, setShadowUniforms } from '../mesh/atlasMaterial.js';
-import { BLOCKS } from './blocks.js';
+import { BLOCKS, getBlock } from './blocks.js';
 import { recomputeColumnLight } from './lighting.js';
 import { FULLY_OPEN_CONNECTIVITY } from '../mesh/connectivity.js';
 import { registerLootChest } from '../items/containerRegistry.js';
@@ -250,6 +250,17 @@ export class ChunkManager {
       this.pendingDiffsToApply.delete(key);
       for (const [localKey, id] of savedDiffs) {
         const [lx, ly, lz] = localKey.split(',').map(Number);
+        // A corrupted or hand-edited save record can hand back a
+        // malformed key or an id with no registry entry — validate
+        // before touching the column instead of writing out-of-bounds
+        // (a silent no-op that can still land in the wrong cell via
+        // sectionIndex's flat math) or crashing recomputeColumnLight's
+        // isOpaque() below, which dereferences the id unconditionally.
+        const validCoords = Number.isInteger(lx) && lx >= 0 && lx < SECTION_SIZE && Number.isInteger(lz) && lz >= 0 && lz < SECTION_SIZE && Number.isInteger(ly);
+        if (!validCoords || !getBlock(id)) {
+          console.warn(`ChunkManager: skipping corrupted saved diff at (${cx},${cz}) key="${localKey}" id=${id}`);
+          continue;
+        }
         col.setBlock(lx, ly, lz, id);
         col.modifiedBlocks.set(localKey, id);
       }
@@ -584,6 +595,15 @@ export class ChunkManager {
   }
 
   setBlock(wx, wy, wz, id) {
+    // A block id with no registry entry (corrupted save data, or a stale
+    // id left over from a removed block) would otherwise crash the very
+    // next line that dereferences it — recomputeColumnLight's isOpaque()
+    // reads registry[id].solid unconditionally. Reject it here instead of
+    // letting it reach the light/mesh pipeline at all.
+    if (!getBlock(id)) {
+      console.warn(`ChunkManager.setBlock: ignoring unknown block id ${id} at (${wx},${wy},${wz})`);
+      return false;
+    }
     const cx = Math.floor(wx / SECTION_SIZE);
     const cz = Math.floor(wz / SECTION_SIZE);
     const col = this.columns.get(columnKey(cx, cz));
