@@ -290,6 +290,14 @@ function main() {
     }
     if (e.code === 'F6' && tuningPanel) tuningPanel.toggle();
   });
+  // Mute-on-blur: switching tabs/minimizing shouldn't keep playing audio
+  // into a window the player isn't looking at. Suspending the whole
+  // AudioContext (rather than zeroing gain) needs no saved volume to
+  // restore — resume() just continues from wherever it was.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) audioEngine.suspend();
+    else audioEngine.resume();
+  });
   // Debug-only (?debug=1) live movement/jump tuning panel — assigned
   // below, inside the debugEnabled block, if this is a debug build.
   // Declared here (not `const` inside that block) so this listener,

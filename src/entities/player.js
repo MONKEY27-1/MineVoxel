@@ -493,6 +493,7 @@ export class Player {
         if (fallDistance > 3) {
           this.health = Math.max(0, this.health - Math.floor(fallDistance - 3));
           this._triggerDamageShake();
+          this.justHurt = true; // fall damage bypassed takeDamage() entirely, so the hurt sound (main.js reads+clears this) never fired for it either
         }
       }
       this._fallStartY = null;
@@ -515,6 +516,7 @@ export class Player {
           this._sinceDrownTick = 0;
           this.health = Math.max(0, this.health - 2);
           this._triggerDamageShake();
+          this.justHurt = true; // same reasoning as the fall-damage branch above — drowning bypasses takeDamage() too
         }
       }
     } else {

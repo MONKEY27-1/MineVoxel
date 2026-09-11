@@ -37,6 +37,15 @@ export class AudioEngine {
   get destination() {
     return this.categoryGains;
   }
+
+  /** Mute-on-blur: suspending the whole context (not zeroing gain) halts every node's processing outright and needs no saved volume to restore later — resume() just picks back up where it left off. Both return the underlying promise so callers can await completion rather than assuming ctx.state has already flipped by the time the call returns. */
+  suspend() {
+    return this.ctx?.suspend();
+  }
+
+  resume() {
+    return this.ctx?.resume();
+  }
 }
 
 export const audioEngine = new AudioEngine();
