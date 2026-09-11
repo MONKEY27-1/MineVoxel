@@ -596,11 +596,24 @@ export class ChunkManager {
     return { sky: section.skyLight[idx], block: section.blockLight[idx] };
   }
 
-  /** Every currently-loaded column with at least one player-driven edit, for saving. */
+  /**
+   * Every currently-loaded column with at least one player-driven edit,
+   * for saving. Also merges in anything sitting in `pendingDiffsToApply`
+   * for that column — a setBlock() on a column that hasn't finished
+   * generating yet queues there instead of writing straight in (see
+   * setBlock's own comment), and a save that lands before generation
+   * catches up must still capture it, or the edit is silently lost from
+   * the save entirely even though it's still visibly "pending" in
+   * memory.
+   */
   getDirtyColumns() {
     const out = [];
     for (const col of this.columns.values()) {
-      if (col.modifiedBlocks.size > 0) out.push({ cx: col.cx, cz: col.cz, diffs: [...col.modifiedBlocks.entries()] });
+      const queued = this.pendingDiffsToApply.get(col.key);
+      if (col.modifiedBlocks.size === 0 && !queued) continue;
+      const merged = new Map(col.modifiedBlocks);
+      if (queued) for (const [localKey, id] of queued) merged.set(localKey, id);
+      out.push({ cx: col.cx, cz: col.cz, diffs: [...merged.entries()] });
     }
     return out;
   }
@@ -622,11 +635,34 @@ export class ChunkManager {
     }
     const cx = Math.floor(wx / SECTION_SIZE);
     const cz = Math.floor(wz / SECTION_SIZE);
-    const col = this.columns.get(columnKey(cx, cz));
+    const key = columnKey(cx, cz);
+    const col = this.columns.get(key);
     if (!col) return false;
 
     const lx = ((wx % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
     const lz = ((wz % SECTION_SIZE) + SECTION_SIZE) % SECTION_SIZE;
+
+    if (col.state !== 'generated') {
+      // The column exists in `this.columns` (requested, worker
+      // dispatched) but hasn't finished its first-time generation yet —
+      // _onGenerated is going to overwrite col.sections wholesale with
+      // the real terrain once it lands. Writing straight in right now
+      // would "succeed" (ChunkColumn.setBlock lazily creates an empty
+      // section to hold it) only to have that section thrown away the
+      // moment real generation arrives — a silent, reproducible way to
+      // lose an edit made at the ragged edge of chunk streaming (found
+      // via a save/load test that happened to build its test structure
+      // on a still-generating column). Queue it the same way a saved
+      // diff is queued for replay at generation time (_onGenerated
+      // already replays this exact map) instead of writing into a
+      // section that won't survive.
+      const localKey = `${lx},${wy},${lz}`;
+      const queued = this.pendingDiffsToApply.get(key);
+      if (queued) queued.push([localKey, id]);
+      else this.pendingDiffsToApply.set(key, [[localKey, id]]);
+      return true;
+    }
+
     if (!col.setBlock(lx, wy, lz, id)) return false;
 
     // Revision-pass section 7: this is the only place a block changes
