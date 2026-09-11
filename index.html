@@ -62,8 +62,30 @@
       <p id="pointer-lock-prompt">Click to play</p>
       <p class="hint">WASD to move &middot; Space to jump/fly &middot; double-tap Space to toggle flight &middot; C to sneak/descend &middot; Shift to sprint</p>
       <p class="hint">Left-click break &middot; Right-click place &middot; 1-9 select block &middot; Esc to release mouse &middot; F3 for debug</p>
+      <button id="fullscreen-btn" class="menu-secondary-btn">Fullscreen (F11)</button>
       <button id="pause-settings-btn" class="menu-secondary-btn">Settings</button>
       <button id="save-quit-btn" class="menu-secondary-btn">Save and Quit</button>
+    </div>
+  </div>
+
+  <!-- Revision-pass section 9: hold-to-exit fullscreen. Fades in only
+       after ~400ms of holding Escape so a quick tap (which opens the
+       pause menu instead) never flashes it. -->
+  <div id="fullscreen-hold-overlay" class="hidden">
+    <div id="fullscreen-hold-box">
+      <div id="fullscreen-hold-label">Hold Esc to exit fullscreen</div>
+      <div id="fullscreen-hold-track"><div id="fullscreen-hold-fill"></div></div>
+    </div>
+  </div>
+
+  <!-- Shown when fullscreen/pointer lock was exited by the browser itself
+       (no navigator.keyboard.lock support — Escape isn't ours to
+       intercept there, so the browser exits immediately on its own; see
+       core/fullscreen.js). -->
+  <div id="fullscreen-fallback-overlay" class="hidden">
+    <div id="fullscreen-fallback-box">
+      <p>Left fullscreen</p>
+      <button id="fullscreen-resume-btn" class="menu-primary-btn">Click to resume</button>
     </div>
   </div>
 
@@ -245,6 +267,26 @@
         <div class="settings-row settings-checkbox-row">
           <label for="invert-scroll-toggle">Invert hotbar scroll</label>
           <input id="invert-scroll-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="start-fullscreen-toggle">Start in fullscreen</label>
+          <input id="start-fullscreen-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row">
+          <label>Hold Esc to exit fullscreen</label>
+          <div class="mode-choice" id="fullscreen-hold-duration-choice">
+            <button type="button" class="mode-btn" data-value="1000">1s</button>
+            <button type="button" class="mode-btn" data-value="2000">2s</button>
+            <button type="button" class="mode-btn selected" data-value="3000">3s</button>
+            <button type="button" class="mode-btn" data-value="0">Instant</button>
+          </div>
+          <div class="settings-hint" id="keyboard-lock-hint">
+            This browser doesn't support locking the Escape key in fullscreen, so it'll exit fullscreen immediately instead of honoring a hold — Chromium-based browsers (Chrome, Edge) support the full hold-to-exit behavior.
+          </div>
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="escape-tap-pause-toggle">Tapping Esc opens the pause menu</label>
+          <input id="escape-tap-pause-toggle" type="checkbox" checked />
         </div>
         <div class="settings-row">
           <label>Keybinds</label>

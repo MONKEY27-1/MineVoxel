@@ -45,6 +45,9 @@ export const DEFAULT_CONTROLS = {
   sneakMode: 'hold', // 'hold' | 'toggle'
   sprintMode: 'hold', // 'hold' | 'toggle'
   invertScroll: false,
+  startFullscreen: false,
+  fullscreenHoldMs: 3000, // 1000 | 2000 | 3000 | 0 ("instant")
+  escapeTapOpensPause: true,
 };
 
 export const DEFAULT_AUDIO = {

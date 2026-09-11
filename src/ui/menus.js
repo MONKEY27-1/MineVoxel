@@ -82,6 +82,9 @@ const CONTROLS_APPLIERS = {
   sneakMode: (v, ctx) => (ctx.player.sneakMode = v),
   sprintMode: (v, ctx) => (ctx.player.sprintMode = v),
   invertScroll: (v, ctx) => (ctx.input.invertScroll = v),
+  startFullscreen: () => {}, // read at the "click to play" gesture itself (main.js), nothing to push live
+  fullscreenHoldMs: (v, ctx) => (ctx.fullscreenController.holdDurationMs = v),
+  escapeTapOpensPause: (v, ctx) => (ctx.fullscreenController.tapOpensPause = v),
 };
 
 const AUDIO_APPLIERS = {
@@ -117,6 +120,7 @@ export class MenuController {
     renderer,
     atlasTexture,
     settings,
+    fullscreenController,
     onPlay,
     onShadowQualityChange,
     onScreenshot,
@@ -132,6 +136,7 @@ export class MenuController {
     this.sky = sky;
     this.renderer = renderer;
     this.atlasTexture = atlasTexture;
+    this.fullscreenController = fullscreenController;
     this.settings = settings; // the one loaded/mutated settings object — see settings/settings.js
     this.onPlay = onPlay; // (worldRecord, {isNew}) => void — main.js boots the actual game/world-load from this
     this.onShadowQualityChange = onShadowQualityChange; // (tier) => void — touches renderer.shadowMap + the sun light, both owned by main.js
@@ -466,6 +471,21 @@ export class MenuController {
     this._wireControlsChoice('sneak-mode-choice', 'sneakMode');
     this._wireControlsChoice('sprint-mode-choice', 'sprintMode');
     this._wireControlsCheckbox('invert-scroll-toggle', 'invertScroll');
+    this._wireControlsCheckbox('start-fullscreen-toggle', 'startFullscreen');
+    this._wireControlsCheckbox('escape-tap-pause-toggle', 'escapeTapOpensPause');
+
+    const holdEl = document.getElementById('fullscreen-hold-duration-choice');
+    setChoiceSelected(holdEl, this.settings.controls.fullscreenHoldMs);
+    for (const btn of holdEl.querySelectorAll('.mode-btn')) {
+      btn.addEventListener('click', () => {
+        playUIClick();
+        setChoiceSelected(holdEl, btn.dataset.value);
+        const v = Number(btn.dataset.value);
+        this.settings.controls.fullscreenHoldMs = v;
+        CONTROLS_APPLIERS.fullscreenHoldMs(v, this);
+        this._persist();
+      });
+    }
   }
 
   _wireControlsCheckbox(id, key) {
@@ -592,6 +612,9 @@ export class MenuController {
       setChoiceSelected(document.getElementById('sneak-mode-choice'), this.settings.controls.sneakMode);
       setChoiceSelected(document.getElementById('sprint-mode-choice'), this.settings.controls.sprintMode);
       document.getElementById('invert-scroll-toggle').checked = this.settings.controls.invertScroll;
+      document.getElementById('start-fullscreen-toggle').checked = this.settings.controls.startFullscreen;
+      document.getElementById('escape-tap-pause-toggle').checked = this.settings.controls.escapeTapOpensPause;
+      setChoiceSelected(document.getElementById('fullscreen-hold-duration-choice'), this.settings.controls.fullscreenHoldMs);
     } else if (tab === 'audio') {
       this.settings.audio = structuredClone(DEFAULT_AUDIO);
       for (const key of Object.keys(this.settings.audio)) AUDIO_APPLIERS[key](this.settings.audio[key], this);

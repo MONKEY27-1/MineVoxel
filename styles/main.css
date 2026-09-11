@@ -833,3 +833,68 @@ html, body {
   line-height: 1.6;
   white-space: pre-line;
 }
+
+/* --- Fullscreen hold-to-exit (revision-pass section 9) ------------------ */
+
+#fullscreen-hold-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 60; /* above the confirm/prompt modal (50) too — a hold can start while one is open */
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+#fullscreen-hold-overlay.visible {
+  opacity: 1;
+}
+
+#fullscreen-hold-box {
+  background: rgba(10, 12, 18, 0.85);
+  border: 2px solid #3a3a42;
+  border-radius: 6px;
+  padding: 18px 28px;
+  text-align: center;
+  color: #fff;
+}
+
+#fullscreen-hold-label {
+  font-family: 'Consolas', monospace;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+#fullscreen-hold-track {
+  width: 220px;
+  height: 8px;
+  background: #1e1e22;
+  border: 1px solid #3a3a42;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+#fullscreen-hold-fill {
+  width: 0%;
+  height: 100%;
+  background: #6fae4a;
+}
+
+#fullscreen-fallback-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 18, 0.85);
+  z-index: 55;
+  text-align: center;
+  color: #fff;
+}
+
+#fullscreen-fallback-box p {
+  font-size: 16px;
+  margin-bottom: 14px;
+}

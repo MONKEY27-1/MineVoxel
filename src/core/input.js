@@ -103,8 +103,15 @@ export class Input {
     document.addEventListener('pointerlockchange', this._onPointerLockChange);
   }
 
+  /**
+   * `unadjustedMovement` disables the OS's own mouse-acceleration/
+   * smoothing so raw deltas reach `mouseDX`/`mouseDY` unfiltered — some
+   * browsers throw NotSupportedError for it on platforms that can't
+   * honor the request, hence the plain retry.
+   */
   requestLock() {
-    this.dom.requestPointerLock();
+    const result = this.dom.requestPointerLock({ unadjustedMovement: true });
+    if (result?.catch) result.catch(() => this.dom.requestPointerLock());
   }
 
   exitLock() {

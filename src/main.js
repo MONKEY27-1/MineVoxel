@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Renderer } from './core/renderer.js';
 import { Input } from './core/input.js';
+import { FullscreenController } from './core/fullscreen.js';
 import { buildAtlas } from './mesh/atlas.js';
 import { World } from './world/world.js';
 import { Dimension } from './world/dimension.js';
@@ -23,7 +24,7 @@ import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
 import { getOrCreateChest, getOrCreateFurnace, allFurnaces } from './items/containerRegistry.js';
 import { audioEngine } from './audio/audio.js';
-import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt } from './audio/synth.js';
+import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick } from './audio/synth.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { Hud } from './ui/hud.js';
 import { InventoryUI } from './ui/inventoryUI.js';
@@ -79,8 +80,47 @@ function main() {
   overlayEl.addEventListener('click', () => {
     audioEngine.ensureStarted(); // must happen inside a real user-gesture handler
     menuController.applyAudioSettings(); // re-push slider values now that the AudioContext actually exists
-    input.requestLock();
+    if (settings.controls.startFullscreen) fullscreenController.enter().then(() => input.requestLock());
+    else input.requestLock();
   });
+
+  // --- Revision-pass section 9: fullscreen with hold-to-exit ----------
+  const fullscreenController = new FullscreenController({
+    canvas,
+    input,
+    holdOverlayEl: document.getElementById('fullscreen-hold-overlay'),
+    holdFillEl: document.getElementById('fullscreen-hold-fill'),
+    fallbackOverlayEl: document.getElementById('fullscreen-fallback-overlay'),
+  });
+  fullscreenController.holdDurationMs = settings.controls.fullscreenHoldMs;
+  fullscreenController.tapOpensPause = settings.controls.escapeTapOpensPause;
+  document.getElementById('keyboard-lock-hint').classList.toggle('hidden', fullscreenController.keyboardLockSupported);
+
+  const fullscreenBtnEl = document.getElementById('fullscreen-btn');
+  fullscreenBtnEl.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't also trigger pointer-lock-overlay's own click-to-lock handler
+    playUIClickSafe();
+    fullscreenController.enter().then(() => input.requestLock());
+  });
+  document.getElementById('fullscreen-resume-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    fullscreenController.resume();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'F11') {
+      e.preventDefault(); // pre-empt the browser's own native window-fullscreen toggle in favor of ours
+      fullscreenController.enter().then(() => input.requestLock());
+    }
+  });
+  function playUIClickSafe() {
+    // audio/synth.js's playUIClick() needs the AudioContext already
+    // started — every other button that plays it is reached from inside
+    // the overlay's own already-gestured click, but the fullscreen
+    // button can also be reached before that (e.g. a future start-screen
+    // entry point), so this guards the same way overlayEl's handler does.
+    audioEngine.ensureStarted();
+    playUIClick();
+  }
 
   // --- Texture atlas -----------------------------------------------------
   const { texture: atlasTexture, uv: atlasUV, canvas: atlasCanvas } = buildAtlas();
@@ -302,6 +342,7 @@ function main() {
     renderer,
     atlasTexture,
     settings,
+    fullscreenController,
     onPlay: startGame,
     onShadowQualityChange: applyShadowQuality,
     onScreenshot: takeScreenshot,
@@ -607,6 +648,7 @@ function main() {
     sunLight,
     viewModel,
     takeScreenshot,
+    fullscreenController,
   };
 }
 

@@ -647,6 +647,61 @@ section, each verified and committed independently.
       actually `canvas.toDataURL()` read back and injected as an `<img>`,
       not the browser tool's own screenshot action, which reliably shows
       solid black for this canvas regardless of what's actually rendered.
+- [x] **Section 9 — Fullscreen with hold-to-exit.** `core/fullscreen.js`'s
+      `FullscreenController` never enters fullscreen on its own — F11, the
+      pause-menu "Fullscreen" button, and the "start in fullscreen"
+      setting (chained onto the existing "click to play" gesture, the
+      first real user interaction available, rather than firing at load)
+      are the only three entry points, each a real user-gesture handler
+      calling `canvas.requestFullscreen()` then, if supported,
+      `navigator.keyboard.lock(['Escape'])`.
+      The hold-to-exit gesture only works *because* of that Keyboard Lock
+      call: without it, the browser intercepts Escape itself and force-
+      exits fullscreen/pointer-lock the instant it's pressed, before any
+      of this class's own timers could ever run. `navigator.keyboard.lock`
+      is Chromium-only and only functions in fullscreen, so it's feature-
+      detected once at startup; unsupported browsers get a plain
+      "Click to resume" overlay the moment `fullscreenchange` reports the
+      browser already left on its own, plus a note in the Controls tab
+      explaining why. `fullscreenchange`/`pointerlockchange` are the
+      source of truth throughout — not any assumption about what a
+      keydown/keyup *should* mean — and blur/tab-hide/an unrelated
+      pointer-lock loss all cancel an in-progress hold rather than
+      leaving a stale timer to fire later against the wrong state.
+      Escape itself is listened for directly (`e.code === 'Escape'` on a
+      raw `window` listener) rather than through `input.js`'s rebindable
+      `pause` action, so remapping the pause key never affects fullscreen
+      exit, exactly as asked. A short tap (under 250ms) opens the pause
+      menu by calling `document.exitPointerLock()` — which the *existing*
+      `input.onLockChange(false)` handler already responds to by showing
+      the pause overlay, so tap-to-pause needed no new "show the menu"
+      code of its own, just re-using what section 0's pointer-lock
+      handling already did. A second tap while the menu's already open
+      re-locks (closing it) the same way. The progress overlay fades in
+      only after ~400ms (`requestAnimationFrame`-driven fill bar) so a
+      quick tap never flashes it — verified directly via synthetic
+      `KeyboardEvent`s against the running controller (this sandbox can't
+      grant real fullscreen/keyboard-lock permissions, so the actual
+      Fullscreen/Keyboard Lock API calls themselves are unverified here):
+      confirmed the overlay stays hidden through a 200ms hold, appears by
+      700ms, and a keyup before the configured duration cancels cleanly
+      with zero completion side effects; separately confirmed the
+      "Instant" duration setting completes on keydown with no hold at
+      all, and that disabling keyboard-lock support skips starting any
+      timer whatsoever (nothing to hold for once the browser's already
+      exiting on its own). Settings: hold duration (1s/2s/3s/Instant,
+      default 3s) and whether an Escape tap opens the pause menu, both
+      in the Controls tab alongside the new "start in fullscreen" toggle.
+      **Not independently verified**: the real `requestFullscreen()`/
+      `navigator.keyboard.lock()` browser calls, live pointer-lock
+      `{unadjustedMovement:true}` behavior, and the actual on-screen look
+      of the progress bar filling — this environment cannot grant
+      fullscreen or pointer-lock permission to verify those end to end
+      (the same limitation that blocked live pointer-lock testing in
+      earlier sections), so this rests on matching the documented
+      Fullscreen/Pointer&nbsp;Lock/Keyboard&nbsp;Lock API contracts
+      precisely plus the synthetic-event state-machine checks above,
+      not a real hands-on playtest.
 
 ## Known simplifications (revisit later)
 
