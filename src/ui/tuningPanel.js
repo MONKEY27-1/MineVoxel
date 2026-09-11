@@ -18,6 +18,10 @@ const SLIDER_SPECS = [
   { key: 'STEP_HEIGHT', label: 'Step-up height', min: 0, max: 2, step: 0.05 },
   { key: 'COYOTE_TIME', label: 'Coyote time (s)', min: 0, max: 0.5, step: 0.01 },
   { key: 'JUMP_BUFFER_TIME', label: 'Jump buffer (s)', min: 0, max: 0.5, step: 0.01 },
+  { key: 'SPRINT_FOV_BOOST', label: 'Sprint FOV boost (deg)', min: 0, max: 25, step: 1 },
+  { key: 'FOV_LERP_SPEED', label: 'FOV ease speed', min: 1, max: 20, step: 0.5 },
+  { key: 'DAMAGE_SHAKE_DURATION', label: 'Damage shake duration (s)', min: 0, max: 1, step: 0.01 },
+  { key: 'DAMAGE_SHAKE_STRENGTH', label: 'Damage shake strength (rad)', min: 0, max: 0.1, step: 0.001 },
 ];
 
 export class TuningPanel {

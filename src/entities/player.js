@@ -45,6 +45,10 @@ export const TUNING = {
   // window used across the genre.
   COYOTE_TIME: 0.1,
   JUMP_BUFFER_TIME: 0.1,
+  SPRINT_FOV_BOOST: 8, // degrees added to the base FOV while sprinting — a widened view is the classic "moving fast" cue
+  FOV_LERP_SPEED: 8, // how quickly the FOV eases toward its target each second (higher = snappier)
+  DAMAGE_SHAKE_DURATION: 0.25, // seconds
+  DAMAGE_SHAKE_STRENGTH: 0.025, // radians of peak camera rotation offset
 };
 
 const isWater = (id) => id === BLOCKS.WATER;
@@ -114,6 +118,12 @@ export class Player {
     this.craftingGrid = new Inventory(4); // the 2x2 grid carried in the player's own inventory screen
 
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 1000);
+    this._baseFov = 75; // matches the camera's construction above
+    this._currentFov = this._baseFov;
+
+    // Brief camera shake on taking damage — see takeDamage()/_updateCameraShake().
+    this._shakeTimeLeft = 0;
+    this._shakeSeed = Math.random() * 1000;
 
     // Multiplier on BASE_MOUSE_SENSITIVITY — phase 9's settings slider
     // scales this directly instead of touching the base constant.
@@ -167,11 +177,17 @@ export class Player {
     this.xp += amount;
   }
 
+  /** A brief camera-shake impulse — called from every damage source (mob hits, fall damage, drowning), not just takeDamage(), so it's a consistent "you got hurt" cue regardless of cause. */
+  _triggerDamageShake() {
+    this._shakeTimeLeft = TUNING.DAMAGE_SHAKE_DURATION;
+  }
+
   /** Mob-attack damage — gated the same way fall damage/drowning already are. */
   takeDamage(amount, knockback) {
     if (this.gameMode !== 'survival') return;
     this.health = Math.max(0, this.health - amount);
     this.justHurt = true; // one-shot flag — main.js reads+clears it to trigger the hurt sound (phase 10)
+    this._triggerDamageShake();
     if (knockback) {
       this.velocity.x += knockback.x;
       this.velocity.y += knockback.y;
@@ -193,6 +209,8 @@ export class Player {
 
     this._updateBreathAndDamage(dt);
     this._updateCameraBob(dt);
+    this._updateFov(dt);
+    this._updateDamageShake(dt);
     this._syncCamera();
   }
 
@@ -472,7 +490,10 @@ export class Player {
     if (this.onGround) {
       if (this.gameMode === 'survival' && this._fallStartY !== null && !this.inWater) {
         const fallDistance = this._fallStartY - this.position.y;
-        if (fallDistance > 3) this.health = Math.max(0, this.health - Math.floor(fallDistance - 3));
+        if (fallDistance > 3) {
+          this.health = Math.max(0, this.health - Math.floor(fallDistance - 3));
+          this._triggerDamageShake();
+        }
       }
       this._fallStartY = null;
     } else if (this.inWater) {
@@ -493,6 +514,7 @@ export class Player {
         if (this._sinceDrownTick >= 1) {
           this._sinceDrownTick = 0;
           this.health = Math.max(0, this.health - 2);
+          this._triggerDamageShake();
         }
       }
     } else {
@@ -501,11 +523,38 @@ export class Player {
     }
   }
 
+  /** Widens the FOV a little while sprinting — the classic "moving fast" cue — eased rather than snapped so it doesn't feel like a jump-cut. */
+  _updateFov(dt) {
+    const target = this._baseFov + (this.sprinting && !this.sneaking ? TUNING.SPRINT_FOV_BOOST : 0);
+    const lerpFactor = Math.min(1, TUNING.FOV_LERP_SPEED * dt);
+    this._currentFov += (target - this._currentFov) * lerpFactor;
+    if (Math.abs(this.camera.fov - this._currentFov) > 0.01) {
+      this.camera.fov = this._currentFov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  _updateDamageShake(dt) {
+    this._shakeTimeLeft = Math.max(0, this._shakeTimeLeft - dt);
+  }
+
   _syncCamera() {
     this.camera.position.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
     this.camera.rotation.set(0, 0, 0);
     this.camera.rotateY(this.yaw);
     this.camera.rotateX(this.pitch);
+
+    if (this._shakeTimeLeft > 0) {
+      // Decaying, semi-random rotation offset — a fixed-frequency sine
+      // would read as a metronome; layering a couple of mismatched
+      // frequencies (seeded per-player so it isn't identical every hit)
+      // reads as an actual jolt instead.
+      const t = performance.now() / 1000 + this._shakeSeed;
+      const decay = this._shakeTimeLeft / TUNING.DAMAGE_SHAKE_DURATION;
+      const strength = TUNING.DAMAGE_SHAKE_STRENGTH * decay;
+      this.camera.rotateX(Math.sin(t * 47) * strength);
+      this.camera.rotateZ(Math.sin(t * 31) * strength);
+    }
   }
 
   get chunkCoords() {

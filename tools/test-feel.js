@@ -142,6 +142,47 @@ export default async function run(baseUrl) {
       if (afterCloseVisible) throw new Error('F6 did not close the tuning panel again');
     });
 
+    await step('sprinting eases the FOV up, and it eases back down when sprint stops', async () => {
+      const fovs = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        const p = M.player;
+        p.onGround = true;
+        p.sneaking = false;
+        p.sprinting = true;
+        const startFov = p.camera.fov;
+        for (let i = 0; i < 60; i++) p._updateFov(1 / 60); // ~1s of easing
+        const sprintFov = p.camera.fov;
+        p.sprinting = false;
+        for (let i = 0; i < 60; i++) p._updateFov(1 / 60);
+        const settledFov = p.camera.fov;
+        return { startFov, sprintFov, settledFov };
+      });
+      if (fovs.sprintFov <= fovs.startFov) {
+        throw new Error(`expected FOV to widen while sprinting (${fovs.startFov} -> ${fovs.sprintFov})`);
+      }
+      if (Math.abs(fovs.settledFov - fovs.startFov) > 0.1) {
+        throw new Error(`expected FOV to ease back to ~${fovs.startFov} after sprint stopped, got ${fovs.settledFov}`);
+      }
+    });
+
+    await step('taking damage triggers a brief, decaying camera shake', async () => {
+      const result = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        const p = M.player;
+        p.gameMode = 'survival';
+        p.health = p.maxHealth;
+        p._shakeTimeLeft = 0;
+        p.takeDamage(2, null);
+        const rightAfter = p._shakeTimeLeft;
+        // Fast-forward the shake to completion.
+        for (let i = 0; i < 60 && p._shakeTimeLeft > 0; i++) p._updateDamageShake(1 / 60);
+        const afterDecay = p._shakeTimeLeft;
+        return { rightAfter, afterDecay };
+      });
+      if (result.rightAfter <= 0) throw new Error('takeDamage() did not trigger a camera shake');
+      if (result.afterDecay !== 0) throw new Error(`shake did not fully decay to 0 within 1s, left at ${result.afterDecay}`);
+    });
+
     assertNoErrors(errors, 'test:feel');
     console.log('[test:feel] PASS');
   } finally {
