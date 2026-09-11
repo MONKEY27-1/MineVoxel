@@ -90,6 +90,18 @@ export class ChunkManager {
     // Fire-and-forget hook — see _unloadColumn.
     this.onChunkUnloadDirty = null;
 
+    // Scratch objects for updateVisibility()'s occlusion BFS, reused
+    // every call instead of allocated fresh — it runs once per rendered
+    // frame and the BFS can touch hundreds of sections, so `new
+    // THREE.Frustum()`/`Matrix4()`/`Box3()` plus a fresh Set+array of
+    // {cx,cz,sy,entryFace} objects every frame was real, avoidable GC
+    // pressure on the hottest loop in the game.
+    this._visFrustum = new THREE.Frustum();
+    this._visMatrix = new THREE.Matrix4();
+    this._visBox = new THREE.Box3();
+    this._visVisited = new Set();
+    this._visQueue = [];
+
     this.materials = {
       opaque: createAtlasMaterial(atlasTexture, { sunShadow: true }),
       transparent: createAtlasMaterial(atlasTexture, {
@@ -438,16 +450,20 @@ export class ChunkManager {
 
   updateVisibility(camera) {
     camera.updateMatrixWorld();
-    const frustum = new THREE.Frustum();
-    const m = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const frustum = this._visFrustum;
+    const m = this._visMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(m);
 
     const camCx = Math.floor(camera.position.x / SECTION_SIZE);
     const camCz = Math.floor(camera.position.z / SECTION_SIZE);
     const camSy = Math.min(NUM_SECTIONS - 1, Math.max(0, Math.floor(camera.position.y / SECTION_SIZE)));
 
-    const visited = new Set([`${camCx},${camCz},${camSy}`]);
-    const queue = [{ cx: camCx, cz: camCz, sy: camSy, entryFace: -1 }];
+    const visited = this._visVisited;
+    visited.clear();
+    visited.add(`${camCx},${camCz},${camSy}`);
+    const queue = this._visQueue;
+    queue.length = 0;
+    queue.push({ cx: camCx, cz: camCz, sy: camSy, entryFace: -1 });
 
     let qi = 0;
     while (qi < queue.length) {
@@ -470,7 +486,7 @@ export class ChunkManager {
       }
     }
 
-    const box = new THREE.Box3();
+    const box = this._visBox;
     let visibleSections = 0;
     for (const col of this.columns.values()) {
       for (let sy = 0; sy < NUM_SECTIONS; sy++) {
