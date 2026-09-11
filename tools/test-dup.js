@@ -202,6 +202,150 @@ export default async function run(baseUrl) {
       }
     });
 
+    await step('shift-clicking crafting output repeatedly consumes exactly the ingredients it should', async () => {
+      const result = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        if (M.inventoryUI.isOpen) M.inventoryUI.close();
+        M.player.inventory.slots.fill(null);
+        M.player.craftingGrid.slots.fill(null);
+        // planks_from_log: 1 log -> 4 oak planks, shapeless, one ingredient.
+        M.player.craftingGrid.slots[0] = { itemId: M.BLOCKS.OAK_LOG, count: 6 };
+        M.inventoryUI.open('inventory', { craftingGrid: M.player.craftingGrid, gridW: 2, gridH: 2, benchAvailable: false }, 'Inventory');
+        // Shift-click the crafting output slot: crafts repeatedly until
+        // ingredients or inventory space run out.
+        M.inventoryUI._handleClick('craftingOutput', 0, 0, true);
+        const logsLeft = M.player.craftingGrid.slots.reduce((s, c) => s + (c && c.itemId === M.BLOCKS.OAK_LOG ? c.count : 0), 0);
+        const planksGained = M.player.inventory.countItem(M.BLOCKS.OAK_PLANKS);
+        M.inventoryUI.close();
+        return { logsLeft, planksGained };
+      });
+      // 6 logs in, 1 consumed per craft, 4 planks out per craft -> 6 crafts, 0 logs left, 24 planks.
+      if (result.logsLeft !== 0) throw new Error(`expected all 6 logs consumed, ${result.logsLeft} left`);
+      if (result.planksGained !== 24) throw new Error(`expected 24 planks (6 crafts x 4), got ${result.planksGained}`);
+    });
+
+    await step('dying with an item held on the inventory cursor neither drops nor duplicates it', async () => {
+      const result = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        if (M.inventoryUI.isOpen) M.inventoryUI.close();
+        M.player.inventory.slots.fill(null);
+        M.player.gameMode = 'survival';
+        M.player.maxHealth = 20;
+        M.player.inventory.slots[0] = { itemId: M.BLOCKS.STONE, count: 5 };
+        M.inventoryUI.open('inventory', { craftingGrid: M.player.craftingGrid, gridW: 2, gridH: 2, benchAvailable: false }, 'Inventory');
+        // Pick up the hotbar stack onto the cursor (mid-drag) and kill the player.
+        M.inventoryUI._onSlotMouseDown('player', 0, 0, false);
+        const heldBeforeDeath = M.inventoryUI.cursor ? { ...M.inventoryUI.cursor } : null;
+        M.player.health = 0;
+        return { heldBeforeDeath };
+      });
+      if (!result.heldBeforeDeath || result.heldBeforeDeath.count !== 5) {
+        throw new Error('setup failed: expected 5x stone on cursor before death');
+      }
+
+      // respawnPlayer() runs inside the fixed-timestep tick loop the next
+      // time it sees health <= 0 — give real frames a moment to happen.
+      await page.waitForTimeout(500);
+
+      const after = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        const cursorCount = M.inventoryUI.cursor && M.inventoryUI.cursor.itemId === M.BLOCKS.STONE ? M.inventoryUI.cursor.count : 0;
+        const invCount = M.player.inventory.countItem(M.BLOCKS.STONE);
+        return { cursorCount, invCount, health: M.player.health, respawned: M.player.health > 0 };
+      });
+      if (!after.respawned) throw new Error('player did not respawn from 0 health in survival mode — test setup or a real bug');
+      const total = after.cursorCount + after.invCount;
+      if (total !== 5) {
+        throw new Error(`5x stone was held on cursor at death; found ${total}x total after respawn (cursor=${after.cursorCount}, inventory=${after.invCount}) — item lost or duplicated across death`);
+      }
+      await page.evaluate(() => {
+        if (window.__minevoxel.inventoryUI.isOpen) window.__minevoxel.inventoryUI.close();
+      });
+    });
+
+    await step('breaking a container while its own UI is still open does not duplicate its contents', async () => {
+      await page.evaluate(() => {
+        const M = window.__minevoxel;
+        M.player.gameMode = 'creative';
+        M.player.position.x = 300.5; M.player.position.y = 150; M.player.position.z = 300.5;
+        M.player.pitch = -Math.PI / 2; M.player.yaw = 0;
+        M.player.velocity.x = 0; M.player.velocity.y = 0; M.player.velocity.z = 0;
+      });
+      await page.waitForFunction(() => {
+        const col = window.__minevoxel.chunkManager.columns.get('18,18');
+        return !!col && col.state === 'generated';
+      }, { timeout: 20000 });
+
+      const setup = await page.evaluate(async () => {
+        const M = window.__minevoxel;
+        for (let y = 96; y < 103; y++) M.chunkManager.setBlock(300, y, 300, 0);
+        M.chunkManager.setBlock(300, 99, 300, M.BLOCKS.CHEST);
+        M.player.position.y = 102;
+        M.player.velocity.y = 0;
+        const containers = await import('/src/items/containerRegistry.js');
+        const chest = containers.getOrCreateChest(300, 99, 300);
+        for (let i = 0; i < chest.slots.length; i++) chest.slots[i] = null;
+        chest.addItem(M.BLOCKS.GLOWSTONE, 8);
+
+        // Open this exact chest's UI and leave it open (this is the part
+        // that's normally hard to reach through real input — see the
+        // comment above test:dup's import list for how — but the game
+        // code path doesn't actually prevent it: interaction.update()'s
+        // breaking check isn't gated on inventoryUI.isOpen at all).
+        M.inventoryUI.open('chest', { secondary: chest }, 'Chest');
+
+        const dropsBefore = window.__minevoxel.itemDrops.drops.length;
+
+        const orig = M.input.isMouseDown.bind(M.input);
+        M.input.isMouseDown = (btn) => (btn === 0 ? true : orig(btn));
+        M.interaction.update(1 / 60, M.player, M.input, M.chunkManager);
+        M.input.isMouseDown = orig;
+        const broke = M.interaction.justBroke ? { ...M.interaction.justBroke } : null;
+
+        return { dropsBefore, broke, stillOpen: M.inventoryUI.isOpen, secondaryStillSameRef: M.inventoryUI.context?.secondary === chest };
+      });
+
+      if (!setup.broke || !setup.broke.containerDrops) throw new Error(`expected to break the stocked chest, got: ${JSON.stringify(setup.broke)}`);
+      if (!setup.stillOpen) throw new Error('setup failed: inventory UI closed unexpectedly');
+
+      // Mirror main.js's real consumption of justBroke.containerDrops.
+      await page.evaluate((broke) => {
+        const M = window.__minevoxel;
+        for (const slot of broke.containerDrops) M.itemDrops.spawn(broke.position, slot.itemId, slot.count, slot.durability);
+      }, setup.broke);
+
+      const after = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        // If the still-open UI's `secondary` reference still shows the
+        // chest's old contents (it's the same live Inventory object —
+        // removeContainerAt only detaches it from the registry map, it
+        // doesn't clear the object itself), moving them into the player's
+        // inventory from here would duplicate whatever was just dropped
+        // into the world above.
+        const stillShowsContents = M.inventoryUI.context?.secondary?.slots?.some(Boolean) ?? false;
+        let movedIntoPlayerInv = 0;
+        if (stillShowsContents) {
+          const inv = M.inventoryUI.context.secondary;
+          for (let i = 0; i < inv.slots.length; i++) {
+            if (inv.slots[i]) {
+              M.inventoryUI._handleClick('secondary', i, 0, true); // shift-click into player inventory
+            }
+          }
+          movedIntoPlayerInv = M.player.inventory.countItem(M.BLOCKS.GLOWSTONE);
+        }
+        M.inventoryUI.close();
+        const dropCount = M.itemDrops.drops.reduce((s, d) => s + (d.itemId === M.BLOCKS.GLOWSTONE ? d.count : 0), 0);
+        return { stillShowsContents, movedIntoPlayerInv, dropCount };
+      });
+
+      const total = after.movedIntoPlayerInv + after.dropCount;
+      if (after.stillShowsContents && total > 8) {
+        throw new Error(
+          `chest was stocked with 8x glowstone; after breaking it while its UI stayed open, found ${after.dropCount}x as world drops AND ${after.movedIntoPlayerInv}x still reachable through the stale UI (total ${total}) — duplication`
+        );
+      }
+    });
+
     assertNoErrors(errors, 'test:dup');
     console.log('[test:dup] PASS');
   } finally {
