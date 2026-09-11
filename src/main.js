@@ -477,6 +477,8 @@ function main() {
   let accumulator = 0;
   let lastTime = performance.now();
   let lastFrameMs = 16.6;
+  let lastWorldTriangles = 0;
+  let lastWorldDrawCalls = 0;
 
   function tick(now) {
     requestAnimationFrame(tick);
@@ -701,6 +703,13 @@ function main() {
     chunkManager.update(player.position);
     chunkManager.updateVisibility(player.camera);
     renderer.render(player.camera);
+    // Three.js's info.render is overwritten by the *next* render() call —
+    // grab the world pass's numbers now, before the view-model overlay
+    // pass below overwrites them with its own tiny draw-call/triangle
+    // count (the debug overlay was silently showing the overlay's stats
+    // instead of the world's whenever in first-person).
+    lastWorldTriangles = renderer.three.info.render.triangles;
+    lastWorldDrawCalls = renderer.three.info.render.calls;
 
     const heldItemId = player.selectedItem && !inventoryUI.isOpen ? player.selectedItem.itemId : null;
     playerModel.setItem(heldItemId);
@@ -719,8 +728,8 @@ function main() {
       chunkCoords: player.chunkCoords,
       yawDeg: THREE.MathUtils.radToDeg(ryaw),
       pitchDeg: THREE.MathUtils.radToDeg(rpitch),
-      triangles: renderer.three.info.render.triangles,
-      drawCalls: renderer.three.info.render.calls,
+      triangles: lastWorldTriangles,
+      drawCalls: lastWorldDrawCalls,
       dimensionName: world.getActive().name,
       biomeName,
       chunkStats: stats,
@@ -777,6 +786,8 @@ function main() {
       loadSettings,
       get accumulator() { return accumulator; },
       get lastFrameMs() { return lastFrameMs; },
+      get lastWorldTriangles() { return lastWorldTriangles; },
+      get lastWorldDrawCalls() { return lastWorldDrawCalls; },
     };
     window.__MINEVOXEL__ = hook;
     window.__minevoxel = hook;
