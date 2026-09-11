@@ -1,0 +1,18 @@
+{
+  "name": "minevoxel-devtools",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Test/dev tooling only — the game itself (index.html, src/) stays a plain, bundler-free static site. This package.json exists purely to drive Playwright against a static file server for the polish-pass test harness.",
+  "scripts": {
+    "serve": "node tools/devserver.js",
+    "smoke": "node tools/run-with-server.js tools/smoke.js",
+    "perf": "node tools/run-with-server.js tools/perf.js",
+    "soak": "node tools/run-with-server.js tools/soak.js",
+    "test:gen": "node tools/run-with-server.js tools/test-gen.js",
+    "test:save": "node tools/run-with-server.js tools/test-save.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}

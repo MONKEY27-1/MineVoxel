@@ -730,35 +730,57 @@ function main() {
     });
   }
 
-  // Dev convenience hook for the console — not used by any gameplay code.
-  window.__MINEVOXEL__ = {
-    world,
-    player,
-    input,
-    debugOverlay,
-    renderer,
-    chunkManager,
-    get climateGenerator() { return climateGenerator; }, // `let`-backed — startGame() reassigns it, so this must stay a live getter, not a stale snapshot
-    interaction,
-    dayNight,
-    itemDrops,
-    inventoryUI,
-    getBlock,
-    mobManager,
-    respawnPlayer,
-    menuController,
-    startGame,
-    persistNow,
-    get currentWorldId() { return currentWorldId; },
-    settings,
-    clouds,
-    sky,
-    sunLight,
-    viewModel,
-    playerModel,
-    takeScreenshot,
-    fullscreenController,
-  };
+  // Polish-pass test harness hook: gated behind ?debug=1 (or
+  // localStorage['mv_debug']==='1') so it's never present in normal
+  // play — a page could otherwise poke at live game/save state through
+  // it. Not used by any gameplay code; tools/*.js (Playwright) is the
+  // only consumer. `window.__MINEVOXEL__` is kept as an alias so this
+  // session's own earlier ad-hoc console testing still works.
+  const debugEnabled =
+    new URLSearchParams(location.search).get('debug') === '1' || localStorage.getItem('mv_debug') === '1';
+  if (debugEnabled) {
+    const hook = {
+      world,
+      player,
+      input,
+      debugOverlay,
+      renderer,
+      chunkManager,
+      get climateGenerator() { return climateGenerator; }, // `let`-backed — startGame() reassigns it, so this must stay a live getter, not a stale snapshot
+      interaction,
+      dayNight,
+      itemDrops,
+      xpOrbs,
+      inventoryUI,
+      toggleInventory,
+      openContainer,
+      getBlock,
+      BLOCKS,
+      mobManager,
+      respawnPlayer,
+      menuController,
+      startGame,
+      persistNow,
+      get currentWorldId() { return currentWorldId; },
+      settings,
+      clouds,
+      sky,
+      sunLight,
+      viewModel,
+      playerModel,
+      takeScreenshot,
+      fullscreenController,
+      THREE,
+      raycastVoxel,
+      saveGame,
+      loadGame,
+      loadSettings,
+      get accumulator() { return accumulator; },
+      get lastFrameMs() { return lastFrameMs; },
+    };
+    window.__MINEVOXEL__ = hook;
+    window.__minevoxel = hook;
+  }
 }
 
 function applyDimensionAtmosphere(scene, dimension) {
