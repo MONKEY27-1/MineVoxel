@@ -105,6 +105,43 @@ export default async function run(baseUrl) {
       }
     });
 
+    await step('debug tuning panel: F6 toggles it, and its sliders live-edit TUNING', async () => {
+      const beforeVisible = await page.evaluate(() => window.__minevoxel.tuningPanel.visible);
+      if (beforeVisible) throw new Error('setup assumption failed: tuning panel should start hidden');
+
+      await page.keyboard.press('F6');
+      const afterOpenVisible = await page.evaluate(() => window.__minevoxel.tuningPanel.visible);
+      if (!afterOpenVisible) throw new Error('F6 did not open the tuning panel');
+      const hiddenClassRemoved = await page.evaluate(() => !document.getElementById('tuning-panel').classList.contains('hidden'));
+      if (!hiddenClassRemoved) throw new Error('tuning panel is marked visible=true but the DOM element is still .hidden');
+
+      // Drag the walk-speed slider and confirm the live TUNING object
+      // actually changed (not just the slider's own displayed value).
+      const originalWalkSpeed = await page.evaluate(() => window.__minevoxel.TUNING.WALK_SPEED);
+      await page.evaluate(() => {
+        const slider = document.querySelector('#tuning-panel input[type="range"]'); // WALK_SPEED is the first row
+        slider.value = '9.5';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const newWalkSpeed = await page.evaluate(() => window.__minevoxel.TUNING.WALK_SPEED);
+      if (newWalkSpeed !== 9.5 || newWalkSpeed === originalWalkSpeed) {
+        throw new Error(`expected TUNING.WALK_SPEED to become 9.5 after moving its slider, got ${newWalkSpeed} (was ${originalWalkSpeed})`);
+      }
+
+      // Reset button restores every field to what it was when the panel
+      // was constructed (this session's defaults), not necessarily the
+      // pre-slider-drag value if other tests already touched TUNING —
+      // just confirm it actually changes something back, not that it's a
+      // no-op.
+      await page.evaluate(() => document.getElementById('tuning-reset-btn').click());
+      const afterReset = await page.evaluate(() => window.__minevoxel.TUNING.WALK_SPEED);
+      if (afterReset === 9.5) throw new Error('reset button did not restore WALK_SPEED away from the slider-set value');
+
+      await page.keyboard.press('F6');
+      const afterCloseVisible = await page.evaluate(() => window.__minevoxel.tuningPanel.visible);
+      if (afterCloseVisible) throw new Error('F6 did not close the tuning panel again');
+    });
+
     assertNoErrors(errors, 'test:feel');
     console.log('[test:feel] PASS');
   } finally {
