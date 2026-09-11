@@ -59,6 +59,17 @@ export default async function run(baseUrl) {
       if (after <= before) throw new Error(`expected a pickup particle burst, particle count went ${before} -> ${after}`);
     });
 
+    await step('respawning (death, void recovery, or new-world spawn) briefly flashes the fade overlay', async () => {
+      const becameVisible = await page.evaluate(() => {
+        window.__minevoxel.respawnPlayer();
+        return document.getElementById('fade-overlay').classList.contains('visible');
+      });
+      if (!becameVisible) throw new Error('respawnPlayer() did not make #fade-overlay visible');
+      await page.waitForTimeout(400); // holdMs (150) + transition (600ms) margin
+      const fadedBackOut = await page.evaluate(() => !document.getElementById('fade-overlay').classList.contains('visible'));
+      if (!fadedBackOut) throw new Error('#fade-overlay never lost the .visible class again after respawn');
+    });
+
     assertNoErrors(errors, 'test:visual');
     console.log('[test:visual] PASS');
   } finally {

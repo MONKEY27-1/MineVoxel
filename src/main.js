@@ -57,6 +57,7 @@ function main() {
   const overlayEl = document.getElementById('pointer-lock-overlay');
   const debugEl = document.getElementById('debug-overlay');
   const crosshairEl = document.getElementById('crosshair');
+  const fadeOverlayEl = document.getElementById('fade-overlay');
 
   const renderer = new Renderer(canvas);
 
@@ -316,12 +317,29 @@ function main() {
   player.sprintMode = settings.controls.sprintMode;
   input.invertScroll = settings.controls.invertScroll;
 
+  // Snaps the fade overlay instantly opaque, holds briefly, then lets its
+  // CSS transition (0.6s) fade it back to transparent — a "flash to
+  // black and back" rather than a fade-to-black-and-stay, since this is
+  // called at moments the player's position/view is about to jump
+  // (spawning in, dying, the void-safety recovery), not moments meant to
+  // stay dark. Reused as both "fade-in on load" and "fade on death" per
+  // the polish-pass spec, since respawnPlayer() already covers both
+  // (plus the void-fall recovery) — one hook, three matching UX moments.
+  function flashFadeOverlay(holdMs = 150) {
+    fadeOverlayEl.style.transition = 'none';
+    fadeOverlayEl.classList.add('visible');
+    void fadeOverlayEl.offsetHeight; // force layout so the instant opacity jump actually paints before re-enabling the transition
+    fadeOverlayEl.style.transition = '';
+    setTimeout(() => fadeOverlayEl.classList.remove('visible'), holdMs);
+  }
+
   function respawnPlayer() {
     const { height } = climateGenerator.heightAndBiome(0.5, 0.5);
     player.position = { x: 0.5, y: height + 2, z: 0.5 };
     player.velocity = { x: 0, y: 0, z: 0 };
     player.health = player.maxHealth;
     player.breath = player.maxBreath;
+    flashFadeOverlay();
   }
 
   // --- Persistence: current world id, autosave scheduling ------------

@@ -90,6 +90,25 @@ html, body {
   box-shadow: inset 0 0 120px 40px rgba(10, 50, 100, 0.5);
 }
 
+/* Plain black screen-fade — used for fade-in on world load and a brief
+   fade on death, so both read as an intentional transition rather than
+   a jump-cut. Driven purely by the .visible class (opacity 1 <-> 0);
+   main.js controls timing. Sits above everything else in the HUD/canvas
+   stack but below actual menu screens, which have their own opaque
+   backgrounds and don't need to fade through this. */
+#fade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  background: #000;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+#fade-overlay.visible {
+  opacity: 1;
+}
+
 #vitals {
   position: absolute;
   left: 50%;
