@@ -17,6 +17,37 @@ export class ViewModel {
     this.currentItemId = undefined;
     this.currentMesh = null;
 
+    // A plain skin-colored forearm+hand, always present (even holding
+    // nothing — an empty first-person hand, like every game with a view
+    // model has) so there's an actual arm attaching the held item to the
+    // player instead of it floating in space. Sits in the same `group`
+    // so it inherits all of its bob/swing/place/raise transforms for
+    // free instead of needing its own copy of them.
+    const armMat = new THREE.MeshBasicMaterial({ color: 0xe0ac69 });
+    this.armMesh = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.6), armMat);
+    // Below-left of the held item and noticeably closer to the camera
+    // (a positive local z, vs. the item's own local origin) — both to
+    // keep it from being fully swallowed by an opaque held block (an
+    // earlier, farther/behind placement was) and so it visibly reads as
+    // "an arm holding the item up" rather than a sliver peeking out from
+    // behind it. Sized up from a first attempt for the same reason: at
+    // this close, corner-of-frame distance even a fairly large box only
+    // pokes a little past a same-distance item's own silhouette.
+    // Verified by direct pixel readback, not just eyeballing a
+    // screenshot — a gray held stone block happens to closely match this
+    // game's gray stone terrain in color, so "hidden behind the item"
+    // and "not rendering at all" looked identical against a stone
+    // background until the camera was pointed at plain sky instead.
+    // x is recomputed every frame in update() to mirror with `handSide`
+    // (toward screen-center from the item, not a fixed screen side).
+    this.armMesh.position.set(-0.5, 0.05, 0);
+    // View models sit at a fixed corner offset near the camera, where
+    // three.js's default bounding-sphere frustum test is more likely to
+    // reject an object that's still partly on screen — never actually
+    // desired for anything camera-attached like this, so left off.
+    this.armMesh.frustumCulled = false;
+    this.group.add(this.armMesh);
+
     // Settings (section 8 wires these to UI controls).
     this.enabled = true;
     this.fov = 70;
@@ -55,6 +86,7 @@ export class ViewModel {
     }
     if (itemId != null) {
       this.currentMesh = getItemModel(itemId, this.atlasAssets);
+      this.currentMesh.frustumCulled = false; // see armMesh's own comment above — same bounding-sphere-vs-corner-offset issue
       this.group.add(this.currentMesh);
     }
     this._raiseT = 0; // lower-then-raise transition on every slot change
@@ -117,15 +149,12 @@ export class ViewModel {
 
     this._raiseT = Math.min(1, this._raiseT + dt / 0.2);
 
-    if (!this.currentMesh) {
-      this.group.visible = false;
-      return;
-    }
-
     const side = this.handSide === 'left' ? -1 : 1;
     const baseX = side * 0.35;
     const baseY = -0.32;
     const baseZ = -0.6;
+    // Always toward screen-center from the item, whichever side that is.
+    this.armMesh.position.x = -side * 0.5;
 
     const bobX = Math.sin(this._bobPhase) * 0.008 * Math.min(moveSpeed, 6) * this.bobStrength;
     const bobY = Math.abs(Math.cos(this._bobPhase)) * 0.01 * Math.min(moveSpeed, 6) * this.bobStrength;

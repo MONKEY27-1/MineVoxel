@@ -13,7 +13,8 @@ import { DayNightCycle } from './world/dayNightCycle.js';
 import { __selfTestTravel } from './world/travel.js';
 import { __selfTestLighting } from './world/lighting.js';
 import { Player } from './entities/player.js';
-import { InteractionController } from './entities/interaction.js';
+import { InteractionController, raycastVoxel } from './entities/interaction.js';
+import { PlayerModel } from './entities/playerModel.js';
 import { ParticleSystem } from './entities/particles.js';
 import { ItemDropManager } from './entities/itemDrop.js';
 import { XPOrbManager } from './entities/xpOrb.js';
@@ -41,6 +42,7 @@ const FIXED_DT = 1 / 60;
 const MAX_FRAME_DT = 0.25;
 const FOOTSTEP_STRIDE = 1.15; // blocks of horizontal travel between footstep triggers
 const SHADOW_MAP_SIZE_BY_TIER = { off: 0, low: 512, medium: 1024, high: 2048 };
+const THIRD_PERSON_DISTANCE = 4.5; // blocks — clamped shorter by raycastVoxel if a wall is closer
 
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
@@ -169,6 +171,13 @@ function main() {
   player.setAspect(window.innerWidth / window.innerHeight);
   viewModel.setAspect(window.innerWidth / window.innerHeight);
 
+  // The player's own visible body — third-person modes only (F5, see
+  // player.cycleCameraMode); first person keeps using the view model's
+  // own separate arm instead, same as every other first-person game.
+  const playerModel = new PlayerModel({ atlasTexture, atlasCanvas, atlasUV });
+  renderer.scene.add(playerModel.group);
+  playerModel.setVisible(false);
+
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
   const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV);
@@ -185,6 +194,8 @@ function main() {
   const zenithColor = new THREE.Color();
   const sunDirVec = new THREE.Vector3();
   const shadowMatrix = new THREE.Matrix4();
+  const lookDirVec = new THREE.Vector3();
+  const thirdPersonDir = new THREE.Vector3();
 
   const sunLight = new THREE.DirectionalLight(0xffffff, 1);
   sunLight.castShadow = true;
@@ -222,6 +233,10 @@ function main() {
   }
   window.addEventListener('keydown', (e) => {
     if (e.code === 'F2') takeScreenshot(Number(settings.graphics.screenshotScale));
+    if (e.code === 'F5') {
+      e.preventDefault(); // pre-empt the browser's own page-refresh shortcut
+      player.cycleCameraMode();
+    }
   });
 
   // Apply every remaining loaded setting that doesn't need to be baked
@@ -537,14 +552,51 @@ function main() {
     const ryaw = THREE.MathUtils.lerp(prev.yaw, player.yaw, alpha);
     const rpitch = THREE.MathUtils.lerp(prev.pitch, player.pitch, alpha);
 
-    player.camera.position.set(rx, ry + reyeH, rz);
-    player.camera.rotation.set(0, 0, 0);
-    player.camera.rotateY(ryaw);
-    player.camera.rotateX(rpitch);
-    // Local-space translate (after the rotations above) so the bob reads
-    // as head movement relative to look direction, not a world-space wobble.
-    player.camera.translateX(player.cameraBobOffset.x);
-    player.camera.translateY(player.cameraBobOffset.y);
+    const eyeX = rx;
+    const eyeY = ry + reyeH;
+    const eyeZ = rz;
+
+    if (player.cameraMode === 'first') {
+      player.camera.position.set(eyeX, eyeY, eyeZ);
+      player.camera.rotation.set(0, 0, 0);
+      player.camera.rotateY(ryaw);
+      player.camera.rotateX(rpitch);
+      // Local-space translate (after the rotations above) so the bob reads
+      // as head movement relative to look direction, not a world-space wobble.
+      player.camera.translateX(player.cameraBobOffset.x);
+      player.camera.translateY(player.cameraBobOffset.y);
+    } else {
+      // Third person (F5 — player.cycleCameraMode): the player's own aim
+      // (mining/placing raycasts, in entities/interaction.js) still comes
+      // from the head's actual yaw/pitch regardless of camera mode, same
+      // as vanilla Minecraft — only where the *camera* sits changes here.
+      lookDirVec.set(-Math.sin(ryaw) * Math.cos(rpitch), Math.sin(rpitch), -Math.cos(ryaw) * Math.cos(rpitch));
+      const behind = player.cameraMode === 'third-back';
+      thirdPersonDir.copy(lookDirVec);
+      if (behind) thirdPersonDir.negate();
+      const hit = raycastVoxel(chunkManager, { x: eyeX, y: eyeY, z: eyeZ }, thirdPersonDir, THIRD_PERSON_DISTANCE);
+      const dist = hit ? Math.max(0.3, hit.distance - 0.35) : THIRD_PERSON_DISTANCE;
+      player.camera.position.set(
+        eyeX + thirdPersonDir.x * dist,
+        eyeY + thirdPersonDir.y * dist,
+        eyeZ + thirdPersonDir.z * dist
+      );
+      // Behind: look the same way the player looks (over-the-shoulder) —
+      // aim at a point far ahead along their view, not at their own head,
+      // or the camera would cross-eye toward them instead of past them.
+      // In front ("selfie"): look directly at the player's head.
+      if (behind) player.camera.lookAt(eyeX + lookDirVec.x * 10, eyeY + lookDirVec.y * 10, eyeZ + lookDirVec.z * 10);
+      else player.camera.lookAt(eyeX, eyeY, eyeZ);
+    }
+
+    playerModel.setVisible(player.cameraMode !== 'first');
+    playerModel.update(dt, {
+      position: { x: rx, y: ry, z: rz },
+      yaw: ryaw,
+      pitch: rpitch,
+      velocity: player.velocity,
+      sneaking: player.sneaking,
+    });
 
     // --- Atmosphere: biome tint x day/night tint, swapped for a flat
     // underwater fog when the camera's eye is submerged.
@@ -598,9 +650,13 @@ function main() {
     chunkManager.updateVisibility(player.camera);
     renderer.render(player.camera);
 
-    viewModel.setItem(player.selectedItem && !inventoryUI.isOpen ? player.selectedItem.itemId : null);
-    viewModel.update(dt, Math.hypot(player.velocity.x, player.velocity.z));
-    renderer.renderOverlay(viewModel.scene, viewModel.camera);
+    const heldItemId = player.selectedItem && !inventoryUI.isOpen ? player.selectedItem.itemId : null;
+    playerModel.setItem(heldItemId);
+    if (player.cameraMode === 'first') {
+      viewModel.setItem(heldItemId);
+      viewModel.update(dt, Math.hypot(player.velocity.x, player.velocity.z));
+      renderer.renderOverlay(viewModel.scene, viewModel.camera);
+    }
 
     hud.update(player, interaction, dt);
 
@@ -647,6 +703,7 @@ function main() {
     sky,
     sunLight,
     viewModel,
+    playerModel,
     takeScreenshot,
     fullscreenController,
   };

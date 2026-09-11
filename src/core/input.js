@@ -21,7 +21,7 @@ export const DEFAULT_BINDINGS = {
   sprint: 'ShiftLeft',
   debugOverlay: 'F3',
   pause: 'Escape',
-  inventory: 'KeyE',
+  inventory: 'Tab',
   drop: 'KeyQ',
   hotbar1: 'Digit1',
   hotbar2: 'Digit2',

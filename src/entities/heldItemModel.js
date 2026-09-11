@@ -33,7 +33,7 @@ function buildBlockModel(blockId, atlasUV, material) {
   const sideTile = def.texture.side ?? def.texture.all ?? topTile;
   const bottomTile = def.texture.bottom ?? def.texture.side ?? def.texture.all ?? topTile;
 
-  const geo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
+  const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
   const uvAttr = geo.attributes.uv;
   // BoxGeometry face order: +x, -x, +y, -y, +z, -z, 4 verts each.
   const tiles = [sideTile, sideTile, topTile, bottomTile, sideTile, sideTile];

@@ -82,6 +82,15 @@ export class Player {
     this.cameraBobOffset = { x: 0, y: 0 };
     this._bobPhase = 0;
 
+    // F5 view cycle: first-person (view model + no visible body) ->
+    // third-person-back (camera trails behind, looking the way the
+    // player looks) -> third-person-front ("selfie", camera in front
+    // looking back at the player's own face) -> back to first. Actual
+    // camera positioning/collision happens in main.js's tick (it needs
+    // chunkManager for the wall-collision raycast); this field is just
+    // the mode selector every other system reacts to.
+    this.cameraMode = 'first';
+
     this.inventory = new Inventory(36); // slots 0-8 hotbar, 9-35 main
     this.selectedHotbar = 0;
     this.craftingGrid = new Inventory(4); // the 2x2 grid carried in the player's own inventory screen
@@ -128,6 +137,12 @@ export class Player {
     if (this.gameMode !== 'creative') return;
     this.flying = !this.flying;
     if (this.flying) this.velocity.y = 0;
+  }
+
+  /** F5 — matches vanilla's cycle: first -> third-person-back -> third-person-front -> first. */
+  cycleCameraMode() {
+    this.cameraMode =
+      this.cameraMode === 'first' ? 'third-back' : this.cameraMode === 'third-back' ? 'third-front' : 'first';
   }
 
   addXP(amount) {
