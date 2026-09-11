@@ -130,7 +130,13 @@ function faceDescriptor(ownId, neighborId, axis, sign, atlasUV) {
   const faceDir = FACE_DIR[axis][sign];
   const texKey = resolveTileKey(def.texture, faceDir);
   const rect = atlasUV.get(texKey);
-  const category = def.liquid || def.transparent ? 'transparent' : 'opaque';
+  // def.transparent also drives face-culling looseness and light
+  // passability (isOpaque(), used just above) — both correct for leaves.
+  // renderOpaque overrides *only* which material bucket the geometry
+  // itself lands in, so a block can be "transparent" for those purposes
+  // while still rendering fully solid instead of inheriting the
+  // alpha-blended `transparent` material's opacity (tuned for water).
+  const category = (def.liquid || def.transparent) && !def.renderOpaque ? 'transparent' : 'opaque';
   return { texKey, category, faceDir, shade: SHADE[faceDir], rect };
 }
 

@@ -19,6 +19,18 @@ function define(def) {
     gravity: def.gravity ?? false,
     drops: def.drops ?? def.name,
     cross: def.cross ?? false, // cross-shaped (plants) instead of a cube
+    // `transparent` alone also controls face-culling looseness and light
+    // passability (see isOpaque()) — both correct for leaves (you should
+    // see between two adjacent leaf blocks, and some light should get
+    // through). But mesh/greedy.js's category selection also uses the
+    // same flag to route a block into the alpha-blended `transparent`
+    // material, which carries a fixed opacity tuned for water — leaves'
+    // own texture has no alpha holes and was never meant to look
+    // see-through, it just inherited water's translucency as a side
+    // effect of sharing that bucket. This flag decouples the two: still
+    // `transparent` for culling/lighting, but meshed into the plain
+    // opaque (fully solid) material instead.
+    renderOpaque: def.renderOpaque ?? false,
   };
   registry.push(block);
   byName.set(block.name, id);
@@ -82,6 +94,7 @@ export const BLOCKS = {
     texture: { all: 'leaves' },
     hardness: 0.2,
     transparent: true,
+    renderOpaque: true,
     drops: null,
   }),
   WATER: define({
@@ -118,11 +131,11 @@ export const BLOCKS = {
 
   // --- phase 4: biome flora/stone/surface set -------------------------
   BIRCH_LOG: define({ name: 'birch_log', texture: { top: 'birch_log_top', side: 'birch_log_side', bottom: 'birch_log_top' }, hardness: 2, tool: 'axe' }),
-  BIRCH_LEAVES: define({ name: 'birch_leaves', texture: { all: 'birch_leaves' }, hardness: 0.2, transparent: true, drops: null }),
+  BIRCH_LEAVES: define({ name: 'birch_leaves', texture: { all: 'birch_leaves' }, hardness: 0.2, transparent: true, renderOpaque: true, drops: null }),
   SPRUCE_LOG: define({ name: 'spruce_log', texture: { top: 'spruce_log_top', side: 'spruce_log_side', bottom: 'spruce_log_top' }, hardness: 2, tool: 'axe' }),
-  SPRUCE_LEAVES: define({ name: 'spruce_leaves', texture: { all: 'spruce_leaves' }, hardness: 0.2, transparent: true, drops: null }),
+  SPRUCE_LEAVES: define({ name: 'spruce_leaves', texture: { all: 'spruce_leaves' }, hardness: 0.2, transparent: true, renderOpaque: true, drops: null }),
   JUNGLE_LOG: define({ name: 'jungle_log', texture: { top: 'jungle_log_top', side: 'jungle_log_side', bottom: 'jungle_log_top' }, hardness: 2, tool: 'axe' }),
-  JUNGLE_LEAVES: define({ name: 'jungle_leaves', texture: { all: 'jungle_leaves' }, hardness: 0.2, transparent: true, drops: null }),
+  JUNGLE_LEAVES: define({ name: 'jungle_leaves', texture: { all: 'jungle_leaves' }, hardness: 0.2, transparent: true, renderOpaque: true, drops: null }),
   VINE: define({ name: 'vine', texture: { all: 'vine' }, solid: false, transparent: true, hardness: 0.2, cross: true, drops: null }),
 
   PODZOL: define({ name: 'podzol', texture: { top: 'podzol_top', side: 'podzol_side', bottom: 'dirt' }, hardness: 0.5, tool: 'shovel' }),
