@@ -52,6 +52,47 @@ function mulberry32(seed) {
   };
 }
 
+/**
+ * Deterministic per-seed spawn location, chosen away from the world
+ * origin. Every noise field this generator uses is built from
+ * SimplexNoise2D (noise.js), which — like any gradient noise — evaluates
+ * to exactly 0 at every integer lattice point for any seed (the corner
+ * dot-products/radial falloffs are all seed-independent zero right at an
+ * integer coordinate). (0,0) is one of those points, so a spawn hardcoded
+ * there sampled climate values that stayed near zero regardless of seed:
+ * different seeds produced almost the same terrain at spawn, and that
+ * near-zero continentalness sat right on the ocean/land threshold,
+ * making spawn placement unreliable too. Picking an angle+distance from
+ * the seed instead lands each seed on genuinely different, well
+ * conditioned terrain, clear of that shared degenerate region.
+ */
+export function pickSpawnPoint(seed) {
+  const rnd = mulberry32((seed ^ 0x5350776e) >>> 0); // salt distinct from every terrain noise field's own seed offset above
+  const startAngle = rnd() * Math.PI * 2;
+  const { heightAndBiome } = createOverworldGenerator(seed);
+
+  // Continentalness (the noise field behind isOcean) has a wavelength of
+  // several thousand blocks, so a single random point can easily land in
+  // the middle of a large ocean — a small local nudge wouldn't reliably
+  // clear it. Walk outward in rings instead, 8 angles per ring, until
+  // dry land turns up; each check is a handful of cheap noise samples,
+  // so even the worst case here is well under a millisecond.
+  const RING_DISTANCES = [64, 128, 256, 512, 768, 1024, 1536, 2048, 3072];
+  const ANGLES_PER_RING = 8;
+  let fallback = null;
+  for (const dist of RING_DISTANCES) {
+    for (let i = 0; i < ANGLES_PER_RING; i++) {
+      const angle = startAngle + (i / ANGLES_PER_RING) * Math.PI * 2;
+      const x = Math.round(Math.cos(angle) * dist) + 0.5;
+      const z = Math.round(Math.sin(angle) * dist) + 0.5;
+      const hb = heightAndBiome(x, z);
+      if (!fallback) fallback = { x, z };
+      if (!hb.isOcean) return { x, z };
+    }
+  }
+  return fallback; // an extraordinarily ocean-heavy seed — every ring came back water; spawn there anyway rather than searching forever
+}
+
 export function createOverworldGenerator(seed) {
   const s = seed >>> 0;
   // Continentalness/temperature/humidity are the fields that decide how

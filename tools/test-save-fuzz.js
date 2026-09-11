@@ -70,6 +70,18 @@ export default async function run(baseUrl) {
     // of the world (a different chunk's diffs) must survive intact.
     const farSpawn = { x: spawn.x + 400, y: spawn.y, z: spawn.z + 400 };
     await step('building two structures (one to corrupt, one to keep intact) and saving', async () => {
+      // spawn is now a seed-derived point (generator.js's pickSpawnPoint),
+      // not always chunk (0,0) — no longer safe to assume it's among
+      // whichever 15 columns waitForChunks happened to load first, so
+      // wait for its own column explicitly, same as farSpawn below.
+      await page.waitForFunction(
+        (cx_cz) => {
+          const col = window.__minevoxel.chunkManager.columns.get(cx_cz);
+          return !!col && col.state === 'generated';
+        },
+        `${Math.floor(spawn.x / 16)},${Math.floor(spawn.z / 16)}`,
+        { timeout: 20000 }
+      );
       await page.evaluate(({ spawn }) => {
         const M = window.__minevoxel;
         M.chunkManager.setBlock(spawn.x + 2, spawn.y, spawn.z + 2, M.BLOCKS.STONE);
@@ -100,7 +112,11 @@ export default async function run(baseUrl) {
 
     await step('corrupting one chunk-diff record (out-of-registry block id + malformed key)', async () => {
       const all = await idbGetAll(page, 'chunkDiffs');
-      const nearCol = `${Math.floor(spawn.x / 16)},${Math.floor(spawn.z / 16)}`;
+      // The edited block is at spawn+2, not spawn itself — with a
+      // seed-derived (no longer chunk-(0,0)-aligned) spawn point, that +2
+      // can cross into the next chunk, so this must key off the actual
+      // edited position, not spawn's own column.
+      const nearCol = `${Math.floor((spawn.x + 2) / 16)},${Math.floor((spawn.z + 2) / 16)}`;
       const target = all.find((r) => r.key.endsWith(`|${nearCol}`));
       if (!target) throw new Error('setup failed: could not find the chunk-diff record to corrupt');
       target.diffs.push(['5,999,5', 9999]); // out-of-range id AND out-of-bounds y in the same entry
@@ -157,6 +173,11 @@ export default async function run(baseUrl) {
         const col = window.__minevoxel.chunkManager.columns.get(cx_cz);
         return !!col && col.state === 'generated';
       }, `${Math.floor(farSpawn.x / 16)},${Math.floor(farSpawn.z / 16)}`, { timeout: 20000 });
+      // Queued diffs are replayed on the next chunkManager update pass
+      // after generation, not synchronously with it (see the identical
+      // wait + comment in test-save.js) — one more tick so the glowstone
+      // edit has definitely landed before reading it back.
+      await page.waitForTimeout(500);
       const farBlock = await page.evaluate((p) => window.__minevoxel.chunkManager.getBlock(p.x + 3, p.y, p.z + 3), farSpawn);
       const expectedGlowstone = await page.evaluate(() => window.__minevoxel.BLOCKS.GLOWSTONE);
       if (farBlock !== expectedGlowstone) {
@@ -172,14 +193,14 @@ export default async function run(baseUrl) {
       w.schemaVersion = 0; // simulate a save from before the current schema
       await idbPut(page, 'worlds', w);
 
-      const migrated = await page.evaluate(async (worldId) => {
+      const { migrated, current } = await page.evaluate(async (worldId) => {
         const worldSave = await import('/src/persistence/worldSave.js');
         const rec = await worldSave.getWorld(worldId); // routes through migrateWorld()
-        return rec.schemaVersion;
+        return { migrated: rec.schemaVersion, current: worldSave.SCHEMA_VERSION };
       }, record.id);
 
-      if (migrated !== 1) {
-        throw new Error(`getWorld() did not migrate schemaVersion 0 -> current (1); got ${migrated}`);
+      if (migrated !== current) {
+        throw new Error(`getWorld() did not migrate schemaVersion 0 -> current (${current}); got ${migrated}`);
       }
       // And it must have actually been re-persisted at the current
       // version, not just returned migrated-in-memory — listWorlds()
@@ -195,7 +216,7 @@ export default async function run(baseUrl) {
       // record on disk is fine as long as every reader keeps migrating
       // it consistently. Confirm that's actually true for listWorlds too.
       const listedRec = listed.find((r) => r.id === record.id);
-      if (!listedRec || listedRec.schemaVersion !== 1) {
+      if (!listedRec || listedRec.schemaVersion !== current) {
         throw new Error(`listWorlds() did not migrate the old-schemaVersion record too (got ${listedRec?.schemaVersion})`);
       }
     });

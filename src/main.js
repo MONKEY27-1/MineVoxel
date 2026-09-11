@@ -205,6 +205,12 @@ function main() {
   // workers to rebuild their own copies via chunkManager.setSeed) once
   // the player picks a real seed instead of this placeholder default.
   let climateGenerator = createOverworldGenerator(WORLD_SEED);
+  // The chosen world's stored spawn point (worldSave.js's createWorld —
+  // seed-derived, not the origin; see generator.js's pickSpawnPoint for
+  // why). Placeholder here; startGame() below sets the real value before
+  // respawnPlayer() ever reads it.
+  let spawnX = 0.5;
+  let spawnZ = 0.5;
   const fogColor = new THREE.Color(overworld.fogColor);
   const targetFogColor = new THREE.Color();
   const dayTint = new THREE.Color();
@@ -346,8 +352,12 @@ function main() {
   }
 
   function respawnPlayer() {
-    const { height } = climateGenerator.heightAndBiome(0.5, 0.5);
-    player.position = { x: 0.5, y: height + 2, z: 0.5 };
+    // spawnX/spawnZ (worldSave.js's createWorld -> generator.js's
+    // pickSpawnPoint) already resolved to dry land at world-creation
+    // time via a real outward search, not just a single lucky-or-not
+    // sample — no need to re-search on every respawn.
+    const { height } = climateGenerator.heightAndBiome(spawnX, spawnZ);
+    player.position = { x: spawnX, y: height + 2, z: spawnZ };
     player.velocity = { x: 0, y: 0, z: 0 };
     player.health = player.maxHealth;
     player.breath = player.maxBreath;
@@ -394,6 +404,11 @@ function main() {
     if (started) return;
     started = true;
     currentWorldId = worldRecord.id;
+    // Pre-v2 saves (worldSave.js's migrateWorld) backfill these to
+    // (0.5, 0.5) — the same hardcoded point they always spawned at — so
+    // an old world's spawn never silently moves out from under it.
+    spawnX = worldRecord.spawnX ?? 0.5;
+    spawnZ = worldRecord.spawnZ ?? 0.5;
     chunkManager.setSeed(worldRecord.seed);
     climateGenerator = createOverworldGenerator(worldRecord.seed);
     player.setGameMode(worldRecord.mode);

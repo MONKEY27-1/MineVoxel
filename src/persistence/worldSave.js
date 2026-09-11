@@ -1,7 +1,8 @@
 import { STORES, dbPut, dbPutMany, dbGet, dbGetAll, dbGetByPrefix, dbDelete, dbDeleteByPrefix } from './db.js';
 import { serializeContainers, restoreContainers } from '../items/containerRegistry.js';
+import { pickSpawnPoint } from '../world/generator.js';
 
-const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 const DIMENSION_ID = 'overworld'; // the only one that exists — see world/travel.js's own seam for a real second dimension
 
 function newWorldId() {
@@ -23,14 +24,20 @@ export async function saveChunkDiff(worldId, cx, cz, diffs) {
 }
 
 /**
- * Every world record is stamped with `schemaVersion`. `migrateWorld` is
- * a no-op today (there's only ever been version 1) but is the one place
- * a later format change adds a real migration step — every load already
- * routes through it, so nothing else needs to change when that happens.
+ * Every world record is stamped with `schemaVersion`; every load already
+ * routes through this, so a later format change only needs a new branch
+ * here, nothing else.
  */
 function migrateWorld(record) {
   if (record.schemaVersion === SCHEMA_VERSION) return record;
-  // if (record.schemaVersion < 2) { ...upgrade in place... }
+  if (record.schemaVersion < 2) {
+    // Pre-v2 saves always spawned (and respawned on death) at the
+    // hardcoded (0.5, 0.5) origin — keep that exact behavior for
+    // existing worlds rather than moving an already-established spawn
+    // out from under returning players. Only brand-new worlds
+    // (createWorld, below) get a real seed-derived point.
+    record = { ...record, spawnX: record.spawnX ?? 0.5, spawnZ: record.spawnZ ?? 0.5 };
+  }
   return { ...record, schemaVersion: SCHEMA_VERSION };
 }
 
@@ -46,11 +53,14 @@ export async function getWorld(worldId) {
 
 export async function createWorld({ name, seed, mode }) {
   const now = Date.now();
+  const spawn = pickSpawnPoint(seed);
   const record = {
     id: newWorldId(),
     name: name || `World ${new Date(now).toLocaleDateString()}`,
     seed,
     mode,
+    spawnX: spawn.x,
+    spawnZ: spawn.z,
     dimensionId: DIMENSION_ID,
     schemaVersion: SCHEMA_VERSION,
     createdAt: now,

@@ -134,6 +134,18 @@ export default async function run(baseUrl) {
       { spawn, structureOffsets: STRUCTURE_OFFSETS, chestOffset: CHEST_OFFSET, furnaceOffset: FURNACE_OFFSET }
     );
 
+    // setBlock() on a column that hasn't finished its first-time
+    // generation yet queues the edit for replay once generation lands,
+    // rather than applying it immediately (chunkManager.js) — normally
+    // near-instant, but not synchronous with the call above, so wait for
+    // it to actually be visible before treating "before" as the
+    // structure's true built state.
+    await page.waitForFunction(
+      (p) => window.__minevoxel.chunkManager.getBlock(p.x, p.y, p.z) === window.__minevoxel.BLOCKS.STONE,
+      { x: spawn.x + STRUCTURE_OFFSETS[0].dx, y: spawn.y + STRUCTURE_OFFSETS[0].dy, z: spawn.z + STRUCTURE_OFFSETS[0].dz },
+      { timeout: 20000 }
+    );
+
     const before = await captureSnapshot(page, spawn);
 
     console.log('  - saving...');
@@ -165,23 +177,18 @@ export default async function run(baseUrl) {
     }, record.id);
     await waitForChunks(page, 15, 20000);
 
-    // Wait for the specific structure's column to be generated and have
-    // its saved diffs applied (queueDiffsFor applies at generation time),
-    // not just "enough columns loaded somewhere".
+    // Wait for the structure's own first block to actually read back as
+    // placed — not just "its column reached the generated state", since
+    // queued diffs (queueDiffsFor) are replayed on a later chunkManager
+    // update pass, not synchronously with generation, and how long that
+    // takes depends on how much else is queued around it. Polling the
+    // real value directly is both more robust and (usually) faster than
+    // a fixed guess at how long that gap can be.
     await page.waitForFunction(
-      (spawn) => {
-        const cm = window.__minevoxel.chunkManager;
-        const cx = Math.floor(spawn.x / 16);
-        const cz = Math.floor(spawn.z / 16);
-        const col = cm.columns.get(`${cx},${cz}`);
-        return !!col && col.state === 'generated';
-      },
-      spawn,
+      (p) => window.__minevoxel.chunkManager.getBlock(p.x, p.y, p.z) === window.__minevoxel.BLOCKS.STONE,
+      { x: spawn.x + STRUCTURE_OFFSETS[0].dx, y: spawn.y + STRUCTURE_OFFSETS[0].dy, z: spawn.z + STRUCTURE_OFFSETS[0].dz },
       { timeout: 20000 }
     );
-    // One more tick so queued diffs (applied on the next chunkManager
-    // update pass after generation) have definitely landed.
-    await page.waitForTimeout(500);
 
     const after = await captureSnapshot(page, spawn);
 
