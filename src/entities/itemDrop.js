@@ -31,6 +31,10 @@ export class ItemDropManager {
     this.atlasUV = atlasUV;
     this.material = createAtlasMaterial(atlasTexture);
     this.drops = [];
+    // Revision-pass section 8's "entity render distance" — dropped items
+    // had no distance culling of any kind before this (see mobManager.js's
+    // matching field for the same reasoning/history).
+    this.despawnDist = 96;
   }
 
   spawn(position, itemId, count, durability) {
@@ -65,6 +69,16 @@ export class ItemDropManager {
   update(dt, playerFeetPos, chunkManager, onPickup) {
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
+
+      const dxp = d.mesh.position.x - playerFeetPos.x;
+      const dzp = d.mesh.position.z - playerFeetPos.z;
+      if (dxp * dxp + dzp * dzp > this.despawnDist * this.despawnDist) {
+        this.scene.remove(d.mesh);
+        d.mesh.geometry.dispose();
+        this.drops.splice(i, 1);
+        continue;
+      }
+
       d.age += dt;
       d.pickupDelay = Math.max(0, d.pickupDelay - dt);
 

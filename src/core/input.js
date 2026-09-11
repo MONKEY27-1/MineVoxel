@@ -46,6 +46,7 @@ export class Input {
     this.mouseButtons = new Set();
     this._justPressedMouse = new Set();
     this.wheelDelta = 0; // accumulated since last endFrame(); positive = scroll down
+    this.invertScroll = false; // revision-pass section 8 Controls setting
     // Real keydown timestamps, one per physical press, unaffected by how
     // many fixed-timestep iterations run before endFrame() next clears
     // _justPressed — see getPressTime() for why this matters.
@@ -81,7 +82,7 @@ export class Input {
     this._onMouseUp = (e) => this.mouseButtons.delete(e.button);
     this._onWheel = (e) => {
       if (!this.pointerLocked) return;
-      this.wheelDelta += Math.sign(e.deltaY);
+      this.wheelDelta += (this.invertScroll ? -1 : 1) * Math.sign(e.deltaY);
     };
     this._onContextMenu = (e) => {
       if (this.pointerLocked) e.preventDefault(); // right-click places blocks, not a context menu

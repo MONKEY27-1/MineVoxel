@@ -20,7 +20,18 @@ const FACE_DIR = {
 const SHADE = { top: 1.0, bottom: 0.45, east: 0.65, west: 0.65, south: 0.8, north: 0.8 };
 // Ambient occlusion level (0=fully occluded corner .. 3=fully open) -> brightness
 // multiplier. Kept off pure black so occluded corners read as shadowed, not lit-out.
-const AO_LEVELS = [0.45, 0.65, 0.8, 1.0];
+const BASE_AO_LEVELS = [0.45, 0.65, 0.8, 1.0];
+
+/**
+ * Revision-pass section 8's "smooth lighting strength" setting: 0 lerps
+ * every level to 1.0 (no occlusion at all, flat-shaded corners), 1
+ * reproduces BASE_AO_LEVELS exactly. Baked at mesh-build time rather
+ * than a shader uniform — see chunkManager.js's `aoStrength` field for
+ * why remeshing on change is the simpler, still-live-enough choice here.
+ */
+function computeAoLevels(strength) {
+  return BASE_AO_LEVELS.map((v) => 1 - (1 - v) * strength);
+}
 
 function makeAccessor(blocks, borders) {
   const { negX, posX, negY, posY, negZ, posZ } = borders;
@@ -128,12 +139,13 @@ function sameDescriptor(a, b) {
 }
 
 class Bucket {
-  constructor() {
+  constructor(aoLevels = BASE_AO_LEVELS) {
     this.positions = [];
     this.uvs = [];
     this.atlasRect = [];
     this.colors = [];
     this.indices = [];
+    this.aoLevels = aoLevels;
   }
 
   emitQuad(axis, plane, sign, u0, v0, eu, ev, desc, blockAt, getSkyLight, getBlockLight) {
@@ -207,7 +219,7 @@ class Bucket {
         v1
       );
       aoAt[i] = ao;
-      const shadeAO = desc.shade * AO_LEVELS[ao];
+      const shadeAO = desc.shade * this.aoLevels[ao];
 
       this.positions.push(coord[0], coord[1], coord[2]);
       this.uvs.push(st[i][0], st[i][1]);
@@ -281,12 +293,14 @@ function mergeMask(mask, axis, plane, sign, bucket, blockAt, getSkyLight, getBlo
  * @param borders { negX,posX,negY,posY,negZ,posZ: Uint8Array(256) } — 1-block
  *   neighbor slices (see chunkManager.js for how these are gathered)
  * @param atlasUV Map<tileName, {u0,v0,u1,v1}>
+ * @param aoStrength 0..1, defaults to full AO — see computeAoLevels()
  */
-export function greedyMeshSection(blocks, skyLight, blockLight, borders, atlasUV) {
+export function greedyMeshSection(blocks, skyLight, blockLight, borders, atlasUV, aoStrength = 1) {
   const blockAt = makeAccessor(blocks, borders);
   const getSkyLight = makeLightAccessor(skyLight);
   const getBlockLight = makeLightAccessor(blockLight);
-  const buckets = { opaque: new Bucket(), transparent: new Bucket() };
+  const aoLevels = computeAoLevels(aoStrength);
+  const buckets = { opaque: new Bucket(aoLevels), transparent: new Bucket(aoLevels) };
 
   for (let axis = 0; axis < 3; axis++) {
     const uAxis = (axis + 1) % 3;

@@ -7,7 +7,7 @@ import { allSpawners } from '../world/structures/spawnerRegistry.js';
 
 const MAX_HOSTILE = 24;
 const MAX_PASSIVE = 16;
-const DESPAWN_DIST = 96; // beyond render distance (6 chunks = 96 blocks) — never visible anyway
+const DEFAULT_DESPAWN_DIST = 96; // beyond render distance (6 chunks = 96 blocks) — never visible anyway
 const NATURAL_SPAWN_INTERVAL = 2.5;
 const SPAWNER_INTERVAL = 8;
 const SPAWNER_RADIUS = 16; // only spawners the player is near enough to matter get ticked
@@ -38,6 +38,13 @@ export class MobManager {
     this.itemDrops = itemDrops;
     this.xpOrbs = xpOrbs;
     this.mobs = [];
+    // Revision-pass section 8's "entity render distance" setting — the
+    // survey behind this pass found no existing concept of a *separate*
+    // entity-vs-terrain draw distance, so this reuses the despawn
+    // distance that already existed as the closest real equivalent
+    // (nothing beyond it is ever visible anyway, terrain render distance
+    // or not).
+    this.despawnDist = DEFAULT_DESPAWN_DIST;
     this._naturalTimer = 0;
     this._spawnerTimer = 0;
     this._playerAttackCooldown = 0;
@@ -74,7 +81,7 @@ export class MobManager {
         mob.position.y - player.position.y,
         mob.position.z - player.position.z
       );
-      if (dist > DESPAWN_DIST) {
+      if (dist > this.despawnDist) {
         this.scene.remove(mob.mesh);
         mob.dispose();
         this.mobs.splice(i, 1);

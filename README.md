@@ -513,6 +513,140 @@ section, each verified and committed independently.
       codebase never uses them either) was rendering at a lower z-index
       than the start screen, so its buttons were visually present but
       unclickable — one line, `z-index: 50`.
+- [x] **Section 8 — Settings, expanded.** The settings panel became four
+      tabs (Graphics/Audio/Controls/Performance) backed by one persisted
+      object (`src/settings/settings.js`, localStorage — global app
+      preferences, deliberately separate from `persistence/worldSave.js`'s
+      per-world IndexedDB state), with every control live-applying,
+      surviving a reload, and resettable to defaults per tab. A survey
+      done before starting this section found that most of the requested
+      settings had **no existing system to attach to at all** — no
+      shadows, no clouds, no foliage sway, no water shader, no
+      postprocessing, no skybox, no camera bob, entity despawn distance
+      hardcoded, worker pool size fixed at construction. Flagged to the
+      user up front rather than either silently building throwaway no-op
+      controls or quietly skipping them; the user chose "build lean real
+      versions" for the missing visual systems and "basic single shadow
+      map" for shadows specifically (the one item both sides agreed was
+      genuinely risky — shadow-mapping an unbounded voxel world is a
+      known-hard problem). What actually got built, briefly:
+      - **Presets** (Potato/Low/Medium/High/Ultra) are complete graphics
+        slices in `settings.js`; applying one is a straight field
+        overwrite, and changing any individual control afterward flips
+        the preset indicator to "Custom" (`detectPreset()` — an exact
+        match against every preset's fields, checked after every change).
+      - **Foliage sway and water tint needed no new vertex attributes or
+        materials.** Cross-shaped plant quads (mesh/greedy.js's
+        `meshCrossBlocks`) already emit `uv.y = 0` at a quad's rooted
+        bottom edge and `1` at its free top edge as a side effect of their
+        corner winding — that's exactly a sway height factor for free, so
+        `atlasMaterial.js`'s `sway` shader option reuses it directly.
+        Water shares its material with glass/leaves (the "transparent"
+        category), so there's no per-vertex "is this water" flag either
+        — the `waterTint` shader option instead compares the already-
+        varying `vAtlasRect` against a `waterRect` uniform in the
+        fragment shader and only re-tints/re-opacifies matching texels.
+        Both are uniform-only: no remesh, no extra draw call, no new
+        material instances beyond the three (opaque/transparent/cross)
+        that already existed.
+      - **Smooth lighting strength** stayed baked-at-mesh-time (like the
+        AO it scales) rather than becoming a shader uniform — greedy.js's
+        `computeAoLevels(strength)` lerps the AO table toward flat
+        lighting, and the setting just re-dirties every loaded section
+        for a remesh, reusing 100% existing chunk-dirty machinery instead
+        of threading a new attribute/uniform through the mesh pipeline.
+      - **Clouds** are one big alpha-blended plane textured with a
+        procedurally-drawn (canvas, seeded, not downloaded) cloud pattern
+        (`world/clouds.js`), scrolling and following the player in XZ.
+        **Sky** (`world/sky.js`) is a 2x128 canvas vertical-gradient
+        texture as `scene.background` for "Enhanced" (vs. the original
+        flat Color for "Simple") plus one additive glare billboard
+        following `dayNightCycle.getSunDirection()` — honestly one
+        warm-to-cool-tinted disc, not two independent celestial bodies,
+        since the day/night model only ever tracked one direction/
+        intensity pair sweeping a full circle.
+      - **Antialiasing (FXAA)**: no postprocessing library exists in this
+        project (no bundler, no addons import-map entry), so
+        `core/postprocess.js` is a hand-written, simplified luminance-
+        contrast edge blur — not a reproduction of the real NVIDIA FXAA
+        shader — rendered via an offscreen `WebGLRenderTarget` + fullscreen
+        triangle. The renderer's WebGL context still keeps `antialias:
+        true` (fixed MSAA from context creation, not toggleable live
+        without tearing down every GPU resource) — "Off" means no
+        *additional* post-process AA on top of that, not zero AA ever;
+        documented rather than silently misleading.
+      - **Shadows**: one `DirectionalLight` whose shadow camera (a fixed
+        40-block orthographic frustum, not the full render distance)
+        re-centers on the player every frame. Real, and the hard part:
+        `MeshBasicMaterial` (what every block material here is built on,
+        for the baked sky/block lighting model) has `.lights = false`,
+        so three.js never populates its automatic shadow-map/shadow-
+        matrix uniforms for it, and the `#include <shadowmap_...>` chunks
+        aren't even present in its shader template to patch against.
+        Fixed by hand-rolling shadow sampling entirely: `uShadowMatrix`/
+        `uShadowMap` uniforms pushed every frame from the light's own
+        shadow camera, a manually-computed shadow-space coordinate in
+        the vertex shader, and a 4-tap depth-compare average in the
+        fragment shader (`atlasMaterial.js`'s `sunShadow` option) — only
+        wired into the opaque material, so shadows darken terrain without
+        darkening every leaf/blade of grass/water surface under them.
+        Verified visually (not just "it compiles"): an early version
+        showed real but distinctly banded/streaked shadow acne on flat
+        sand under a test pillar at a tight bias with a single hard tap;
+        widened the bias and switched to a 4-tap average, which is where
+        it was left — a real, working, if imperfect, first pass, exactly
+        the "real tuning risk" flagged before building it.
+      - **Geometry pooling** reuses the `BufferGeometry` *object* across
+        a section's remeshes rather than allocating a fresh one every
+        time (`chunkManager.js`'s `_acquireGeometry`/`_releaseGeometry`)
+        — the vertex/index data itself is still freshly allocated (a
+        real GPU-buffer capacity-tracking pool across wildly different
+        per-remesh quad counts was judged not worth the risk for this
+        pass), but each attribute's actual GPU buffer is still explicitly
+        freed via the renderer's own `WebGLAttributes.remove()` before
+        the container is reused — skipping that step would've silently
+        leaked VRAM every reuse, the opposite of the setting's point.
+      - **Worker pool resizing** grows immediately (spins up new workers)
+        and shrinks by narrowing the round-robin pool used for *new*
+        dispatches only — the excess workers are left running rather
+        than terminated (any in-flight job they're mid-way through still
+        completes and posts back normally, since every handler here keys
+        off column coordinates, never worker identity) and become
+        reusable again the moment the count is raised back up. A real
+        terminate-and-redistribute-in-flight-work implementation wasn't
+        worth the complexity for a rarely-touched slider.
+      - **Controls**: sneak/sprint hold-vs-toggle and double-tap-forward-
+        to-sprint (reusing `Input.getPressTime()`, the same primitive
+        `Player`'s flight double-tap already used) both layer on top of
+        the existing per-frame hold-check rather than replacing it — a
+        toggle just flips a persisted flag on `wasPressed()`, and double-
+        tap-sprint sets an independent flag that cancels itself the
+        moment forward is released, so neither can fight the other's
+        semantics. Scroll invert is one sign flip in `input.js`.
+      - **Entity render distance** reuses `mobManager`'s pre-existing
+        (now configurable) despawn distance; item drops had no distance
+        culling at all before this and got the same field added fresh.
+      **Found and fixed a real, pre-existing bug while verifying this
+      section** (not introduced by it, just finally caught by reading the
+      canvas back as actual pixels instead of eyeballing a screenshot —
+      something this pass's FXAA work made routine to check):
+      `Renderer.renderOverlay()` (the held-item view-model pass, section
+      3) called `clearDepth()` then `render()`, but `render()` defaults
+      to `autoClear: true` and clears the *color* buffer too — wiping out
+      the just-drawn world on every single frame before drawing the view
+      model over a blank canvas. `clearDepth()` alone was never sufficient.
+      Fixed by setting `autoClear = false` around that one call, restored
+      immediately after. Verified with a direct pixel readback
+      (`canvas` → 2D context → `getImageData`) showing real terrain
+      colors surviving the overlay pass, both with and without FXAA.
+      **Testing note**: this sandbox's screenshot tool captures a
+      compositor frame that a canvas relying on `requestAnimationFrame`
+      never actually receives here (confirmed directly: a fresh
+      `requestAnimationFrame` probe never fired once in over a second) —
+      every "screenshot" of the running game in this section's testing is
+      actually `canvas.toDataURL()` read back and injected as an `<img>`,
+      not the browser tool's own screenshot action, which reliably shows
+      solid black for this canvas regardless of what's actually rendered.
 
 ## Known simplifications (revisit later)
 

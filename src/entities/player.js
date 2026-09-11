@@ -66,6 +66,22 @@ export class Player {
     this._flyDoubleTapTimer = 0;
     this._lastFlyPressTime = 0;
 
+    // Revision-pass section 8 Controls tab.
+    this.sneakMode = 'hold'; // 'hold' | 'toggle'
+    this.sprintMode = 'hold';
+    this.doubleTapSprintEnabled = false;
+    this._sneakToggleState = false;
+    this._sprintToggleState = false;
+    this._sprintDoubleTapTimer = 0;
+    this._lastForwardPressTime = 0;
+    this._dtSprintActive = false;
+
+    // Revision-pass section 8 Graphics tab: camera-position bob, separate
+    // from the held-item view model's own hand/view bob (entities/viewModel.js).
+    this.cameraBobStrength = 0.6; // 0..1
+    this.cameraBobOffset = { x: 0, y: 0 };
+    this._bobPhase = 0;
+
     this.inventory = new Inventory(36); // slots 0-8 hotbar, 9-35 main
     this.selectedHotbar = 0;
     this.craftingGrid = new Inventory(4); // the 2x2 grid carried in the player's own inventory screen
@@ -143,7 +159,59 @@ export class Player {
     else this._updateGround(dt, input, chunkManager);
 
     this._updateBreathAndDamage(dt);
+    this._updateCameraBob(dt);
     this._syncCamera();
+  }
+
+  /** Respects `sneakMode`: 'hold' reads the key live, 'toggle' flips a persisted flag on each press. */
+  _wantsSneak(input) {
+    if (this.sneakMode !== 'toggle') return input.isDown('sneak');
+    if (input.wasPressed('sneak')) this._sneakToggleState = !this._sneakToggleState;
+    return this._sneakToggleState;
+  }
+
+  /**
+   * Respects `sprintMode` the same way `_wantsSneak` respects
+   * `sneakMode`, plus an independent double-tap-forward trigger (matches
+   * vanilla) that can start sprinting regardless of mode — it cancels the
+   * moment forward is released, same as a real hold would, so it never
+   * fights either mode's own semantics.
+   */
+  _wantsSprint(input) {
+    if (this.doubleTapSprintEnabled) {
+      const pressTime = input.getPressTime('moveForward');
+      if (pressTime !== 0 && pressTime !== this._lastForwardPressTime) {
+        if (pressTime - this._sprintDoubleTapTimer < 300) this._dtSprintActive = true;
+        this._sprintDoubleTapTimer = pressTime;
+        this._lastForwardPressTime = pressTime;
+      }
+      if (!input.isDown('moveForward')) this._dtSprintActive = false;
+    } else {
+      this._dtSprintActive = false;
+    }
+
+    let held;
+    if (this.sprintMode === 'toggle') {
+      if (input.wasPressed('sprint')) this._sprintToggleState = !this._sprintToggleState;
+      held = this._sprintToggleState;
+    } else {
+      held = input.isDown('sprint');
+    }
+    return held || this._dtSprintActive;
+  }
+
+  /** Vertical (+ a touch of horizontal) camera offset while walking/sprinting on the ground — separate from the held-item view model's own bob. */
+  _updateCameraBob(dt) {
+    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    const moving = this.onGround && !this.flying && !this.swimSprinting && speed > 0.5;
+    const rate = moving ? Math.min(speed / SPRINT_SPEED, 1.4) : 0;
+    this._bobPhase += dt * rate * 9;
+    const amp = 0.05 * this.cameraBobStrength;
+    const targetY = moving ? Math.abs(Math.sin(this._bobPhase)) * amp : 0;
+    const targetX = moving ? Math.sin(this._bobPhase * 0.5) * amp * 0.6 : 0;
+    const smoothing = Math.min(1, dt * 10);
+    this.cameraBobOffset.y += (targetY - this.cameraBobOffset.y) * smoothing;
+    this.cameraBobOffset.x += (targetX - this.cameraBobOffset.x) * smoothing;
   }
 
   _updateLook(input) {
@@ -208,13 +276,14 @@ export class Player {
     if (input.isDown('flyUp')) move.y += 1; // Space held: ascend (a single tap is also the fly-toggle, handled separately)
     if (input.isDown('flyDown')) move.y -= 1; // Shift held: descend
 
-    const speed = input.isDown('sprint') ? FLY_SPRINT_SPEED : FLY_SPEED;
+    const wantSprint = this._wantsSprint(input);
+    const speed = wantSprint ? FLY_SPRINT_SPEED : FLY_SPEED;
     const target = move.lengthSq() > 0 ? move.normalize().multiplyScalar(speed) : new THREE.Vector3();
     this.velocity.x = target.x;
     this.velocity.y = target.y;
     this.velocity.z = target.z;
 
-    this.sprinting = input.isDown('sprint');
+    this.sprinting = wantSprint;
     this.sneaking = false;
 
     // Flight skips gravity but still collides with terrain — you can't
@@ -227,8 +296,8 @@ export class Player {
 
   _updateGround(dt, input, chunkManager) {
     const dim = this.dimension;
-    this.sneaking = input.isDown('sneak') && this.onGround;
-    this.sprinting = input.isDown('sprint') && !this.sneaking;
+    this.sneaking = this._wantsSneak(input) && this.onGround;
+    this.sprinting = this._wantsSprint(input) && !this.sneaking;
 
     const move = this._moveVector(input, false);
     const speed = this.sneaking ? SNEAK_SPEED : this.sprinting ? SPRINT_SPEED : WALK_SPEED;
@@ -306,7 +375,7 @@ export class Player {
   _updateSwim(dt, input, chunkManager) {
     const dim = this.dimension;
     this.sneaking = false;
-    const wantSprint = input.isDown('sprint');
+    const wantSprint = this._wantsSprint(input);
     this.swimSprinting = wantSprint && this.headInWater && aabbFits(chunkManager, this.position, SWIM_SIZE);
 
     const move = this._moveVector(input, this.swimSprinting);

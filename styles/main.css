@@ -767,3 +767,69 @@ html, body {
   flex: 1;
   margin: 0;
 }
+
+/* --- Settings tabs (revision-pass section 8) ---------------------------- */
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #3a3a42;
+  padding-bottom: 8px;
+}
+
+.settings-tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: #999;
+  padding: 8px 4px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-tab-btn:hover {
+  color: #ccc;
+  background: #2a2a30;
+}
+
+.settings-tab-btn.active {
+  color: #fff;
+  background: #3a5a2f;
+}
+
+.settings-tab-content.hidden {
+  display: none;
+}
+
+.preset-choice .mode-btn {
+  font-size: 11px;
+  padding: 8px 2px;
+}
+
+.settings-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  font-family: 'Consolas', monospace;
+  opacity: 0.55;
+  text-align: center;
+}
+
+.settings-reset-btn {
+  margin-top: 6px;
+  margin-bottom: 14px;
+}
+
+.perf-stats {
+  background: #1e1e22;
+  border: 1px solid #3a3a42;
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #ccc;
+  line-height: 1.6;
+  white-space: pre-line;
+}

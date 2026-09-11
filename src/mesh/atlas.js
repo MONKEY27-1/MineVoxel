@@ -903,8 +903,11 @@ export function buildAtlas() {
   // coarser levels (the padding gutter only protects the top level) —
   // and our greedy-merged quads sample the atlas manually per-tile via
   // fract() in a custom shader (see atlasMaterial.js), which defeats the
-  // GPU's automatic per-tile LOD selection anyway. Disable mipmaps
-  // entirely rather than ship distance bleeding.
+  // GPU's automatic per-tile LOD selection anyway. Off by default for
+  // exactly that reason; revision-pass section 8 exposes it as an opt-in
+  // Graphics setting anyway (applyMipmapping(), below) since the bleeding
+  // is usually minor at normal view distances and some players will
+  // prefer smoother far terrain over perfectly crisp tiles.
   texture.minFilter = THREE.NearestFilter;
   texture.generateMipmaps = false;
   texture.wrapS = THREE.ClampToEdgeWrapping;
@@ -913,6 +916,20 @@ export function buildAtlas() {
   texture.needsUpdate = true;
 
   return { texture, uv, canvas };
+}
+
+/** Shared by main.js's initial apply and menus.js's live toggle — see buildAtlas()'s comment on the tradeoff. */
+export function applyMipmapping(texture, renderer, enabled) {
+  if (enabled) {
+    texture.generateMipmaps = true;
+    texture.minFilter = THREE.NearestMipmapLinearFilter;
+    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  } else {
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.NearestFilter;
+    texture.anisotropy = 1;
+  }
+  texture.needsUpdate = true;
 }
 
 export { resolveTileKey };

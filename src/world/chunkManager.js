@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ChunkColumn, columnKey, NUM_SECTIONS } from './chunkColumn.js';
 import { Section, SECTION_SIZE, sectionIndex } from './section.js';
-import { createAtlasMaterial, setDayFactor } from '../mesh/atlasMaterial.js';
+import { createAtlasMaterial, setDayFactor, setMaterialTime, setSwayStrength, setWaterTint, setShadowUniforms } from '../mesh/atlasMaterial.js';
 import { BLOCKS } from './blocks.js';
 import { recomputeColumnLight } from './lighting.js';
 import { FULLY_OPEN_CONNECTIVITY } from '../mesh/connectivity.js';
@@ -50,6 +50,32 @@ export class ChunkManager {
     this.maxGenPerTick = options.maxGenPerTick ?? 4;
     this.maxMeshDispatchPerTick = options.maxMeshDispatchPerTick ?? 4;
     this.maxUploadsPerTick = options.maxUploadsPerTick ?? 2;
+    // Revision-pass section 8: 0 = flat, no AO at all; 1 = the original
+    // AO_LEVELS. Baked into the mesh at build time (see greedy.js), so
+    // changing it re-dirties every loaded section for a remesh rather
+    // than touching a shader uniform — AO already only recomputes on
+    // block edits/chunk (re)generation, both of which already pay for a
+    // remesh, so reusing that path is simpler than threading a second,
+    // continuously-live lighting model through the shader.
+    this.aoStrength = options.aoStrength ?? 1.0;
+    // Revision-pass section 8: geometry "pooling" — reusing an already-
+    // registered BufferGeometry object across remeshes of the same
+    // section instead of always constructing a new one. The actual
+    // vertex/index data is still freshly allocated every time (a real
+    // pool of same-shape GPU buffers would need capacity tracking across
+    // wildly different quad counts per rebuild — out of scope here), but
+    // reusing the container object avoids re-registering a brand new
+    // BufferGeometry with three.js's renderer state on every edit-driven
+    // remesh, which is where this actually saves work.
+    this.geometryPooling = options.geometryPooling ?? true;
+    this._geometryPool = [];
+    // WebGLAttributes manager (renderer.three.attributes) — the only
+    // correct way to free a single BufferAttribute's GPU buffer without
+    // disposing the whole geometry (BufferGeometry.setAttribute doesn't
+    // do this itself, and a plain deleteAttribute() would silently leak
+    // VRAM every reuse instead of the pool saving anything). Optional:
+    // without it, pooling just falls back to disposing immediately.
+    this._glAttributes = options.rendererAttributes ?? null;
 
     this.columns = new Map();
     this._desiredQueue = [];
@@ -65,24 +91,34 @@ export class ChunkManager {
     this.onChunkUnloadDirty = null;
 
     this.materials = {
-      opaque: createAtlasMaterial(atlasTexture),
+      opaque: createAtlasMaterial(atlasTexture, { sunShadow: true }),
       transparent: createAtlasMaterial(atlasTexture, {
         transparent: true,
         opacity: 0.75,
         depthWrite: false,
         side: THREE.DoubleSide,
+        waterTint: true,
       }),
       cross: createAtlasMaterial(atlasTexture, {
         side: THREE.DoubleSide,
         alphaTest: 0.3,
         transparent: true,
+        sway: true,
       }),
     };
+    const waterRect = atlasUV.get('water');
+    if (waterRect) setWaterTint(this.materials.transparent, { rect: waterRect, alpha: 0.75, tintStrength: 0, tintColor: 0x2f6fa8 });
 
     const genWorkerCount = options.genWorkers ?? 3;
     const meshWorkerCount = options.meshWorkers ?? 2;
+    // Revision-pass section 8: `genWorkers`/`meshWorkers` hold every
+    // worker ever created (so a later increase can revive one instead of
+    // spawning fresh), while `active*Workers` bounds the round-robin pool
+    // actually handed new jobs — see setWorkerCounts().
     this.genWorkers = Array.from({ length: genWorkerCount }, () => this._makeGenWorker());
     this.meshWorkers = Array.from({ length: meshWorkerCount }, () => this._makeMeshWorker());
+    this.activeGenWorkers = genWorkerCount;
+    this.activeMeshWorkers = meshWorkerCount;
     this.genRoundRobin = 0;
     this.meshRoundRobin = 0;
 
@@ -187,7 +223,7 @@ export class ChunkManager {
     const col = new ChunkColumn(cx, cz);
     col.state = 'generating';
     this.columns.set(key, col);
-    const worker = this.genWorkers[this.genRoundRobin++ % this.genWorkers.length];
+    const worker = this.genWorkers[this.genRoundRobin++ % this.activeGenWorkers];
     worker.postMessage({ cx, cz });
   }
 
@@ -272,7 +308,7 @@ export class ChunkManager {
     const blocksCopy = section.blocks.slice();
     const skyLightCopy = section.skyLight.slice();
     const blockLightCopy = section.blockLight.slice();
-    const worker = this.meshWorkers[this.meshRoundRobin++ % this.meshWorkers.length];
+    const worker = this.meshWorkers[this.meshRoundRobin++ % this.activeMeshWorkers];
     const transfer = [
       blocksCopy.buffer,
       skyLightCopy.buffer,
@@ -294,6 +330,7 @@ export class ChunkManager {
         skyLight: skyLightCopy,
         blockLight: blockLightCopy,
         borders,
+        aoStrength: this.aoStrength,
       },
       transfer
     );
@@ -347,7 +384,7 @@ export class ChunkManager {
       const part = data[category];
       if (!part) continue;
 
-      const geo = new THREE.BufferGeometry();
+      const geo = this._acquireGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(part.uvs, 2));
       geo.setAttribute('atlasRect', new THREE.BufferAttribute(part.atlasRect, 4));
@@ -360,6 +397,12 @@ export class ChunkManager {
       mesh.position.set(col.cx * SECTION_SIZE, sy * SECTION_SIZE, col.cz * SECTION_SIZE);
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
+      // Only opaque terrain casts — letting transparent/cross geometry
+      // (water, glass, tall grass) cast too would darken the ground under
+      // every leaf and blade of grass, which reads as a lighting bug more
+      // than a shadow. Everything still receives, including cross/water.
+      mesh.castShadow = category === 'opaque';
+      mesh.receiveShadow = true;
       this.scene.add(mesh);
       entry[category] = mesh;
     }
@@ -448,9 +491,31 @@ export class ChunkManager {
       const mesh = entry[category];
       if (!mesh) continue;
       this.scene.remove(mesh);
-      mesh.geometry.dispose();
+      this._releaseGeometry(mesh.geometry);
     }
     col.meshes[sy] = null;
+  }
+
+  /** See `geometryPooling`'s constructor comment — reuses the BufferGeometry object itself, not its GPU-side buffers. */
+  _acquireGeometry() {
+    if (this.geometryPooling && this._glAttributes && this._geometryPool.length > 0) return this._geometryPool.pop();
+    return new THREE.BufferGeometry();
+  }
+
+  _releaseGeometry(geo) {
+    if (!this.geometryPooling || !this._glAttributes || this._geometryPool.length >= 64) {
+      geo.dispose();
+      return;
+    }
+    // Free each attribute's actual GPU buffer via the renderer's own
+    // tracker before dropping our reference to it — geo.dispose() would
+    // do this for us, but we're deliberately keeping the geometry object
+    // itself alive for reuse, so each attribute has to be freed by hand.
+    for (const name of Object.keys(geo.attributes)) this._glAttributes.remove(geo.attributes[name]);
+    if (geo.index) this._glAttributes.remove(geo.index);
+    geo.attributes = {};
+    geo.index = null;
+    this._geometryPool.push(geo);
   }
 
   _unloadColumn(col) {
@@ -565,6 +630,61 @@ export class ChunkManager {
     setDayFactor(this.materials.cross, value);
   }
 
+  /** Drives the sway/water-ripple animation uniforms — call once a frame with a running seconds counter. */
+  setTime(value) {
+    setMaterialTime(this.materials.opaque, value);
+    setMaterialTime(this.materials.transparent, value);
+    setMaterialTime(this.materials.cross, value);
+  }
+
+  setFoliageSwayStrength(value) {
+    setSwayStrength(this.materials.cross, value);
+  }
+
+  /** Pushes the shadow map/matrix onto the opaque material — see atlasMaterial.js's `sunShadow` for why only terrain (and only the opaque category) receives real shadow darkening. */
+  setShadowUniforms(map, matrix, enabled) {
+    setShadowUniforms(this.materials.opaque, { map, matrix, enabled });
+  }
+
+  setWaterQuality(tier) {
+    // Low: current opaque-ish look, no tint. Medium: original translucency.
+    // High: more see-through plus a gentle animated tint (setTime already
+    // drives the ripple). All three are cheap uniform pushes — see
+    // atlasMaterial.js's `waterTint` shader block.
+    const byTier = {
+      low: { alpha: 0.92, tintStrength: 0 },
+      medium: { alpha: 0.75, tintStrength: 0.08 },
+      high: { alpha: 0.55, tintStrength: 0.18 },
+    };
+    setWaterTint(this.materials.transparent, byTier[tier] ?? byTier.medium);
+  }
+
+  /** Live-adjustable AO strength (0=flat, 1=full) — re-dirties every loaded section for a remesh; see the constructor comment on `aoStrength`. */
+  setAoStrength(value) {
+    this.aoStrength = value;
+    for (const col of this.columns.values()) col.meshDirty.fill(true);
+  }
+
+  /**
+   * Grows immediately (spins up new workers or reactivates previously
+   * parked ones); shrinking only narrows the round-robin pool used for
+   * *new* dispatches. The excess workers already exist and are left
+   * running rather than terminated — whatever job one of them is mid-way
+   * through still completes and posts back normally (this file's message
+   * handlers key everything off column coordinates, never worker
+   * identity), and it becomes reusable again the moment the count is
+   * raised back up. Actually terminating and recreating workers on every
+   * settings tweak isn't worth the complexity for a rarely-touched
+   * performance slider — the parked workers are cleaned up for free the
+   * next time the page reloads.
+   */
+  setWorkerCounts(genCount, meshCount) {
+    while (this.genWorkers.length < genCount) this.genWorkers.push(this._makeGenWorker());
+    while (this.meshWorkers.length < meshCount) this.meshWorkers.push(this._makeMeshWorker());
+    this.activeGenWorkers = Math.max(1, Math.min(genCount, this.genWorkers.length));
+    this.activeMeshWorkers = Math.max(1, Math.min(meshCount, this.meshWorkers.length));
+  }
+
   getStats() {
     let meshedSections = 0;
     for (const col of this.columns.values()) {
@@ -577,6 +697,9 @@ export class ChunkManager {
       pendingGenerate: this.pendingGenerate.size,
       pendingMesh: this.pendingMeshCount,
       queuedUploads: this.meshResultQueue.length,
+      pooledGeometries: this._geometryPool.length,
+      activeGenWorkers: this.activeGenWorkers,
+      activeMeshWorkers: this.activeMeshWorkers,
     };
   }
 
@@ -586,5 +709,7 @@ export class ChunkManager {
       for (let sy = 0; sy < NUM_SECTIONS; sy++) this._disposeSectionMeshes(col, sy);
     }
     this.columns.clear();
+    for (const geo of this._geometryPool) geo.dispose();
+    this._geometryPool.length = 0;
   }
 }

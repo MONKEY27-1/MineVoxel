@@ -15,8 +15,8 @@ self.onmessage = (event) => {
   }
 
   if (msg.type === 'mesh') {
-    const { jobId, cx, cz, sy, blocks, skyLight, blockLight, borders } = msg;
-    const { opaque, transparent } = greedyMeshSection(blocks, skyLight, blockLight, borders, atlasUV);
+    const { jobId, cx, cz, sy, blocks, skyLight, blockLight, borders, aoStrength } = msg;
+    const { opaque, transparent } = greedyMeshSection(blocks, skyLight, blockLight, borders, atlasUV, aoStrength);
     const cross = meshCrossBlocks(blocks, skyLight, blockLight, atlasUV);
     const connectivity = computeConnectivity(blocks);
 

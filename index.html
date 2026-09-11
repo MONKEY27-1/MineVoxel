@@ -70,57 +70,221 @@
   <div id="settings-panel" class="hidden">
     <div class="menu-box settings-box">
       <h2>Settings</h2>
-      <div class="settings-row">
-        <label>Render distance <span id="render-distance-val" class="settings-val">6</span></label>
-        <input id="render-distance-slider" type="range" min="2" max="12" step="1" value="6" />
+      <div class="settings-tabs" id="settings-tabs">
+        <button type="button" class="settings-tab-btn active" data-tab="graphics">Graphics</button>
+        <button type="button" class="settings-tab-btn" data-tab="audio">Audio</button>
+        <button type="button" class="settings-tab-btn" data-tab="controls">Controls</button>
+        <button type="button" class="settings-tab-btn" data-tab="performance">Performance</button>
       </div>
-      <div class="settings-row">
-        <label>Mouse sensitivity <span id="sensitivity-val" class="settings-val">1.0x</span></label>
-        <input id="sensitivity-slider" type="range" min="0.2" max="3" step="0.1" value="1" />
-      </div>
-      <div class="settings-row">
-        <label>Master volume <span id="master-vol-val" class="settings-val">60%</span></label>
-        <input id="master-vol-slider" type="range" min="0" max="100" step="1" value="60" />
-      </div>
-      <div class="settings-row">
-        <label>Footstep volume <span id="footstep-vol-val" class="settings-val">100%</span></label>
-        <input id="footstep-vol-slider" type="range" min="0" max="100" step="1" value="100" />
-      </div>
-      <div class="settings-row">
-        <label>Block sound volume <span id="block-vol-val" class="settings-val">100%</span></label>
-        <input id="block-vol-slider" type="range" min="0" max="100" step="1" value="100" />
-      </div>
-      <div class="settings-row">
-        <label>Mob/combat volume <span id="mob-vol-val" class="settings-val">100%</span></label>
-        <input id="mob-vol-slider" type="range" min="0" max="100" step="1" value="100" />
-      </div>
-      <div class="settings-row">
-        <label>Autosave interval <span id="autosave-interval-val" class="settings-val">60s</span></label>
-        <input id="autosave-interval-slider" type="range" min="10" max="300" step="10" value="60" />
-      </div>
-      <div class="settings-row settings-checkbox-row">
-        <label for="auto-jump-toggle">Auto-jump</label>
-        <input id="auto-jump-toggle" type="checkbox" />
-      </div>
-      <div class="settings-row settings-checkbox-row">
-        <label for="viewmodel-toggle">Held item view model</label>
-        <input id="viewmodel-toggle" type="checkbox" checked />
-      </div>
-      <div class="settings-row">
-        <label>View model FOV <span id="viewmodel-fov-val" class="settings-val">70</span></label>
-        <input id="viewmodel-fov-slider" type="range" min="30" max="110" step="1" value="70" />
-      </div>
-      <div class="settings-row">
-        <label>Hand side</label>
-        <div class="mode-choice" id="hand-side-choice">
-          <button type="button" class="mode-btn selected" data-hand="right">Right</button>
-          <button type="button" class="mode-btn" data-hand="left">Left</button>
+
+      <div class="settings-tab-content" id="tab-graphics">
+        <div class="settings-row">
+          <label>Preset</label>
+          <div class="mode-choice preset-choice" id="preset-choice">
+            <button type="button" class="mode-btn" data-preset="potato">Potato</button>
+            <button type="button" class="mode-btn" data-preset="low">Low</button>
+            <button type="button" class="mode-btn" data-preset="medium">Medium</button>
+            <button type="button" class="mode-btn" data-preset="high">High</button>
+            <button type="button" class="mode-btn" data-preset="ultra">Ultra</button>
+          </div>
+          <div class="settings-hint" id="preset-custom-hint">Custom (changed since last preset)</div>
         </div>
+        <div class="settings-row">
+          <label>Render distance <span id="render-distance-val" class="settings-val">6</span></label>
+          <input id="render-distance-slider" type="range" min="2" max="12" step="1" value="6" />
+        </div>
+        <div class="settings-row">
+          <label>Entity render distance <span id="entity-render-distance-val" class="settings-val">96</span></label>
+          <input id="entity-render-distance-slider" type="range" min="32" max="160" step="8" value="96" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="mipmapping-toggle">Mipmapping / anisotropic filtering</label>
+          <input id="mipmapping-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row">
+          <label>Antialiasing</label>
+          <div class="mode-choice" id="antialiasing-choice">
+            <button type="button" class="mode-btn selected" data-value="off">Off</button>
+            <button type="button" class="mode-btn" data-value="fxaa">FXAA</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label>Shadow quality</label>
+          <div class="mode-choice" id="shadow-quality-choice">
+            <button type="button" class="mode-btn selected" data-value="off">Off</button>
+            <button type="button" class="mode-btn" data-value="low">Low</button>
+            <button type="button" class="mode-btn" data-value="medium">Medium</button>
+            <button type="button" class="mode-btn" data-value="high">High</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label>Smooth lighting <span id="smooth-lighting-val" class="settings-val">100%</span></label>
+          <input id="smooth-lighting-slider" type="range" min="0" max="100" step="10" value="100" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="clouds-toggle">Clouds</label>
+          <input id="clouds-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row">
+          <label>Cloud height <span id="cloud-height-val" class="settings-val">148</span></label>
+          <input id="cloud-height-slider" type="range" min="100" max="220" step="4" value="148" />
+        </div>
+        <div class="settings-row">
+          <label>Cloud speed <span id="cloud-speed-val" class="settings-val">1.0x</span></label>
+          <input id="cloud-speed-slider" type="range" min="0" max="3" step="0.1" value="1" />
+        </div>
+        <div class="settings-row">
+          <label>Water quality</label>
+          <div class="mode-choice" id="water-quality-choice">
+            <button type="button" class="mode-btn" data-value="low">Low</button>
+            <button type="button" class="mode-btn selected" data-value="medium">Medium</button>
+            <button type="button" class="mode-btn" data-value="high">High</button>
+          </div>
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="foliage-sway-toggle">Foliage sway</label>
+          <input id="foliage-sway-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row">
+          <label>Foliage sway strength <span id="foliage-sway-strength-val" class="settings-val">60%</span></label>
+          <input id="foliage-sway-strength-slider" type="range" min="0" max="100" step="10" value="60" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="sun-glare-toggle">Sun/moon glare</label>
+          <input id="sun-glare-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row">
+          <label>Sky quality</label>
+          <div class="mode-choice" id="sky-quality-choice">
+            <button type="button" class="mode-btn" data-value="simple">Simple</button>
+            <button type="button" class="mode-btn selected" data-value="enhanced">Enhanced</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label>Camera bob strength <span id="camera-bob-val" class="settings-val">60%</span></label>
+          <input id="camera-bob-slider" type="range" min="0" max="100" step="10" value="60" />
+        </div>
+        <div class="settings-row">
+          <label>Hand bob strength <span id="hand-bob-val" class="settings-val">100%</span></label>
+          <input id="hand-bob-slider" type="range" min="0" max="100" step="10" value="100" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="viewmodel-toggle">Held item view model</label>
+          <input id="viewmodel-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row">
+          <label>View model FOV <span id="viewmodel-fov-val" class="settings-val">70</span></label>
+          <input id="viewmodel-fov-slider" type="range" min="30" max="110" step="1" value="70" />
+        </div>
+        <div class="settings-row">
+          <label>Hand side</label>
+          <div class="mode-choice" id="hand-side-choice">
+            <button type="button" class="mode-btn selected" data-hand="right">Right</button>
+            <button type="button" class="mode-btn" data-hand="left">Left</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label>Screenshot resolution</label>
+          <div class="mode-choice" id="screenshot-scale-choice">
+            <button type="button" class="mode-btn selected" data-value="1">1x</button>
+            <button type="button" class="mode-btn" data-value="2">2x</button>
+            <button type="button" class="mode-btn" data-value="4">4x</button>
+          </div>
+        </div>
+        <button id="screenshot-btn" class="menu-secondary-btn">Take Screenshot (F2)</button>
+        <button class="menu-secondary-btn settings-reset-btn" data-reset="graphics">Reset Graphics to defaults</button>
       </div>
-      <div class="settings-row">
-        <label>Controls</label>
-        <div id="keybind-list"></div>
+
+      <div class="settings-tab-content hidden" id="tab-audio">
+        <div class="settings-row">
+          <label>Master volume <span id="master-vol-val" class="settings-val">60%</span></label>
+          <input id="master-vol-slider" type="range" min="0" max="100" step="1" value="60" />
+        </div>
+        <div class="settings-row">
+          <label>Footstep volume <span id="footstep-vol-val" class="settings-val">100%</span></label>
+          <input id="footstep-vol-slider" type="range" min="0" max="100" step="1" value="100" />
+        </div>
+        <div class="settings-row">
+          <label>Block sound volume <span id="block-vol-val" class="settings-val">100%</span></label>
+          <input id="block-vol-slider" type="range" min="0" max="100" step="1" value="100" />
+        </div>
+        <div class="settings-row">
+          <label>Mob/combat volume <span id="mob-vol-val" class="settings-val">100%</span></label>
+          <input id="mob-vol-slider" type="range" min="0" max="100" step="1" value="100" />
+        </div>
+        <button class="menu-secondary-btn settings-reset-btn" data-reset="audio">Reset Audio to defaults</button>
       </div>
+
+      <div class="settings-tab-content hidden" id="tab-controls">
+        <div class="settings-row">
+          <label>Mouse sensitivity <span id="sensitivity-val" class="settings-val">1.0x</span></label>
+          <input id="sensitivity-slider" type="range" min="0.2" max="3" step="0.1" value="1" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="auto-jump-toggle">Auto-jump</label>
+          <input id="auto-jump-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="double-tap-sprint-toggle">Double-tap forward to sprint</label>
+          <input id="double-tap-sprint-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row">
+          <label>Sneak</label>
+          <div class="mode-choice" id="sneak-mode-choice">
+            <button type="button" class="mode-btn selected" data-value="hold">Hold</button>
+            <button type="button" class="mode-btn" data-value="toggle">Toggle</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label>Sprint</label>
+          <div class="mode-choice" id="sprint-mode-choice">
+            <button type="button" class="mode-btn selected" data-value="hold">Hold</button>
+            <button type="button" class="mode-btn" data-value="toggle">Toggle</button>
+          </div>
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="invert-scroll-toggle">Invert hotbar scroll</label>
+          <input id="invert-scroll-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row">
+          <label>Keybinds</label>
+          <div id="keybind-list"></div>
+        </div>
+        <button class="menu-secondary-btn settings-reset-btn" data-reset="controls">Reset Controls to defaults</button>
+      </div>
+
+      <div class="settings-tab-content hidden" id="tab-performance">
+        <div class="settings-row">
+          <label>Autosave interval <span id="autosave-interval-val" class="settings-val">60s</span></label>
+          <input id="autosave-interval-slider" type="range" min="10" max="300" step="10" value="60" />
+        </div>
+        <div class="settings-row">
+          <label>Generation worker threads <span id="gen-workers-val" class="settings-val">3</span></label>
+          <input id="gen-workers-slider" type="range" min="1" max="6" step="1" value="3" />
+        </div>
+        <div class="settings-row">
+          <label>Mesh worker threads <span id="mesh-workers-val" class="settings-val">2</span></label>
+          <input id="mesh-workers-slider" type="range" min="1" max="6" step="1" value="2" />
+        </div>
+        <div class="settings-row">
+          <label>Chunk mesh uploads / frame <span id="max-uploads-val" class="settings-val">2</span></label>
+          <input id="max-uploads-slider" type="range" min="1" max="8" step="1" value="2" />
+        </div>
+        <div class="settings-row">
+          <label>Chunk generation budget / frame <span id="max-gen-val" class="settings-val">4</span></label>
+          <input id="max-gen-slider" type="range" min="1" max="12" step="1" value="4" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="geometry-pooling-toggle">Geometry buffer reuse</label>
+          <input id="geometry-pooling-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row">
+          <label>Live stats</label>
+          <div id="perf-stats" class="perf-stats"></div>
+        </div>
+        <button class="menu-secondary-btn settings-reset-btn" data-reset="performance">Reset Performance to defaults</button>
+      </div>
+
       <button id="settings-back-btn" class="menu-secondary-btn">Back</button>
     </div>
   </div>

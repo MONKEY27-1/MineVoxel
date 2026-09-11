@@ -30,12 +30,16 @@ import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
 import { saveGame, loadGame, saveChunkDiff } from './persistence/worldSave.js';
+import { loadSettings } from './settings/settings.js';
+import { applyMipmapping } from './mesh/atlas.js';
+import { Clouds } from './world/clouds.js';
+import { SkyRenderer } from './world/sky.js';
 
 const WORLD_SEED = 1337; // matches genWorker.js until the world-creation menu (phase 9) picks one
 const FIXED_DT = 1 / 60;
 const MAX_FRAME_DT = 0.25;
 const FOOTSTEP_STRIDE = 1.15; // blocks of horizontal travel between footstep triggers
-const DEFAULT_AUTOSAVE_INTERVAL = 60; // seconds — see saveSettings, menus.js's autosave slider mutates this live
+const SHADOW_MAP_SIZE_BY_TIER = { off: 0, low: 512, medium: 1024, high: 2048 };
 
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
@@ -50,6 +54,12 @@ function main() {
   const crosshairEl = document.getElementById('crosshair');
 
   const renderer = new Renderer(canvas);
+
+  // Revision-pass section 8: every persisted app-wide preference (as
+  // opposed to persistence/worldSave.js's per-world game state), loaded
+  // once here and threaded into whatever it affects — see menus.js for
+  // the tables mapping each field to the one live system that applies it.
+  const settings = loadSettings();
 
   // --- World / active dimension -------------------------------------
   const world = new World();
@@ -78,9 +88,20 @@ function main() {
 
   // --- Chunk streaming ----------------------------------------------
   const chunkManager = new ChunkManager(renderer.scene, atlasTexture, atlasUV, {
-    renderDistance: 6,
+    renderDistance: settings.graphics.renderDistance,
+    aoStrength: settings.graphics.smoothLighting / 100,
+    genWorkers: settings.performance.genWorkers,
+    meshWorkers: settings.performance.meshWorkers,
+    maxUploadsPerTick: settings.performance.maxUploadsPerTick,
+    maxGenPerTick: settings.performance.maxGenPerTick,
+    geometryPooling: settings.performance.geometryPooling,
+    rendererAttributes: renderer.three.attributes,
   });
   overworld.chunkManager = chunkManager;
+  chunkManager.setWaterQuality(settings.graphics.waterQuality);
+  chunkManager.setFoliageSwayStrength(settings.graphics.foliageSway ? settings.graphics.foliageSwayStrength / 100 : 0);
+  applyMipmapping(atlasTexture, renderer.three, settings.graphics.mipmapping);
+  renderer.fxaa.enabled = settings.graphics.antialiasing === 'fxaa';
 
   // A second, block-placement-free instance of the same generator purely
   // for climate/biome queries on the main thread (F3's biome readout,
@@ -118,6 +139,72 @@ function main() {
   const hud = new Hud(atlasUV);
   const mobManager = new MobManager(renderer.scene, { particles, itemDrops, xpOrbs });
 
+  // --- Revision-pass section 8: clouds, sky, sun/shadow light --------
+  const clouds = new Clouds(renderer.scene, WORLD_SEED);
+  const sky = new SkyRenderer(renderer.scene);
+  const zenithColor = new THREE.Color();
+  const sunDirVec = new THREE.Vector3();
+  const shadowMatrix = new THREE.Matrix4();
+
+  const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+  sunLight.castShadow = true;
+  renderer.scene.add(sunLight);
+  renderer.scene.add(sunLight.target);
+  const SHADOW_FRUSTUM = 40; // blocks — a fixed area around the player, not the full render distance (see README's shadow scope note)
+  Object.assign(sunLight.shadow.camera, {
+    left: -SHADOW_FRUSTUM,
+    right: SHADOW_FRUSTUM,
+    top: SHADOW_FRUSTUM,
+    bottom: -SHADOW_FRUSTUM,
+    near: 1,
+    far: 200,
+  });
+  sunLight.shadow.camera.updateProjectionMatrix();
+
+  function applyShadowQuality(tier) {
+    const size = SHADOW_MAP_SIZE_BY_TIER[tier] ?? 0;
+    renderer.three.shadowMap.enabled = size > 0;
+    if (size > 0) sunLight.shadow.mapSize.set(size, size);
+    // A resolution change needs a fresh render target — the old one (at
+    // the previous resolution) would otherwise keep being sampled.
+    sunLight.shadow.map?.dispose();
+    sunLight.shadow.map = null;
+    if (size === 0) chunkManager.setShadowUniforms(null, shadowMatrix, false);
+  }
+  applyShadowQuality(settings.graphics.shadowQuality);
+
+  function takeScreenshot(scale) {
+    const dataUrl = renderer.captureScreenshot(player.camera, scale);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `minevoxel-${Date.now()}.png`;
+    a.click();
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'F2') takeScreenshot(Number(settings.graphics.screenshotScale));
+  });
+
+  // Apply every remaining loaded setting that doesn't need to be baked
+  // into a constructor call above (those objects didn't exist yet then).
+  clouds.setEnabled(settings.graphics.cloudsEnabled);
+  clouds.setHeight(settings.graphics.cloudHeight);
+  clouds.setSpeed(settings.graphics.cloudSpeed);
+  sky.setQuality(settings.graphics.skyQuality);
+  sky.setGlareEnabled(settings.graphics.sunGlare);
+  player.cameraBobStrength = settings.graphics.cameraBobStrength / 100;
+  viewModel.bobStrength = settings.graphics.viewBobStrength / 100;
+  viewModel.enabled = settings.graphics.viewmodelEnabled;
+  viewModel.setFov(settings.graphics.viewmodelFov);
+  viewModel.handSide = settings.graphics.handSide;
+  mobManager.despawnDist = settings.graphics.entityRenderDistance;
+  itemDrops.despawnDist = settings.graphics.entityRenderDistance;
+  player.sensitivityScale = settings.controls.sensitivity;
+  player.autoJumpEnabled = settings.controls.autoJump;
+  player.doubleTapSprintEnabled = settings.controls.doubleTapSprint;
+  player.sneakMode = settings.controls.sneakMode;
+  player.sprintMode = settings.controls.sprintMode;
+  input.invertScroll = settings.controls.invertScroll;
+
   function respawnPlayer() {
     const { height } = climateGenerator.heightAndBiome(0.5, 0.5);
     player.position = { x: 0.5, y: height + 2, z: 0.5 };
@@ -129,7 +216,6 @@ function main() {
   // --- Persistence: current world id, autosave scheduling ------------
   let currentWorldId = null;
   const saveIndicatorEl = document.getElementById('save-indicator');
-  const saveSettings = { intervalSec: DEFAULT_AUTOSAVE_INTERVAL };
   let autosaveTimer = null;
 
   async function persistNow() {
@@ -146,8 +232,8 @@ function main() {
     clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(async () => {
       await persistNow();
-      scheduleAutosave(); // re-read saveSettings.intervalSec each cycle so a live slider change takes effect on the next tick, not just after a restart
-    }, saveSettings.intervalSec * 1000);
+      scheduleAutosave(); // re-read settings.autosaveIntervalSec each cycle so a live slider change takes effect on the next tick, not just after a restart
+    }, settings.autosaveIntervalSec * 1000);
   }
 
   // Phase 9 (extended in revision-pass section 7): the world/renderer/
@@ -203,7 +289,23 @@ function main() {
     scheduleAutosave();
   }
 
-  const menuController = new MenuController({ input, audioEngine, chunkManager, player, viewModel, saveSettings, onPlay: startGame });
+  const menuController = new MenuController({
+    input,
+    audioEngine,
+    chunkManager,
+    player,
+    viewModel,
+    mobManager,
+    itemDrops,
+    clouds,
+    sky,
+    renderer,
+    atlasTexture,
+    settings,
+    onPlay: startGame,
+    onShadowQualityChange: applyShadowQuality,
+    onScreenshot: takeScreenshot,
+  });
   menuController.onSaveAndQuit = persistNow;
 
   // A column can stream out (player walks far enough away) between
@@ -398,6 +500,10 @@ function main() {
     player.camera.rotation.set(0, 0, 0);
     player.camera.rotateY(ryaw);
     player.camera.rotateX(rpitch);
+    // Local-space translate (after the rotations above) so the bob reads
+    // as head movement relative to look direction, not a world-space wobble.
+    player.camera.translateX(player.cameraBobOffset.x);
+    player.camera.translateY(player.cameraBobOffset.y);
 
     // --- Atmosphere: biome tint x day/night tint, swapped for a flat
     // underwater fog when the camera's eye is submerged.
@@ -417,8 +523,31 @@ function main() {
       renderer.scene.fog.far = overworld.fogFar;
     }
     renderer.scene.fog.color.copy(fogColor);
-    renderer.scene.background = fogColor;
-    chunkManager.setDayFactor(dayNight.getDayFactor());
+    const dayFactor = dayNight.getDayFactor();
+    chunkManager.setDayFactor(dayFactor);
+    chunkManager.setTime(now / 1000);
+    clouds.update(dt, rx, rz);
+
+    // Sky quality/glare (revision-pass section 8) — see sky.js for why
+    // this is one warm-to-cool billboard rather than two celestial
+    // bodies, and why "Enhanced" is a cheap gradient canvas texture
+    // rather than a full skydome.
+    dayNight.getSunDirection(sunDirVec);
+    zenithColor.copy(fogColor).multiplyScalar(0.55).lerp(new THREE.Color(0x0b1230), 0.35);
+    sky.updateGradient(zenithColor, fogColor);
+    sky.update(player.camera, sunDirVec, dayNight.getSunIntensity(), dayFactor, fogColor);
+
+    // Sun shadow (revision-pass section 8) — the light + its shadow
+    // camera follow the player every frame rather than covering the
+    // whole render distance; see the shadow-quality setup above for why.
+    if (settings.graphics.shadowQuality !== 'off') {
+      sunLight.position.set(rx, ry, rz).addScaledVector(sunDirVec, 60);
+      sunLight.target.position.set(rx, ry, rz);
+      sunLight.target.updateMatrixWorld();
+      sunLight.shadow.updateMatrices(sunLight);
+      shadowMatrix.multiplyMatrices(sunLight.shadow.camera.projectionMatrix, sunLight.shadow.camera.matrixWorldInverse);
+      if (sunLight.shadow.map) chunkManager.setShadowUniforms(sunLight.shadow.map.texture, shadowMatrix, true);
+    }
 
     particles.update(dt);
     highlight.update(interaction.target, interaction.breakProgress);
@@ -472,6 +601,12 @@ function main() {
     startGame,
     persistNow,
     get currentWorldId() { return currentWorldId; },
+    settings,
+    clouds,
+    sky,
+    sunLight,
+    viewModel,
+    takeScreenshot,
   };
 }
 

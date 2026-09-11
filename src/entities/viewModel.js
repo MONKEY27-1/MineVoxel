@@ -21,6 +21,7 @@ export class ViewModel {
     this.enabled = true;
     this.fov = 70;
     this.handSide = 'right'; // 'right' | 'left'
+    this.bobStrength = 1; // 0..1, separate from Player.cameraBobStrength
 
     this._swingT = 0;
     this._swinging = false;
@@ -126,8 +127,8 @@ export class ViewModel {
     const baseY = -0.32;
     const baseZ = -0.6;
 
-    const bobX = Math.sin(this._bobPhase) * 0.008 * Math.min(moveSpeed, 6);
-    const bobY = Math.abs(Math.cos(this._bobPhase)) * 0.01 * Math.min(moveSpeed, 6);
+    const bobX = Math.sin(this._bobPhase) * 0.008 * Math.min(moveSpeed, 6) * this.bobStrength;
+    const bobY = Math.abs(Math.cos(this._bobPhase)) * 0.01 * Math.min(moveSpeed, 6) * this.bobStrength;
 
     const swingCurve = Math.sin(this._swingT * Math.PI); // 0 -> 1 -> 0 over the swing
     const placeCurve = Math.sin(this._placeT * Math.PI);

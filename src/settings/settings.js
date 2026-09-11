@@ -1,0 +1,178 @@
+// Revision-pass section 8: one place for every persisted app-wide
+// preference (as opposed to persistence/worldSave.js, which is per-world
+// game state). Stored in localStorage as plain JSON — settings are global
+// UI/engine preferences, not something that needs IndexedDB's structured
+// stores or transactions.
+
+const STORAGE_KEY = 'minevoxel_settings_v1';
+
+export const DEFAULT_GRAPHICS = {
+  preset: 'custom',
+  renderDistance: 6,
+  entityRenderDistance: 96,
+  mipmapping: false,
+  antialiasing: 'off', // 'off' | 'fxaa'
+  shadowQuality: 'off', // 'off' | 'low' | 'medium' | 'high'
+  smoothLighting: 100, // %, blends AO between flat (0) and full (100)
+  cloudsEnabled: true,
+  cloudHeight: 148,
+  cloudSpeed: 1,
+  waterQuality: 'medium', // 'low' | 'medium' | 'high'
+  foliageSway: true,
+  foliageSwayStrength: 60, // %
+  sunGlare: true,
+  skyQuality: 'enhanced', // 'simple' | 'enhanced'
+  viewBobStrength: 100, // % — hand/view-model bob (revision-pass section 3's ViewModel)
+  cameraBobStrength: 60, // % — camera-position bob, new in this section
+  viewmodelEnabled: true,
+  viewmodelFov: 70,
+  handSide: 'right',
+  screenshotScale: 1, // 1x/2x/4x canvas-resolution multiplier
+};
+
+export const DEFAULT_PERFORMANCE = {
+  genWorkers: 3,
+  meshWorkers: 2,
+  maxUploadsPerTick: 2,
+  maxGenPerTick: 4,
+  geometryPooling: true,
+};
+
+export const DEFAULT_CONTROLS = {
+  sensitivity: 1,
+  autoJump: false,
+  doubleTapSprint: false,
+  sneakMode: 'hold', // 'hold' | 'toggle'
+  sprintMode: 'hold', // 'hold' | 'toggle'
+  invertScroll: false,
+};
+
+export const DEFAULT_AUDIO = {
+  master: 60,
+  footstep: 100,
+  block: 100,
+  mob: 100,
+};
+
+export const DEFAULT_SETTINGS = {
+  graphics: DEFAULT_GRAPHICS,
+  performance: DEFAULT_PERFORMANCE,
+  controls: DEFAULT_CONTROLS,
+  audio: DEFAULT_AUDIO,
+  autosaveIntervalSec: 60,
+};
+
+// Graphics-tab presets. Each is a *complete* graphics slice (not a diff)
+// so applying one is a single assignment; `performance.*` and the rest of
+// the tabs are left alone — presets are a graphics-fidelity shortcut, not
+// a full custom-vs-defaults reset (that's what "Reset to defaults" is for).
+export const GRAPHICS_PRESETS = {
+  potato: {
+    renderDistance: 3,
+    entityRenderDistance: 48,
+    mipmapping: false,
+    antialiasing: 'off',
+    shadowQuality: 'off',
+    smoothLighting: 0,
+    cloudsEnabled: false,
+    waterQuality: 'low',
+    foliageSway: false,
+    sunGlare: false,
+    skyQuality: 'simple',
+  },
+  low: {
+    renderDistance: 4,
+    entityRenderDistance: 64,
+    mipmapping: false,
+    antialiasing: 'off',
+    shadowQuality: 'off',
+    smoothLighting: 50,
+    cloudsEnabled: false,
+    waterQuality: 'low',
+    foliageSway: false,
+    sunGlare: false,
+    skyQuality: 'simple',
+  },
+  medium: {
+    renderDistance: 6,
+    entityRenderDistance: 96,
+    mipmapping: false,
+    antialiasing: 'off',
+    shadowQuality: 'low',
+    smoothLighting: 100,
+    cloudsEnabled: true,
+    waterQuality: 'medium',
+    foliageSway: true,
+    foliageSwayStrength: 60,
+    sunGlare: true,
+    skyQuality: 'enhanced',
+  },
+  high: {
+    renderDistance: 9,
+    entityRenderDistance: 128,
+    mipmapping: true,
+    antialiasing: 'fxaa',
+    shadowQuality: 'medium',
+    smoothLighting: 100,
+    cloudsEnabled: true,
+    waterQuality: 'high',
+    foliageSway: true,
+    foliageSwayStrength: 80,
+    sunGlare: true,
+    skyQuality: 'enhanced',
+  },
+  ultra: {
+    renderDistance: 12,
+    entityRenderDistance: 160,
+    mipmapping: true,
+    antialiasing: 'fxaa',
+    shadowQuality: 'high',
+    smoothLighting: 100,
+    cloudsEnabled: true,
+    waterQuality: 'high',
+    foliageSway: true,
+    foliageSwayStrength: 100,
+    sunGlare: true,
+    skyQuality: 'enhanced',
+  },
+};
+
+function deepMerge(defaults, saved) {
+  if (typeof saved !== 'object' || saved === null || Array.isArray(saved)) return defaults;
+  const out = { ...defaults };
+  for (const key of Object.keys(defaults)) {
+    const dv = defaults[key];
+    const sv = saved[key];
+    if (sv === undefined) continue;
+    out[key] = typeof dv === 'object' && dv !== null && !Array.isArray(dv) ? deepMerge(dv, sv) : sv;
+  }
+  return out;
+}
+
+/** Loads persisted settings merged onto current defaults, so a settings.js update that adds a field never crashes an old save. */
+export function loadSettings() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return structuredClone(DEFAULT_SETTINGS);
+    return deepMerge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw));
+  } catch {
+    return structuredClone(DEFAULT_SETTINGS);
+  }
+}
+
+export function saveSettings(settings) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Private-browsing/storage-full — settings just won't persist across reloads, not worth surfacing to the player.
+  }
+}
+
+/** True if every field in `graphics` matches one of the named presets exactly. */
+export function detectPreset(graphics) {
+  for (const [name, preset] of Object.entries(GRAPHICS_PRESETS)) {
+    const matches = Object.keys(preset).every((k) => graphics[k] === preset[k]);
+    if (matches) return name;
+  }
+  return 'custom';
+}
