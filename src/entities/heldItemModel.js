@@ -172,11 +172,3 @@ export function getItemModel(itemId, { atlasTexture, atlasCanvas, atlasUV }) {
   modelCache.set(itemId, mesh);
   return mesh.clone();
 }
-
-export function clearItemModelCache() {
-  for (const mesh of modelCache.values()) {
-    mesh.geometry.dispose();
-    mesh.material.dispose();
-  }
-  modelCache.clear();
-}

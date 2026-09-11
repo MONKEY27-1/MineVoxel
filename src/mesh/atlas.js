@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { resolveTileKey } from './tileKey.js';
 
 // Procedurally-drawn 16x16 texture atlas. Every tile is packed with a
 // 1px padding gutter whose border pixels are extruded copies of the tile's
@@ -932,8 +931,3 @@ export function applyMipmapping(texture, renderer, enabled) {
   texture.needsUpdate = true;
 }
 
-export { resolveTileKey };
-
-export function faceUV(atlasUV, textureDef, face) {
-  return atlasUV.get(resolveTileKey(textureDef, face));
-}

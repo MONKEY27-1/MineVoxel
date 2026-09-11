@@ -95,11 +95,3 @@ export function splitStack(inv, idx) {
   inv.slots[idx] = { itemId: slot.itemId, count: slot.count - half, durability: slot.durability };
   return { itemId: slot.itemId, count: half, durability: slot.durability };
 }
-
-/** Moves as much of a slot's stack as possible into another inventory (shift-click). */
-export function quickMove(fromInv, idx, toInv) {
-  const slot = fromInv.slots[idx];
-  if (!slot) return;
-  const leftover = toInv.addItem(slot.itemId, slot.count, slot.durability);
-  fromInv.slots[idx] = leftover > 0 ? { ...slot, count: leftover } : null;
-}

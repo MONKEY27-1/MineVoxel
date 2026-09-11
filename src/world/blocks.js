@@ -216,10 +216,6 @@ export function getBlock(id) {
   return registry[id];
 }
 
-export function getBlockByName(name) {
-  return registry[byName.get(name)];
-}
-
 export function isOpaque(id) {
   const b = registry[id];
   return b.solid && !b.transparent;
