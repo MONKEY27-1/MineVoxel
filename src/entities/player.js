@@ -10,34 +10,42 @@ const STAND_SIZE = { width: 0.6, height: 1.8 };
 const SNEAK_SIZE = { width: 0.6, height: 1.5 };
 const SWIM_SIZE = { width: 0.6, height: 0.6 }; // prone pose while swim-sprinting
 
-const WALK_SPEED = 4.3;
-const SPRINT_SPEED = 5.6;
-const SNEAK_SPEED = 1.3;
-const SWIM_SPEED = 2.2;
-const SWIM_SPRINT_SPEED = 5.2;
-const FLY_SPEED = 10.9;
-const FLY_SPRINT_SPEED = 21.8;
-// JUMP_SPEED/gravity(32, dimension.js) already give apex = v^2/(2g) =
-// 81/64 = 1.266 blocks — within the ~1.25-block-apex target as-is, so
-// left alone (revision pass section 2 asked to tune both, but there was
-// nothing to fix here). A *running* jump needs its own boost, though:
-// with these same constants, sprint speed x jump hang time only covers
-// ~2.94 blocks — real Minecraft's ~4.5-block sprint jump doesn't come
-// from different gravity/jump-speed at all (it uses this same physics),
-// it comes from an actual forward-velocity lunge applied the instant you
-// jump while sprinting. Modeled the same way here instead of touching
-// gravity, which would also change fall damage timing and swim physics.
-const JUMP_SPEED = 9;
-const SPRINT_JUMP_BOOST_SPEED = 11.5; // tuned by direct simulation to clear a 4-block gap with margin — velocity decays back toward SPRINT_SPEED over the jump's air time, so this can't be derived from the launch speed alone
-const STEP_HEIGHT = 1.0;
-// A jump press within this many seconds of leaving the ground (coyote
-// time) or landing (jump buffering) still fires — without these, a jump
-// pressed even one tick early or late is silently dropped, which reads as
-// unresponsive/laggy even though every input is technically being
-// handled "correctly". 100ms (~6 frames at 60fps) is the standard window
-// used across the genre.
-const COYOTE_TIME = 0.1;
-const JUMP_BUFFER_TIME = 0.1;
+// Every movement/jump constant a debug tuning panel can meaningfully
+// live-adjust, in one mutable object instead of module-level consts —
+// see ui/tuningPanel.js (debug-only, ?debug=1) for the live sliders.
+// Values below are the currently-baked-in tuning; edit these defaults
+// directly once a tuning session settles on something better, the same
+// way the individual consts used to be hand-edited.
+export const TUNING = {
+  WALK_SPEED: 4.3,
+  SPRINT_SPEED: 5.6,
+  SNEAK_SPEED: 1.3,
+  SWIM_SPEED: 2.2,
+  SWIM_SPRINT_SPEED: 5.2,
+  FLY_SPEED: 10.9,
+  FLY_SPRINT_SPEED: 21.8,
+  // JUMP_SPEED/gravity(32, dimension.js) already give apex = v^2/(2g) =
+  // 81/64 = 1.266 blocks — within the ~1.25-block-apex target as-is, so
+  // left alone (revision pass section 2 asked to tune both, but there was
+  // nothing to fix here). A *running* jump needs its own boost, though:
+  // with these same constants, sprint speed x jump hang time only covers
+  // ~2.94 blocks — real Minecraft's ~4.5-block sprint jump doesn't come
+  // from different gravity/jump-speed at all (it uses this same physics),
+  // it comes from an actual forward-velocity lunge applied the instant you
+  // jump while sprinting. Modeled the same way here instead of touching
+  // gravity, which would also change fall damage timing and swim physics.
+  JUMP_SPEED: 9,
+  SPRINT_JUMP_BOOST_SPEED: 11.5, // tuned by direct simulation to clear a 4-block gap with margin — velocity decays back toward SPRINT_SPEED over the jump's air time, so this can't be derived from the launch speed alone
+  STEP_HEIGHT: 1.0,
+  // A jump press within this many seconds of leaving the ground (coyote
+  // time) or landing (jump buffering) still fires — without these, a jump
+  // pressed even one tick early or late is silently dropped, which reads
+  // as unresponsive/laggy even though every input is technically being
+  // handled "correctly". 100ms (~6 frames at 60fps) is the standard
+  // window used across the genre.
+  COYOTE_TIME: 0.1,
+  JUMP_BUFFER_TIME: 0.1,
+};
 
 const isWater = (id) => id === BLOCKS.WATER;
 
@@ -229,7 +237,7 @@ export class Player {
   _updateCameraBob(dt) {
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     const moving = this.onGround && !this.flying && !this.swimSprinting && speed > 0.5;
-    const rate = moving ? Math.min(speed / SPRINT_SPEED, 1.4) : 0;
+    const rate = moving ? Math.min(speed / TUNING.SPRINT_SPEED, 1.4) : 0;
     this._bobPhase += dt * rate * 9;
     const amp = 0.05 * this.cameraBobStrength;
     const targetY = moving ? Math.abs(Math.sin(this._bobPhase)) * amp : 0;
@@ -302,7 +310,7 @@ export class Player {
     if (input.isDown('flyDown')) move.y -= 1; // Shift held: descend
 
     const wantSprint = this._wantsSprint(input);
-    const speed = wantSprint ? FLY_SPRINT_SPEED : FLY_SPEED;
+    const speed = wantSprint ? TUNING.FLY_SPRINT_SPEED : TUNING.FLY_SPEED;
     const target = move.lengthSq() > 0 ? move.normalize().multiplyScalar(speed) : new THREE.Vector3();
     this.velocity.x = target.x;
     this.velocity.y = target.y;
@@ -325,7 +333,7 @@ export class Player {
     this.sprinting = this._wantsSprint(input) && !this.sneaking;
 
     const move = this._moveVector(input, false);
-    const speed = this.sneaking ? SNEAK_SPEED : this.sprinting ? SPRINT_SPEED : WALK_SPEED;
+    const speed = this.sneaking ? TUNING.SNEAK_SPEED : this.sprinting ? TUNING.SPRINT_SPEED : TUNING.WALK_SPEED;
     const desired = move.multiplyScalar(speed);
 
     // Instant accel, exponential-ish friction on release — simple and
@@ -359,13 +367,13 @@ export class Player {
     // it lands a tick or two before touching down, instead of being
     // silently dropped because onGround wasn't true yet at that exact
     // instant.
-    if (input.wasPressed('flyUp')) this._jumpBufferTimer = JUMP_BUFFER_TIME;
+    if (input.wasPressed('flyUp')) this._jumpBufferTimer = TUNING.JUMP_BUFFER_TIME;
     else this._jumpBufferTimer = Math.max(0, this._jumpBufferTimer - dt);
 
     if (this._jumpBufferTimer > 0 && this._coyoteTimer > 0) {
       this._jumpBufferTimer = 0;
       this._coyoteTimer = 0; // consumed — don't let the same grace window fire a second jump
-      this.velocity.y = JUMP_SPEED;
+      this.velocity.y = TUNING.JUMP_SPEED;
       if (this.sprinting) {
         // Sprint-jump lunge — see SPRINT_JUMP_BOOST_SPEED's comment.
         // Scales the current horizontal velocity up to the boost speed
@@ -374,7 +382,7 @@ export class Player {
         // own direction.
         const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
         if (horizSpeed > 0.1) {
-          const scale = SPRINT_JUMP_BOOST_SPEED / horizSpeed;
+          const scale = TUNING.SPRINT_JUMP_BOOST_SPEED / horizSpeed;
           this.velocity.x *= scale;
           this.velocity.z *= scale;
         }
@@ -402,9 +410,9 @@ export class Player {
     const destZ = this.position.z + this.velocity.z * dt;
     const blockedAtFoot = !aabbFits(chunkManager, { x: destX, y: this.position.y, z: destZ }, size);
     const clearOneUp =
-      aabbFits(chunkManager, { x: this.position.x, y: this.position.y + STEP_HEIGHT, z: this.position.z }, size) &&
-      aabbFits(chunkManager, { x: destX, y: this.position.y + STEP_HEIGHT, z: destZ }, size);
-    if (blockedAtFoot && clearOneUp) this.velocity.y = JUMP_SPEED;
+      aabbFits(chunkManager, { x: this.position.x, y: this.position.y + TUNING.STEP_HEIGHT, z: this.position.z }, size) &&
+      aabbFits(chunkManager, { x: destX, y: this.position.y + TUNING.STEP_HEIGHT, z: destZ }, size);
+    if (blockedAtFoot && clearOneUp) this.velocity.y = TUNING.JUMP_SPEED;
   }
 
   _updateSwim(dt, input, chunkManager) {
@@ -414,7 +422,7 @@ export class Player {
     this.swimSprinting = wantSprint && this.headInWater && aabbFits(chunkManager, this.position, SWIM_SIZE);
 
     const move = this._moveVector(input, this.swimSprinting);
-    const speed = this.swimSprinting ? SWIM_SPRINT_SPEED : SWIM_SPEED;
+    const speed = this.swimSprinting ? TUNING.SWIM_SPRINT_SPEED : TUNING.SWIM_SPEED;
     const desired = move.multiplyScalar(speed);
 
     const drag = 6 * dt;
@@ -458,7 +466,7 @@ export class Player {
     // Coyote time: stays "jumpable" for a short grace window after
     // actually leaving the ground, instead of cutting off the instant
     // onGround flips false.
-    this._coyoteTimer = this.onGround ? COYOTE_TIME : Math.max(0, this._coyoteTimer - dt);
+    this._coyoteTimer = this.onGround ? TUNING.COYOTE_TIME : Math.max(0, this._coyoteTimer - dt);
 
     if (!wasOnGround && this._fallStartY === null && this.velocity.y < 0) this._fallStartY = this.position.y;
     if (this.onGround) {
