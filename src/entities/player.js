@@ -30,6 +30,14 @@ const FLY_SPRINT_SPEED = 21.8;
 const JUMP_SPEED = 9;
 const SPRINT_JUMP_BOOST_SPEED = 11.5; // tuned by direct simulation to clear a 4-block gap with margin — velocity decays back toward SPRINT_SPEED over the jump's air time, so this can't be derived from the launch speed alone
 const STEP_HEIGHT = 1.0;
+// A jump press within this many seconds of leaving the ground (coyote
+// time) or landing (jump buffering) still fires — without these, a jump
+// pressed even one tick early or late is silently dropped, which reads as
+// unresponsive/laggy even though every input is technically being
+// handled "correctly". 100ms (~6 frames at 60fps) is the standard window
+// used across the genre.
+const COYOTE_TIME = 0.1;
+const JUMP_BUFFER_TIME = 0.1;
 
 const isWater = (id) => id === BLOCKS.WATER;
 
@@ -63,6 +71,8 @@ export class Player {
     this.maxBreath = 10;
     this._fallStartY = null;
     this._sinceDrownTick = 0;
+    this._coyoteTimer = 0; // seconds left where a jump still counts as "on ground" after walking off a ledge
+    this._jumpBufferTimer = 0; // seconds left where a jump press still fires once grounded
     this._flyDoubleTapTimer = 0;
     this._lastFlyPressTime = 0;
 
@@ -344,7 +354,17 @@ export class Player {
     }
 
     this.velocity.y -= dim.gravity * dt;
-    if (input.wasPressed('flyUp') && this.onGround) {
+
+    // Jump buffering: a press is remembered for JUMP_BUFFER_TIME even if
+    // it lands a tick or two before touching down, instead of being
+    // silently dropped because onGround wasn't true yet at that exact
+    // instant.
+    if (input.wasPressed('flyUp')) this._jumpBufferTimer = JUMP_BUFFER_TIME;
+    else this._jumpBufferTimer = Math.max(0, this._jumpBufferTimer - dt);
+
+    if (this._jumpBufferTimer > 0 && this._coyoteTimer > 0) {
+      this._jumpBufferTimer = 0;
+      this._coyoteTimer = 0; // consumed — don't let the same grace window fire a second jump
       this.velocity.y = JUMP_SPEED;
       if (this.sprinting) {
         // Sprint-jump lunge — see SPRINT_JUMP_BOOST_SPEED's comment.
@@ -435,6 +455,10 @@ export class Player {
     this.position = result.position;
     this.velocity = result.velocity;
     this.onGround = result.onGround;
+    // Coyote time: stays "jumpable" for a short grace window after
+    // actually leaving the ground, instead of cutting off the instant
+    // onGround flips false.
+    this._coyoteTimer = this.onGround ? COYOTE_TIME : Math.max(0, this._coyoteTimer - dt);
 
     if (!wasOnGround && this._fallStartY === null && this.velocity.y < 0) this._fallStartY = this.position.y;
     if (this.onGround) {
