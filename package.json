@@ -15,7 +15,8 @@
     "test:save-fuzz": "node tools/run-with-server.js tools/test-save-fuzz.js",
     "test:edge": "node tools/run-with-server.js tools/test-edge.js",
     "test:feel": "node tools/run-with-server.js tools/test-feel.js",
-    "test:visual": "node tools/run-with-server.js tools/test-visual.js"
+    "test:visual": "node tools/run-with-server.js tools/test-visual.js",
+    "test:audio": "node tools/run-with-server.js tools/test-audio.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"
