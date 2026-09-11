@@ -11,7 +11,8 @@
     "soak": "node tools/run-with-server.js tools/soak.js",
     "test:gen": "node tools/run-with-server.js tools/test-gen.js",
     "test:save": "node tools/run-with-server.js tools/test-save.js",
-    "test:dup": "node tools/run-with-server.js tools/test-dup.js"
+    "test:dup": "node tools/run-with-server.js tools/test-dup.js",
+    "test:save-fuzz": "node tools/run-with-server.js tools/test-save-fuzz.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"
