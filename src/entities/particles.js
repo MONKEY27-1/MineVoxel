@@ -40,6 +40,11 @@ export class ParticleSystem {
     this._spawn(position, colorFor(blockId), count, 2.5);
   }
 
+  /** Smaller/gentler than a break burst — placing a block is a deliberate, controlled action, not something shattering. */
+  spawnBlockPlace(position, blockId, count = 5) {
+    this._spawn(position, colorFor(blockId), count, 1.2);
+  }
+
   spawnFootstep(position, blockId, count = 2) {
     this._spawn(position, colorFor(blockId), count, 0.8);
   }

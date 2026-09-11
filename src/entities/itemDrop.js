@@ -26,10 +26,11 @@ function buildItemMesh(itemId, atlasUV, material) {
 }
 
 export class ItemDropManager {
-  constructor(scene, atlasTexture, atlasUV) {
+  constructor(scene, atlasTexture, atlasUV, particles = null) {
     this.scene = scene;
     this.atlasUV = atlasUV;
     this.material = createAtlasMaterial(atlasTexture);
+    this.particles = particles; // optional — a brief sparkle on pickup, see update()
     this.drops = [];
     // Revision-pass section 8's "entity render distance" — dropped items
     // had no distance culling of any kind before this (see mobManager.js's
@@ -106,6 +107,7 @@ export class ItemDropManager {
           // inventory) — keep the entity around at that reduced count
           // instead of deleting items the player never actually received.
           const leftover = onPickup(d.itemId, d.count, d.durability) ?? 0;
+          if (leftover < d.count) this.particles?.spawnBurst(d.mesh.position, 0xffe066, 4, 1.5); // some or all of the stack was actually collected
           if (leftover >= d.count) {
             d.pickupDelay = 0.5; // inventory's full — stop retrying every frame
           } else if (leftover <= 0) {

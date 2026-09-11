@@ -230,7 +230,7 @@ function main() {
 
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
-  const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV);
+  const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV, particles);
   const xpOrbs = new XPOrbManager(renderer.scene);
   const highlight = new BlockHighlight(renderer.scene);
   const dayNight = new DayNightCycle({ cycleDuration: 300 });
@@ -575,6 +575,7 @@ function main() {
         if (interaction.justPlaced) {
           playBlockPlace(interaction.justPlaced.blockId);
           viewModel.triggerPlace();
+          particles.spawnBlockPlace(interaction.justPlaced.position, interaction.justPlaced.blockId);
         }
         if (interaction.wantsOpenContainer) openContainer(interaction.wantsOpenContainer);
 
@@ -790,6 +791,7 @@ function main() {
       dayNight,
       itemDrops,
       xpOrbs,
+      particles,
       inventoryUI,
       toggleInventory,
       openContainer,
