@@ -12,7 +12,7 @@ import { OCEAN_BIOME } from './world/biomes.js';
 import { DayNightCycle } from './world/dayNightCycle.js';
 import { __selfTestTravel } from './world/travel.js';
 import { __selfTestLighting } from './world/lighting.js';
-import { Player } from './entities/player.js';
+import { Player, TUNING } from './entities/player.js';
 import { InteractionController, raycastVoxel } from './entities/interaction.js';
 import { PlayerModel } from './entities/playerModel.js';
 import { ParticleSystem } from './entities/particles.js';
@@ -27,6 +27,7 @@ import { getOrCreateChest, getOrCreateFurnace, allFurnaces } from './items/conta
 import { audioEngine } from './audio/audio.js';
 import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick } from './audio/synth.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
+import { TuningPanel } from './ui/tuningPanel.js';
 import { Hud } from './ui/hud.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
@@ -286,7 +287,13 @@ function main() {
       e.preventDefault(); // pre-empt the browser's own page-refresh shortcut
       player.cycleCameraMode();
     }
+    if (e.code === 'F6' && tuningPanel) tuningPanel.toggle();
   });
+  // Debug-only (?debug=1) live movement/jump tuning panel — assigned
+  // below, inside the debugEnabled block, if this is a debug build.
+  // Declared here (not `const` inside that block) so this listener,
+  // registered earlier in setup, still sees it via closure once set.
+  let tuningPanel = null;
 
   // Apply every remaining loaded setting that doesn't need to be baked
   // into a constructor call above (those objects didn't exist yet then).
@@ -769,11 +776,13 @@ function main() {
   const debugEnabled =
     new URLSearchParams(location.search).get('debug') === '1' || localStorage.getItem('mv_debug') === '1';
   if (debugEnabled) {
+    tuningPanel = new TuningPanel(TUNING);
     const hook = {
       world,
       player,
       input,
       debugOverlay,
+      tuningPanel,
       renderer,
       chunkManager,
       get climateGenerator() { return climateGenerator; }, // `let`-backed — startGame() reassigns it, so this must stay a live getter, not a stale snapshot
@@ -786,6 +795,7 @@ function main() {
       openContainer,
       getBlock,
       BLOCKS,
+      TUNING,
       mobManager,
       respawnPlayer,
       menuController,
