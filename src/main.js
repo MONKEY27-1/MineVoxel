@@ -41,6 +41,7 @@ const WORLD_SEED = 1337; // matches genWorker.js until the world-creation menu (
 const FIXED_DT = 1 / 60;
 const MAX_FRAME_DT = 0.25;
 const FOOTSTEP_STRIDE = 1.15; // blocks of horizontal travel between footstep triggers
+const VOID_Y = -32; // fall-through-the-world safety net — see the check in tick()
 const SHADOW_MAP_SIZE_BY_TIER = { off: 0, low: 512, medium: 1024, high: 2048 };
 const THIRD_PERSON_DISTANCE = 4.5; // blocks — clamped shorter by raycastVoxel if a wall is closer
 
@@ -529,6 +530,18 @@ function main() {
       const startZ = player.position.z;
 
       player.update(FIXED_DT, input, chunkManager);
+
+      // Falling into/through a column that hasn't generated yet (outrunning
+      // the streamer, or a chunk streaming out from under a swimming/
+      // falling player) means chunkManager.getBlock() reports air for the
+      // whole column, so there's nothing to collide with — the player
+      // free-falls with no landing to ever trigger fall damage or a
+      // ground check against. Gravity has no terminal velocity and
+      // nothing else bounds Y from below, so without this they'd fall
+      // forever in both game modes. VOID_Y is well below any legitimately
+      // generated terrain (world floor is Y=0), so this only ever fires
+      // on a genuine fall-through.
+      if (player.position.y < VOID_Y) respawnPlayer();
 
       if (!inventoryUI.isOpen) {
         interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player));
