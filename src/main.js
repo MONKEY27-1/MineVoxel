@@ -325,7 +325,7 @@ function main() {
     if (!currentWorldId) return;
     saveIndicatorEl.classList.add('visible');
     try {
-      await saveGame(currentWorldId, { chunkManager, player, dayNight, mobManager, itemDrops });
+      await saveGame(currentWorldId, { chunkManager, player, dayNight, mobManager, itemDrops, inventoryUI });
     } finally {
       saveIndicatorEl.classList.remove('visible');
     }
@@ -375,6 +375,14 @@ function main() {
         player.selectedHotbar = playerState.selectedHotbar;
         player.inventory.slots = playerState.inventory;
         dayNight.timeOfDay = playerState.timeOfDay;
+        // See saveGame's heldCursorItem comment — fold it back into the
+        // inventory rather than losing it; overflow drops at spawn like
+        // any other item that doesn't fit.
+        if (playerState.heldCursorItem) {
+          const { itemId, count, durability } = playerState.heldCursorItem;
+          const leftover = player.inventory.addItem(itemId, count, durability);
+          if (leftover > 0) spawnDropNearPlayer(itemId, leftover, durability);
+        }
       } else {
         respawnPlayer();
       }

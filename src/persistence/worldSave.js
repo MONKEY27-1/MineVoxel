@@ -109,7 +109,7 @@ export async function duplicateWorld(worldId, newName) {
  * autosave tick or an explicit Save-and-Quit) rather than from inside
  * the render loop itself, so this never stalls a frame.
  */
-export async function saveGame(worldId, { chunkManager, player, dayNight, mobManager, itemDrops }) {
+export async function saveGame(worldId, { chunkManager, player, dayNight, mobManager, itemDrops, inventoryUI }) {
   const dirty = chunkManager.getDirtyColumns();
   await dbPutMany(
     STORES.chunkDiffs,
@@ -131,6 +131,16 @@ export async function saveGame(worldId, { chunkManager, player, dayNight, mobMan
     selectedHotbar: player.selectedHotbar,
     inventory: player.inventory.slots,
     timeOfDay: dayNight.timeOfDay,
+    // Whatever's on the inventory-screen cursor lives outside
+    // player.inventory.slots entirely (it's mid-drag, not "in" any slot
+    // yet) — saveGame can fire while it's held (autosave interval, or
+    // any pointer-lock loss, which happens every time a menu opens; see
+    // main.js's onLockChange) without the player ever explicitly closing
+    // the screen. Without this, that item is simply never written down
+    // and is gone the moment the world reloads. loadGame folds it back
+    // into the inventory rather than trying to restore actual cursor/drag
+    // UI state, which wouldn't make sense across a reload anyway.
+    heldCursorItem: inventoryUI?.cursor ?? null,
   });
 
   const mobs = mobManager.mobs.filter((m) => !m.despawning).map((m) => ({ typeId: m.typeId, x: m.position.x, y: m.position.y, z: m.position.z, health: m.health, yaw: m.yaw }));
