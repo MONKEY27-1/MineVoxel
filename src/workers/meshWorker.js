@@ -23,7 +23,7 @@ self.onmessage = (event) => {
     const transfer = [];
     for (const part of [opaque, transparent, cross]) {
       if (!part) continue;
-      transfer.push(part.positions.buffer, part.uvs.buffer, part.atlasRect.buffer, part.colors.buffer, part.indices.buffer);
+      transfer.push(part.positions.buffer, part.uvs.buffer, part.atlasRect.buffer, part.colors.buffer, part.normals.buffer, part.indices.buffer);
     }
 
     self.postMessage({ type: 'meshed', jobId, cx, cz, sy, opaque, transparent, cross, connectivity }, transfer);

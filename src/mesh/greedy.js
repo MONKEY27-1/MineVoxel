@@ -150,6 +150,7 @@ class Bucket {
     this.uvs = [];
     this.atlasRect = [];
     this.colors = [];
+    this.normals = [];
     this.indices = [];
     this.aoLevels = aoLevels;
   }
@@ -200,6 +201,9 @@ class Bucket {
     // once at the top.
     if (axis === 2) st = st.map(([s, t]) => [t, s]);
 
+    const normal = [0, 0, 0];
+    normal[axis] = sign;
+
     const base = this.positions.length / 3;
     const aoAt = new Array(4);
     for (let i = 0; i < 4; i++) {
@@ -235,6 +239,7 @@ class Bucket {
       // 0-1 — the shader (atlasMaterial.js) combines these with a live
       // dayFactor uniform instead of a value baked in at mesh time.
       this.colors.push(shadeAO, sky, block);
+      this.normals.push(normal[0], normal[1], normal[2]);
     }
 
     // Flip the triangulation diagonal when it would interpolate AO across
@@ -254,6 +259,7 @@ class Bucket {
       uvs: new Float32Array(this.uvs),
       atlasRect: new Float32Array(this.atlasRect),
       colors: new Float32Array(this.colors),
+      normals: new Float32Array(this.normals),
       indices: this.positions.length / 3 > 65535 ? new Uint32Array(this.indices) : new Uint16Array(this.indices),
     };
   }
@@ -408,6 +414,7 @@ export function meshCrossBlocks(blocks, skyLight, blockLight, atlasUV) {
               bucket.uvs.push(st[i][0], st[i][1]);
               bucket.atlasRect.push(rect.u0, rect.v0, rect.u1, rect.v1);
               bucket.colors.push(1, sky, block);
+              bucket.normals.push(0, 1, 0); // cross geometry never casts/receives sunShadow — an arbitrary but valid unit normal just keeps the buffer's vertex count consistent
             }
             bucket.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
           }

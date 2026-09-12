@@ -272,6 +272,18 @@ function main() {
     far: 200,
   });
   sunLight.shadow.camera.updateProjectionMatrix();
+  // Terrain faces are flat-shaded axis-aligned quads with a real normal
+  // attribute now (chunkManager.js's mesh upload) — normalBias offsets
+  // where three renders each face INTO the shadow map, along that face's
+  // own normal, before our hand-rolled receiver sampling
+  // (atlasMaterial.js's sunShadow) ever runs. At a low sun angle, a face
+  // nearly edge-on to the light has almost no room for a flat depth bias
+  // to work with (the depth changes fast across very few texels), which
+  // read as sharp diagonal acne slicing across walls/ground — verified
+  // visually (a real screenshot) before and after this fix. normalBias
+  // is the standard correction for exactly that case; the receiver-side
+  // constant bias in atlasMaterial.js stays as a secondary safety net.
+  sunLight.shadow.normalBias = 0.06;
 
   function applyShadowQuality(tier) {
     const size = SHADOW_MAP_SIZE_BY_TIER[tier] ?? 0;

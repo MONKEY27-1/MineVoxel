@@ -412,6 +412,12 @@ export class ChunkManager {
       geo.setAttribute('uv', new THREE.BufferAttribute(part.uvs, 2));
       geo.setAttribute('atlasRect', new THREE.BufferAttribute(part.atlasRect, 4));
       geo.setAttribute('color', new THREE.BufferAttribute(part.colors, 3));
+      // Real per-face normals (every face is axis-aligned, so this is
+      // just +/-1 on the face's own axis) — not used by this material's
+      // own unlit fragment shading, but three's automatic shadow-caster
+      // pass reads it for sunLight.shadow.normalBias (see main.js), the
+      // standard fix for shadow acne at grazing light angles.
+      geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3));
       geo.setIndex(new THREE.BufferAttribute(part.indices, 1));
       geo.computeBoundingBox();
       geo.computeBoundingSphere();
