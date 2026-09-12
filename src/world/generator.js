@@ -8,6 +8,7 @@ import { createDungeonPlacer } from './structures/dungeon.js';
 import { createMineshaftPlacer } from './structures/mineshaft.js';
 import { createVillagePlacer } from './structures/village.js';
 import { createTemplePlacer, createRuinsPlacer } from './structures/temple.js';
+import { createRuinedGatePlacer } from './structures/ruinedGate.js';
 import { placeBlueprintInChunk } from './structures/placement.js';
 
 // The overworld terrain generator: layered simplex noise picks a point in
@@ -131,6 +132,19 @@ export function createOverworldGenerator(seed) {
   const templePlacer = createTemplePlacer(s);
   const ruinsPlacer = createRuinsPlacer(s);
   const groundHeightAt = (x, z) => heightAndBiome(x, z).height;
+  // The Cinderdeep pass: Ruined Gates generate in both dimensions (spec)
+  // — a small, frequent-ish placer near the surface, sharing ruinedGate.js
+  // with the Cinderdeep's own instance in cinderdeepGenerator.js. "A few
+  // near overworld spawn as the only in-game hint" is approximated by
+  // this being common enough to find on a short walk, not a hard
+  // guarantee tied to the spawn point specifically.
+  const ruinedGatePlacer = createRuinedGatePlacer(s, {
+    decayBlocks: [BLOCKS.MOSSY_COBBLESTONE, BLOCKS.GRAVEL, BLOCKS.COBBLESTONE],
+    regionSize: 8,
+    chance: 0.4,
+    tag: 33,
+    heightAt: groundHeightAt,
+  });
   const isOceanAt = (x, z) => heightAndBiome(x, z).isOcean;
   const biomeAt = (x, z) => {
     const hb = heightAndBiome(x, z);
@@ -363,6 +377,7 @@ export function createOverworldGenerator(seed) {
       ...villagePlacer.blueprintsNear(cx, cz, groundHeightAt, biomeAt),
       ...templePlacer.blueprintsNear(cx, cz, groundHeightAt, biomeAt),
       ...ruinsPlacer.blueprintsNear(cx, cz, groundHeightAt, biomeAt),
+      ...ruinedGatePlacer.blueprintsNear(cx, cz),
     ];
     for (const blueprint of allBlueprints) {
       const result = placeBlueprintInChunk(blueprint, cx, cz, setBlock);

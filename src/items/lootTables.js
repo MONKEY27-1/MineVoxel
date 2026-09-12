@@ -68,6 +68,68 @@ export const LOOT_TABLES = {
       { itemId: ITEMS.IRON_INGOT.id, weight: 3, min: 1, max: 2 },
     ],
   },
+
+  // --- The Cinderdeep (dimension 2, phase 5) ---------------------------
+  emberhold: {
+    rolls: [3, 5],
+    entries: [
+      { itemId: ITEMS.CINDER_ROD.id, weight: 8, min: 1, max: 2 },
+      { itemId: ITEMS.CINDER_POWDER.id, weight: 8, min: 2, max: 4 },
+      { itemId: ITEMS.QUARTZ.id, weight: 8, min: 2, max: 5 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 6, min: 1, max: 3 },
+      { itemId: ITEMS.IRON_INGOT.id, weight: 5, min: 1, max: 3 },
+      { itemId: BLOCKS.CINDERBRICK, weight: 6, min: 4, max: 10 },
+    ],
+  },
+  // The one guaranteed source of the Voidsteel Upgrade Plate (spec:
+  // "Bastion-treasure-only") — weighted low but present every roll set,
+  // not a rare chance-of-appearing-at-all entry, since a raid is meant to
+  // reliably pay off, not gate the whole Voidsteel path behind RNG twice.
+  bastion_treasure: {
+    rolls: [4, 6],
+    entries: [
+      { itemId: ITEMS.VOIDSTEEL_UPGRADE_PLATE.id, weight: 3, min: 1, max: 1 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 10, min: 3, max: 7 },
+      { itemId: ITEMS.DIAMOND.id, weight: 4, min: 1, max: 2 },
+      { itemId: ITEMS.QUARTZ.id, weight: 6, min: 2, max: 5 },
+      { itemId: ITEMS.IRON_INGOT.id, weight: 6, min: 2, max: 4 },
+    ],
+  },
+  bastion_stables: {
+    rolls: [2, 4],
+    entries: [
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 8, min: 1, max: 3 },
+      { itemId: ITEMS.RAW_TUSKBEAST.id, weight: 6, min: 1, max: 2 },
+      { itemId: ITEMS.SADDLE.id, weight: 2, min: 1, max: 1 },
+    ],
+  },
+  bastion_bridge: {
+    rolls: [2, 4],
+    entries: [
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 8, min: 1, max: 3 },
+      { itemId: ITEMS.QUARTZ.id, weight: 6, min: 1, max: 3 },
+      { itemId: ITEMS.IRON_INGOT.id, weight: 6, min: 1, max: 3 },
+    ],
+  },
+  bastion_housing: {
+    rolls: [1, 3],
+    entries: [
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 8, min: 1, max: 2 },
+      { itemId: ITEMS.BONE.id, weight: 6, min: 1, max: 3 },
+      { itemId: ITEMS.CINDER_POWDER.id, weight: 5, min: 1, max: 2 },
+    ],
+  },
+  // Small loot, per spec — a Ruined Gate is a discovery/hint, not a
+  // reward. Shared by BOTH dimensions' generators (see ruinedGate.js).
+  ruined_gate: {
+    rolls: [1, 2],
+    entries: [
+      { itemId: BLOCKS.OBSIDIAN, weight: 8, min: 1, max: 3 },
+      { itemId: ITEMS.IRON_INGOT.id, weight: 5, min: 1, max: 2 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 4, min: 1, max: 1 },
+      { itemId: ITEMS.FLINT_AND_STEEL.id, weight: 2, min: 1, max: 1 },
+    ],
+  },
 };
 
 /** Deterministic given the same seed — used once, at first-open, per chest. */

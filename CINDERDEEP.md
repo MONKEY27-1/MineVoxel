@@ -11,7 +11,7 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [x] Phase 2 — terrain and biomes (generator + 5 biomes; see decisions below)
 - [x] Phase 3 — blocks and items (see decisions below)
 - [x] Phase 4 — mobs
-- [ ] Phase 5 — structures and loot
+- [x] Phase 5 — structures and loot
 - [ ] Phase 6 — alchemy
 - [ ] Phase 7 — Voidsteel
 - [ ] Phase 8 — The Ashen Sovereign (best-effort)
@@ -170,6 +170,84 @@ same as always — the user is away and asked for business-as-usual pushes.
   this was a hard blocker (`getMobTextureSheet` throws if a type has no
   builder), not optional polish, discovered by the first spawn test run.
 
+## Decisions made (Phase 5 — structures and loot)
+
+- **3 new structure modules** (structures/emberhold.js, structures/
+  ashkinBastion.js, structures/ruinedGate.js) follow the exact same
+  chunk-local deterministic-blueprint pattern the overworld's dungeon.js/
+  village.js/temple.js already use (`makeRegionPlacer` +
+  `placeBlueprintInChunk` from structures/placement.js) — every chunk
+  overlapping a structure independently recomputes its identical
+  blueprint and clips to its own bounds, no shared queue or generation-
+  order dependency, matching precedent exactly rather than inventing a
+  new placement scheme.
+- **Ruined Gate is ONE module used by BOTH dimensions**, not two —
+  generator.js and cinderdeepGenerator.js each construct their own
+  `createRuinedGatePlacer(seed, {...})` instance with a dimension-
+  appropriate `decayBlocks` palette and placer tuning passed as config,
+  plus an optional `heightAt(x,z)` callback (the overworld has a real
+  ground height function to pass; the Cinderdeep's open-cavern volume
+  doesn't, so its instance falls back to a wide arbitrary Y range). This
+  is the config-driven pattern the spec asks for instead of a
+  `dimensionId` branch inside the module itself. The frame shape exactly
+  matches gate.js's real 4x5 frame, and each border cell independently
+  has a 45% chance to decay — most instances fail findGateFrame's border
+  check (genuinely broken), but an occasional lucky one comes up fully
+  intact and can actually be relit, same as vanilla ruined portals.
+- **"A few near overworld spawn as the only in-game hint" is
+  approximated, not guaranteed** — the overworld's Ruined Gate placer
+  uses a small region size (8 chunks) and 40% chance, common enough to
+  find on a short walk from any spawn point, rather than special-casing
+  placement near the literal spawn coordinate (which risked interacting
+  with spawn-safety logic for comparatively little payoff).
+- **Emberhold is a fixed 3-room shape** (entry -> Emberwart farm ->
+  Cinder Wraith spawner/loot vault, strung along one axis by open-sided
+  "bridge" floor strips) rather than a fully organic branching fortress
+  generator — every named feature (corridors, lava bridges, Emberwart
+  farms, Cinder Wraith spawner rooms, loot chests) is present, just as
+  one deterministic layout per instance instead of procedurally varied
+  room graphs. Since every wall/floor block is placed explicitly, an
+  instance carves itself out cleanly whether it lands in solid
+  Cinderstone, open cavern, or a lava sea.
+- **Ashkin Bastion's 4 variants share one blackstone shell**, differing
+  only in interior layout/spawners/loot table id (Treasure Room: Ashkin
+  Warden guard + `bastion_treasure`, the one guaranteed source of the
+  Voidsteel Upgrade Plate; Stables: Tuskbeasts + an Ashkin handler;
+  Bridge: a blackstone span with Ashkin guards at both ends; Housing
+  Units: 3 partitioned cells, one Ashkin + chest each) — real, distinct
+  variety without 4 independent structure modules. Every variant seeds
+  at least one Ashkin/Ashkin Warden spawner, so "opening a chest near a
+  wild Ashkin group aggros it" (phase 4's `MobManager.aggroNearby`) is
+  already exercised here with zero Bastion-specific aggro code.
+- **6 new loot tables** added to items/lootTables.js (`emberhold`,
+  `bastion_treasure`, `bastion_stables`, `bastion_bridge`,
+  `bastion_housing`, `ruined_gate`) using the exact existing weighted-
+  roll shape (`rollLoot`) every other structure's chests already use —
+  no changes needed to containerRegistry.js or chunkManager.js's
+  chest-registration path, which were already fully generic.
+- **Mourning Flats fossil formations and lava-sea glowstone shores
+  needed no new structure module** — both were already produced by
+  cinderdeepGenerator.js's per-column decoration pass from Phase 2
+  (`biome.fossilChance` bone spires, `biome.glowstoneChance` ceiling
+  clusters), which already satisfies those two spec items.
+- **Verification**: `tools/test-structures.js` (npm run test:structures)
+  is a plain Node script — no browser/dev server — that imports the
+  placer modules directly (they have zero THREE.js/DOM dependency) and
+  scans a wide deterministic chunk range to confirm each structure type
+  generates, contains its expected blocks/spawners/chests, and that all
+  4 Bastion variants actually appear. `tools/test-structures-live.js`
+  (npm run test:structures-live) then precomputes real block coordinates
+  the same way and drives the actual browser game to them, confirming
+  the full pipeline (genWorker.js postMessage -> chunkManager -> spawner/
+  container registries) survives serialization intact.
+- **Found and flagged, not fixed**: `npm run test:save-fuzz` is flaky
+  (fails ~2/3 of runs) due to a pre-existing chunk-regeneration race in
+  chunkManager.js unrelated to the Cinderdeep — confirmed via `git
+  stash` that it reproduces identically without any of this phase's
+  changes. Logged as a separate background task rather than fixed here,
+  since it's out of scope for a structures pass and touches core engine
+  code this spec explicitly says not to destabilize.
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil
@@ -214,3 +292,13 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [ ] Mob entities do not travel through gates with the player (same gap
       Phase 1 already logged) — now directly testable since Cinderdeep
       mobs exist, but still not built.
+- [ ] Emberhold/Bastion interiors don't bore a connector tunnel to the
+      cave network the way overworld dungeons/mineshafts do
+      (boreConnectorTunnel) — unnecessary here since the Cinderdeep's
+      cavern volume is already "large connected" by construction (Phase
+      2), so every structure sits inside or adjacent to open space by
+      default rather than needing to be dug out to.
+- [ ] Bastion "aggro-on-chest-open" and Emberhold's spawners rely on
+      wild/spawner-placed mobs, not a bespoke "boss guard" — there's no
+      unique named Bastion guardian, just the same Ashkin/Ashkin Warden/
+      Tuskbeast roster from Phase 4.

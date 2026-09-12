@@ -1,6 +1,10 @@
 import { BLOCKS } from './blocks.js';
 import { NoiseField } from './noise.js';
 import { CINDERDEEP_BIOME_LIST } from './cinderdeepBiomes.js';
+import { createEmberholdPlacer } from './structures/emberhold.js';
+import { createAshkinBastionPlacer } from './structures/ashkinBastion.js';
+import { createRuinedGatePlacer } from './structures/ruinedGate.js';
+import { placeBlueprintInChunk } from './structures/placement.js';
 
 // The Cinderdeep's terrain: unlike the overworld (mostly solid with rare
 // carved caves), this is mostly OPEN with a solid shell — a bedrock floor
@@ -41,6 +45,19 @@ export function createCinderdeepGenerator(seed) {
   const voidironNoise = new NoiseField(s ^ 0xc1de0006, { octaves: 2, frequency: 0.06, persistence: 0.5 });
   const pillarNoise = new NoiseField(s ^ 0xc1de0007, { octaves: 1, frequency: 0.09, persistence: 0.5 });
   const groveNoise = new NoiseField(s ^ 0xc1de0008, { octaves: 1, frequency: 0.15, persistence: 0.5 });
+
+  // Phase 5 structures — same chunk-local blueprint pattern the overworld
+  // uses (structures/placement.js). Ruined Gates share their module with
+  // the overworld's own instance (see generator.js); only the rubble
+  // palette and placer tuning differ, passed in rather than branched on.
+  const emberholdPlacer = createEmberholdPlacer(s);
+  const bastionPlacer = createAshkinBastionPlacer(s);
+  const ruinedGatePlacer = createRuinedGatePlacer(s, {
+    decayBlocks: [BLOCKS.CINDERSTONE, BLOCKS.BASALT, BLOCKS.BLACKSTONE],
+    regionSize: 12,
+    chance: 0.35,
+    tag: 32,
+  });
 
   function biomeAt(wx, wz) {
     const t = temperature.sample(wx, wz);
@@ -207,11 +224,26 @@ export function createCinderdeepGenerator(seed) {
       }
     }
 
-    // Structures (Emberhold, Ashkin Bastion, Ruined Gate, fossil fields)
-    // are phase 5 work — the seam is the same chunk-local blueprint
-    // pattern generator.js's overworld uses (structures/placement.js),
-    // just not wired in here yet. See CINDERDEEP.md.
-    return { chests: [], spawners: [] };
+    // Structures — same chunk-local blueprint pattern generator.js's
+    // overworld uses: every chunk overlapping a structure independently
+    // recomputes its full (deterministic) blueprint and clips to its own
+    // bounds. Mourning Flats fossil formations and lava-sea glowstone
+    // shores are already covered by the per-column decoration pass above
+    // (biome.fossilChance / biome.glowstoneChance) rather than a separate
+    // blueprint structure.
+    const chests = [];
+    const spawners = [];
+    const allBlueprints = [
+      ...emberholdPlacer.blueprintsNear(cx, cz),
+      ...bastionPlacer.blueprintsNear(cx, cz),
+      ...ruinedGatePlacer.blueprintsNear(cx, cz),
+    ];
+    for (const blueprint of allBlueprints) {
+      const result = placeBlueprintInChunk(blueprint, cx, cz, setBlock);
+      chests.push(...result.chests);
+      spawners.push(...result.spawners);
+    }
+    return { chests, spawners };
   }
 
   return { generateColumn, biomeAt, isOpen };
