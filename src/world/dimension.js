@@ -36,6 +36,13 @@ export class Dimension {
     hasClouds = true,
     lavaSpreadMultiplier = 1,
     evaporatesWater = false,
+    // Phase 4: which floor block a daylight-style passive natural spawn
+    // requires. null means "any solid, non-hazardous floor found by
+    // mobManager.js's generic spawn-spot search" (used by the Cinderdeep,
+    // which has no grass-equivalent block); the overworld sets this to
+    // GRASS_BLOCK. A config value instead of a dimensionId check in
+    // mobManager.js.
+    passiveSpawnFloorId = null,
   }) {
     this.id = id;
     this.name = name;
@@ -61,6 +68,7 @@ export class Dimension {
     // LAVA_MAX_SPREAD rather than a dimensionId check there.
     this.lavaSpreadMultiplier = lavaSpreadMultiplier;
     this.evaporatesWater = evaporatesWater;
+    this.passiveSpawnFloorId = passiveSpawnFloorId;
 
     // Populated by chunkManager.js in phase 2; a dimension owns its own
     // manager instance so unloading a dimension unloads only its chunks.

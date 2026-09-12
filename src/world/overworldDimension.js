@@ -1,5 +1,6 @@
 import { Dimension } from './dimension.js';
 import { createOverworldGenerator } from './generator.js';
+import { BLOCKS } from './blocks.js';
 
 // The one dimension that exists today. `generator` here is documentation
 // of which factory produces this dimension's terrain — genWorker.js
@@ -25,5 +26,6 @@ export function createOverworld() {
     sunIntensity: 1.0,
     gravity: 32,
     spawnTables: { passive: [], hostile: [] },
+    passiveSpawnFloorId: BLOCKS.GRASS_BLOCK,
   });
 }

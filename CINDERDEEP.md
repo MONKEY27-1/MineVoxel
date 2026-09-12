@@ -8,9 +8,9 @@ same as always — the user is away and asked for business-as-usual pushes.
 ## Status
 
 - [x] Phase 1 — dimension plumbing, Cinder Gate
-- [ ] Phase 2 — terrain and biomes
-- [ ] Phase 3 — blocks and items
-- [ ] Phase 4 — mobs
+- [x] Phase 2 — terrain and biomes (generator + 5 biomes; see decisions below)
+- [x] Phase 3 — blocks and items (see decisions below)
+- [x] Phase 4 — mobs
 - [ ] Phase 5 — structures and loot
 - [ ] Phase 6 — alchemy
 - [ ] Phase 7 — Voidsteel
@@ -111,6 +111,65 @@ same as always — the user is away and asked for business-as-usual pushes.
   variable), so old records are already compatible with the new
   dimension-aware readers without rewriting anything.
 
+## Decisions made (Phase 4 — mobs)
+
+- **8 new mob types reuse the 4 existing body shapes** (biped/quadruped/
+  bird) rather than new bespoke geometry for Cinder Wraith's floating rod
+  segments or Hollow Drifter's tentacled body — each gets its own
+  procedural texture (mobTexture.js) so silhouettes/colors stay distinct
+  even though the underlying box-builder is shared. Cinder Wraith and
+  Hollow Drifter use the flying ('bird') builder as a floating-mob
+  substitute; their unique attacks (telegraphed fire volleys, deflectable
+  projectiles) are simplified to a plain ranged-melee stat (high
+  attackRange, no projectile entity) rather than building a projectile
+  system this game doesn't have yet.
+- **Fire/lava immunity for Cinderdeep mobs needed zero new code** — this
+  codebase has no fire/lava damage-over-time mechanic for *any* mob, so
+  "fire-immune" was already true by omission. Flagged, not implemented.
+- **Ashkin gold-neutrality reads `player.armor` directly, rechecked every
+  AI tick** (not cached/event-driven) — equipping/removing gold mid-fight
+  flips aggro immediately, matching vanilla piglins. This is also why the
+  minimal armor system (4 slots, gold/iron/Voidsteel only — see Phase 1's
+  note) had to land in this phase: nothing read `player.armor` before.
+- **"Opening a chest near wild Ashkin aggros the group"** is a
+  `_forcedAggroTimer` (20s) set via `MobManager.aggroNearby(typeId,
+  position, radius)`, called from main.js's `wantsOpenContainer` handling
+  with the container's position — overrides gold-neutrality but decays on
+  its own, so a provoked group calms back down rather than staying
+  permanently hostile. The call is unconditional (not gated on dimension)
+  since `aggroNearby('ashkin', ...)` is a harmless no-op wherever no
+  Ashkin exist.
+- **Ashkin bartering is a single small weighted table**
+  (`ASHKIN_BARTER_TABLE` in mobManager.js), separate from the existing
+  chest-loot table system (world/lootTables.js) — that system rolls each
+  entry independently ("give me all of these that pass"), vanilla
+  bartering needs "pick exactly one, by weight," which is a different
+  enough shape that bending the existing table to fit would've been more
+  code than a 15-line `pickWeighted` helper. Right-click with a gold
+  ingot (`input.wasMousePressed(1)`, same button flint-and-steel already
+  uses) consumes one ingot and tosses back one weighted-random item.
+- **Natural spawning is now dimension-scoped via `MOB_TYPES[id].dimension`**
+  (default `'overworld'`), filtered in `mobManager._tryNaturalSpawn`
+  against the *active Dimension's own `id`* — passed as the whole
+  `Dimension` object, not a bare dimensionId string, so the daylight gate
+  and floor-block check could also become config-driven
+  (`dimension.hasDayNightCycle`, a new `dimension.passiveSpawnFloorId`
+  defaulting to `null` = "any solid non-hazardous floor") instead of
+  adding an `if (dimensionId === 'cinderdeep')` branch inside
+  mobManager.js, which the spec explicitly forbids. Spawner-block spawns
+  (dungeon rooms) already pick one specific mobType and needed no change.
+- **Tuskbeast's Azurecap-flee check is a coarse once-a-second block scan**
+  (`findNearbyAzurecap`, radius 5) rather than every tick — an 11^3 block
+  search every frame per Tuskbeast would add up; a 1-second staleness on
+  "did I wander near a safe zone" is imperceptible.
+- **Fixed a real gap found while wiring this up**: `items.js`'s
+  `ATTACK_DAMAGE_BY_TIER` tables only had 3 entries (wood/stone/iron) —
+  Voidsteel (tier 4) weapons would have resolved to `undefined` damage.
+  Added a 4th entry per tool type.
+- **Procedural mob textures added for all 8 new types** (mobTexture.js) —
+  this was a hard blocker (`getMobTextureSheet` throws if a type has no
+  builder), not optional polish, discovered by the first spawn test run.
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil
@@ -132,3 +191,26 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [ ] Armor is not rendered on the player model (playerModel.js) —
       equipping a piece changes stats/Ashkin-neutrality only, not
       appearance.
+- [ ] No armor equip/unequip UI exists — `player.armor` is a real,
+      saved/loaded field, but nothing in inventoryUI.js lets a player put
+      a piece into it yet. Testable today only via the debug hook
+      (`window.__minevoxel.player.armor[...] = {itemId, durability}`).
+      Needed before Ashkin neutrality or defense is reachable through
+      normal play.
+- [ ] Armor's `defense` stat is not applied anywhere — no damage-
+      reduction code reads `player.armor` for incoming hits yet, only
+      mob.js's Ashkin-neutrality check does. Equipping armor changes
+      nothing about survivability today.
+- [ ] Cinder Wraith / Hollow Drifter's signature attacks (telegraphed
+      3-shot fire volleys, a deflectable slow explosive projectile) are
+      simplified to a plain long-range melee-style hit — no projectile
+      entity system exists in this codebase to build the real thing on.
+- [ ] Magma Slug splitting-on-death (like the overworld slime) and
+      Ashbone's lingering decay damage-over-time are not implemented —
+      both mobs fight as a flat melee attacker today.
+- [ ] Emberstrider riding (saddle + Azurecap Lure) is not implemented —
+      no mount/riding system exists in this codebase at all; it exists
+      only as a passive, unrideable mob.
+- [ ] Mob entities do not travel through gates with the player (same gap
+      Phase 1 already logged) — now directly testable since Cinderdeep
+      mobs exist, but still not built.

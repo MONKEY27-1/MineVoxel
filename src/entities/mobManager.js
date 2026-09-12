@@ -1,9 +1,35 @@
 import * as THREE from 'three';
 import { Mob } from './mob.js';
 import { MOB_TYPES, HOSTILE_MOB_IDS, PASSIVE_MOB_IDS } from './mobTypes.js';
-import { attackDamageFor } from '../items/items.js';
+import { attackDamageFor, ITEMS } from '../items/items.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
 import { allSpawners } from '../world/structures/spawnerRegistry.js';
+
+// Ashkin bartering (right-click with a gold ingot, spec phase 4) — a
+// single small weighted table since only one mob barters today. Real
+// loot tables (world/lootTables.js) are chunk-loot-chest shaped (a list
+// of {itemId,min,max,chance} rolled independently); this is Minecraft's
+// other kind of table — pick exactly one, by weight — so it gets its own
+// tiny helper rather than bending the existing one to fit.
+const ASHKIN_BARTER_TABLE = [
+  { itemId: ITEMS.QUARTZ.id, min: 1, max: 3, weight: 30 },
+  { itemId: ITEMS.CINDER_POWDER.id, min: 1, max: 2, weight: 25 },
+  { itemId: BLOCKS.CINDERBRICK, min: 2, max: 4, weight: 20 },
+  { itemId: ITEMS.BONE.id, min: 1, max: 2, weight: 15 },
+  { itemId: ITEMS.DRIFTER_TEAR.id, min: 1, max: 1, weight: 5 },
+  { itemId: ITEMS.GOLD_INGOT.id, min: 1, max: 1, weight: 5 },
+];
+const BARTER_TABLES = { ashkin: ASHKIN_BARTER_TABLE };
+
+function pickWeighted(table) {
+  const total = table.reduce((sum, e) => sum + e.weight, 0);
+  let roll = Math.random() * total;
+  for (const entry of table) {
+    roll -= entry.weight;
+    if (roll <= 0) return entry;
+  }
+  return table[table.length - 1];
+}
 
 const MAX_HOSTILE = 24;
 const MAX_PASSIVE = 16;
@@ -54,6 +80,8 @@ export class MobManager {
     // combat sounds without entities importing audio code directly.
     this.justHit = null; // { mobTypeId } | null
     this.justKilled = null; // { mobTypeId } | null
+    this.justBartered = null; // { mobTypeId, itemId, count } | null
+    this._playerBarterCooldown = 0;
   }
 
   spawn(typeId, position) {
@@ -63,9 +91,10 @@ export class MobManager {
     return mob;
   }
 
-  update(dt, player, chunkManager, dayNight) {
+  update(dt, player, chunkManager, dayNight, dimension) {
     this.justKilled = null;
     this._playerAttackCooldown = Math.max(0, this._playerAttackCooldown - dt);
+    this._playerBarterCooldown = Math.max(0, this._playerBarterCooldown - dt);
 
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
@@ -91,7 +120,7 @@ export class MobManager {
     this._naturalTimer -= dt;
     if (this._naturalTimer <= 0) {
       this._naturalTimer = NATURAL_SPAWN_INTERVAL;
-      this._tryNaturalSpawn(player, chunkManager, dayNight);
+      this._tryNaturalSpawn(player, chunkManager, dayNight, dimension);
     }
 
     this._spawnerTimer -= dt;
@@ -193,7 +222,7 @@ export class MobManager {
     return null;
   }
 
-  _tryNaturalSpawn(player, chunkManager, dayNight) {
+  _tryNaturalSpawn(player, chunkManager, dayNight, dimension) {
     let hostileCount = 0;
     let passiveCount = 0;
     for (const m of this.mobs) {
@@ -201,14 +230,30 @@ export class MobManager {
       else passiveCount++;
     }
 
-    if (hostileCount < MAX_HOSTILE) {
+    // Dimension-scoped: HOSTILE_MOB_IDS/PASSIVE_MOB_IDS are one shared
+    // registry across both dimensions (mobTypes.js), so without this
+    // filter every Cinderdeep mob would also naturally spawn in the
+    // overworld and vice versa. Filtered here rather than splitting the
+    // registry in two, since spawner-block spawns (_trySpawnerSpawn)
+    // already pick a specific mobType and don't need this at all.
+    const hostileIds = HOSTILE_MOB_IDS.filter((id) => MOB_TYPES[id].dimension === dimension.id);
+    const passiveIds = PASSIVE_MOB_IDS.filter((id) => MOB_TYPES[id].dimension === dimension.id);
+
+    if (hostileIds.length && hostileCount < MAX_HOSTILE) {
       const spot = this._findSpawnSpot(chunkManager, player, dayNight, true);
-      if (spot) this.spawn(HOSTILE_MOB_IDS[Math.floor(Math.random() * HOSTILE_MOB_IDS.length)], spot);
+      if (spot) this.spawn(hostileIds[Math.floor(Math.random() * hostileIds.length)], spot);
     }
-    if (passiveCount < MAX_PASSIVE && dayNight.getDayFactor() > 0.4) {
+    // The overworld's passive spawns are gated to daylight on grass; a
+    // dimension with no day/night (dimension.hasDayNightCycle) skips the
+    // daylight gate entirely, and passiveSpawnFloorId null (Cinderdeep —
+    // no grass-equivalent block) accepts whatever solid, non-hazardous
+    // floor _findSpawnSpot already found instead of requiring one exact
+    // block id.
+    const daylightOk = !dimension.hasDayNightCycle || dayNight.getDayFactor() > 0.4;
+    if (passiveIds.length && passiveCount < MAX_PASSIVE && daylightOk) {
       const spot = this._findSpawnSpot(chunkManager, player, dayNight, false);
-      if (spot && spot.floorId === BLOCKS.GRASS_BLOCK) {
-        this.spawn(PASSIVE_MOB_IDS[Math.floor(Math.random() * PASSIVE_MOB_IDS.length)], spot);
+      if (spot && (dimension.passiveSpawnFloorId == null || spot.floorId === dimension.passiveSpawnFloorId)) {
+        this.spawn(passiveIds[Math.floor(Math.random() * passiveIds.length)], spot);
       }
     }
   }
@@ -287,6 +332,46 @@ export class MobManager {
       6,
       2.5
     );
+  }
+
+  /** Right-click a barterable mob (Ashkin) with its accepted item — tosses back one weighted-random item and consumes the held one. */
+  tryPlayerBarter(player, input) {
+    this.justBartered = null;
+    if (!input.wasMousePressed(1) || this._playerBarterCooldown > 0) return;
+    const held = player.selectedItem;
+    if (!held || held.itemId !== ITEMS.GOLD_INGOT.id) return;
+    const target = this._findAttackTarget(player);
+    if (!target || !target.def.barterTableId) return;
+    const table = BARTER_TABLES[target.def.barterTableId];
+    if (!table) return;
+
+    this._playerBarterCooldown = ATTACK_COOLDOWN;
+    held.count -= 1;
+    if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+
+    const entry = pickWeighted(table);
+    const count = entry.min + Math.floor(Math.random() * (entry.max - entry.min + 1));
+    this.itemDrops?.spawn(
+      { x: target.position.x, y: target.position.y + target.size.height * 0.6, z: target.position.z },
+      entry.itemId,
+      count
+    );
+    this.justBartered = { mobTypeId: target.typeId };
+  }
+
+  /**
+   * Opening a chest near a wild (gold-neutral) Ashkin group aggros the
+   * whole group — spec phase 4. Called from main.js's wantsOpenContainer
+   * handling with the container's block position. `duration` mirrors
+   * vanilla's persistent-anger window; `_forcedAggroTimer` counting down
+   * on the mob itself (see mob.js) is what actually overrides neutrality.
+   */
+  aggroNearby(typeId, position, radius, duration = 20) {
+    for (const mob of this.mobs) {
+      if (mob.typeId !== typeId || mob.dead) continue;
+      const dist = Math.hypot(mob.position.x - position.x, mob.position.y - position.y, mob.position.z - position.z);
+      if (dist <= radius) mob._forcedAggroTimer = duration;
+    }
   }
 
   dispose() {

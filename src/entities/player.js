@@ -116,6 +116,13 @@ export class Player {
     this.inventory = new Inventory(36); // slots 0-8 hotbar, 9-35 main
     this.selectedHotbar = 0;
     this.craftingGrid = new Inventory(4); // the 2x2 grid carried in the player's own inventory screen
+    // The Cinderdeep pass: armor didn't exist before this — see
+    // items.js's ARMOR_MATERIAL/ARMOR_SLOTS note for why only
+    // gold/iron/Voidsteel exist. Order matches ARMOR_SLOTS
+    // (helmet, chest, legs, boots); each slot holds an
+    // {itemId, durability} or null, same shape as an inventory slot
+    // minus `count` (armor doesn't stack).
+    this.armor = [null, null, null, null];
 
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 1000);
     this._baseFov = 75; // matches the camera's construction above

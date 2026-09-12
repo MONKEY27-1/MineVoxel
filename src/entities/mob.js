@@ -2,6 +2,44 @@ import * as THREE from 'three';
 import { sweepAABB, aabbFits } from './physics.js';
 import { MOB_TYPES } from './mobTypes.js';
 import { getMobTextureSheet, setBoxFaceUVs } from './mobTexture.js';
+import { BLOCKS } from '../world/blocks.js';
+import { ARMOR_MATERIAL, getNonBlockItem } from '../items/items.js';
+
+const AZURECAP_BLOCKS = new Set([
+  BLOCKS.AZURECAP_STEM, BLOCKS.AZURECAP_HYPHAE, BLOCKS.AZURECAP_CAP,
+  BLOCKS.AZURECAP_FUNGUS, BLOCKS.AZURECAP_ROOTS, BLOCKS.AZURECAP_VINES,
+]);
+const AZURECAP_SCAN_RADIUS = 5;
+const AZURECAP_CHECK_INTERVAL = 1; // scanning a ~11^3 radius every tick per tuskbeast would add up — once a second is plenty for a flee reaction
+
+/** Any GOLD-tier armor piece equipped, any slot — Ashkin's neutrality check only cares that gold is worn somewhere, not which piece. */
+function playerWearsGold(player) {
+  const armor = player.armor;
+  if (!armor) return false;
+  return armor.some((slot) => slot && getNonBlockItem(slot.itemId)?.material === ARMOR_MATERIAL.GOLD);
+}
+
+/** Nearest Azurecap block's center within `radius` blocks of `pos`, or null. Coarse scan — fine for a once-a-second check. */
+function findNearbyAzurecap(chunkManager, pos, radius) {
+  const cx = Math.floor(pos.x);
+  const cy = Math.floor(pos.y);
+  const cz = Math.floor(pos.z);
+  let closest = null;
+  let closestDistSq = Infinity;
+  for (let x = cx - radius; x <= cx + radius; x++) {
+    for (let y = cy - radius; y <= cy + radius; y++) {
+      for (let z = cz - radius; z <= cz + radius; z++) {
+        if (!AZURECAP_BLOCKS.has(chunkManager.getBlock(x, y, z))) continue;
+        const distSq = (x - pos.x) ** 2 + (y - pos.y) ** 2 + (z - pos.z) ** 2;
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq;
+          closest = { x: x + 0.5, y: y + 0.5, z: z + 0.5 };
+        }
+      }
+    }
+  }
+  return closest;
+}
 
 const GRAVITY = 20; // mobs don't carry a Dimension reference (only players/chunks do) — matches the overworld's own gravity value directly
 const STEP_HEIGHT = 1.0;
@@ -158,10 +196,16 @@ export class Mob {
     this.baby = this.def.category === 'passive' && Math.random() < (this.def.babyChance ?? 0.1);
     this.isRareVariant = Math.random() < RARE_VARIANT_CHANCE;
 
-    this.aiState = 'idle'; // idle | chase | attack (hostile only — passive mobs just wander)
+    this.aiState = 'idle'; // idle | chase | attack | flee (hostile only — passive mobs just wander)
     this._moveDir = { x: 0, z: 0 };
     this._wanderTimer = 0;
     this._attackCooldownTimer = 0;
+    // Ashkin: opening a chest near a wild (gold-neutral) group aggros
+    // them — see mobManager.js's aggroNearby, called from main.js's
+    // wantsOpenContainer handling. Counts down independent of gold-worn
+    // state so an aggroed Ashkin stays hostile even if the player throws
+    // gold armor on mid-fight, same as vanilla's "was provoked" flag.
+    this._forcedAggroTimer = 0;
     this._hurtFlash = 0;
     this._deathT = 0;
     this._breathPhase = Math.random() * Math.PI * 2;
@@ -228,25 +272,57 @@ export class Mob {
     this._attackCooldownTimer = Math.max(0, this._attackCooldownTimer - dt);
     this._hurtFlash = Math.max(0, this._hurtFlash - dt);
 
-    this._updateAI(dt, player);
+    this._updateAI(dt, player, chunkManager);
     this._updatePhysics(dt, chunkManager);
     this._updateAnimation(dt, player);
     this._syncMesh();
   }
 
-  _updateAI(dt, player) {
+  _updateAI(dt, player, chunkManager) {
     const def = this.def;
     const dx = player.position.x - this.position.x;
     const dz = player.position.z - this.position.z;
     const distToPlayer = Math.hypot(dx, dz);
 
-    if (def.category === 'hostile') {
+    this._forcedAggroTimer = Math.max(0, this._forcedAggroTimer - dt);
+
+    // Ashkin: hostile category by default, but neutral (idle, ignores the
+    // player) while any gold armor is worn — checked fresh every tick
+    // rather than cached, since equipping/removing gold mid-fight should
+    // flip aggro immediately, same as vanilla piglins. A forced-aggro
+    // timer (chest opened nearby) overrides gold-neutrality entirely.
+    const neutral = def.neutralUnlessGoldWorn && playerWearsGold(player) && this._forcedAggroTimer <= 0;
+
+    if (def.category === 'hostile' && !neutral) {
       if (distToPlayer < def.attackRange) this.aiState = 'attack';
       else if (distToPlayer < def.aggroRange) this.aiState = 'chase';
       else this.aiState = 'idle';
+    } else if (neutral) {
+      this.aiState = 'idle';
     }
 
-    if (this.aiState === 'chase') {
+    // Tuskbeast: flees any Azurecap fungus block found nearby instead of
+    // its usual wander/chase logic. Scanned on a timer (not every tick)
+    // since it's a ~11^3-block search — see AZURECAP_CHECK_INTERVAL.
+    if (def.repelledByAzurecap && chunkManager) {
+      this._azurecapTimer = (this._azurecapTimer ?? 0) - dt;
+      if (this._azurecapTimer <= 0) {
+        this._azurecapTimer = AZURECAP_CHECK_INTERVAL;
+        this._fleeFrom = findNearbyAzurecap(chunkManager, this.position, AZURECAP_SCAN_RADIUS);
+      }
+      if (this._fleeFrom) {
+        const fx = this.position.x - this._fleeFrom.x;
+        const fz = this.position.z - this._fleeFrom.z;
+        const fleeDist = Math.hypot(fx, fz) || 1;
+        this.yaw = Math.atan2(fx, fz);
+        this._moveDir = { x: fx / fleeDist, z: fz / fleeDist };
+        this.aiState = 'flee';
+      }
+    }
+
+    if (this.aiState === 'flee') {
+      // movement already set above; nothing else to do this tick.
+    } else if (this.aiState === 'chase') {
       this.yaw = Math.atan2(-dx, -dz);
       this._moveDir = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
     } else if (this.aiState === 'attack') {

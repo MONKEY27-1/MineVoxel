@@ -831,6 +831,7 @@ function main() {
       if (!inventoryUI.isOpen) {
         interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player));
         mobManager.tryPlayerAttack(player, input);
+        mobManager.tryPlayerBarter(player, input);
         if (mobManager.justHit) playMobHit();
         if (input.wasMousePressed(0)) viewModel.triggerSwing();
 
@@ -889,7 +890,15 @@ function main() {
             particles.spawnBlockBreak(interaction.justPlaced.position, BLOCKS.WATER);
           }
         }
-        if (interaction.wantsOpenContainer) openContainer(interaction.wantsOpenContainer);
+        if (interaction.wantsOpenContainer) {
+          openContainer(interaction.wantsOpenContainer);
+          // Ashkin (Cinderdeep): opening a chest near a wild group aggros
+          // them, same as vanilla piglins guarding a bastion chest.
+          // Harmless no-op call outside the Cinderdeep (aggroNearby just
+          // finds zero 'ashkin' mobs there).
+          const [cbx, cby, cbz] = interaction.wantsOpenContainer.pos;
+          mobManager.aggroNearby('ashkin', { x: cbx + 0.5, y: cby + 0.5, z: cbz + 0.5 }, 12);
+        }
 
         // Flint and steel: interaction.js only places *block* items on
         // right-click (isBlockItem gate in _updatePlacing), so a tool
@@ -935,7 +944,7 @@ function main() {
       fluids.update(FIXED_DT, chunkManager, activeDimension.lavaSpreadMultiplier);
       xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
-      mobManager.update(FIXED_DT, player, chunkManager, dayNight);
+      mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension);
       if (mobManager.justKilled) playMobDeath();
       if (player.justHurt) {
         playPlayerHurt();

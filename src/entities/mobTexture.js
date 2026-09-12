@@ -223,6 +223,178 @@ const BUILDERS = {
       ctx.fillRect(48, 0, TILE, TILE);
     }, seed);
   },
+
+  // --- The Cinderdeep (dimension 2) ------------------------------------
+  ashkin(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#d99a72', [shade('#d99a72', 0.1), shade('#d99a72', -0.15)], seed ^ 1, 0.2);
+      drawEyes(ctx, 0, 0, '#1a1a1a');
+      ctx.fillStyle = '#8a5a3a';
+      ctx.fillRect(4, 10, 3, 4);
+      ctx.fillRect(9, 10, 3, 4); // snout tusks
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#c8865e', [shade('#c8865e', -0.1)], seed ^ 2, 0.2);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#4a3320', [shade('#4a3320', 0.2), '#2e1f13'], seed ^ 3, 0.3);
+      // Gold trim, matching what it drops/barters.
+      ctx.fillStyle = '#d4af37';
+      ctx.fillRect(32, 12, TILE, 2);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#5a3d26', [shade('#5a3d26', -0.15)], seed ^ 4, 0.2);
+    }, seed);
+  },
+  ashkin_warden(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#c8865e', [shade('#c8865e', -0.15)], seed ^ 1, 0.2);
+      drawEyes(ctx, 0, 0, '#2a0a0a', true);
+      ctx.fillStyle = '#3a3a40'; // an armored brow plate, distinguishing it from the plain ashkin at a glance
+      ctx.fillRect(1, 0, 14, 4);
+
+      put('headSide', 16, 0);
+      ctx.fillStyle = '#3a3a40';
+      ctx.fillRect(16, 0, TILE, TILE);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#4a4a52', [shade('#4a4a52', 0.15), '#2c2c32'], seed ^ 3, 0.3);
+      ctx.fillStyle = '#d4af37';
+      ctx.fillRect(32, 13, TILE, 2);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#3e3e46', [shade('#3e3e46', -0.1)], seed ^ 4, 0.2);
+    }, seed);
+  },
+  tuskbeast(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#6b4a3a', [shade('#6b4a3a', -0.2)], seed ^ 1, 0.3);
+      drawEyes(ctx, 0, 0, '#cc2222');
+      ctx.fillStyle = '#e8e0d0';
+      ctx.fillRect(2, 10, 2, 5);
+      ctx.fillRect(12, 10, 2, 5); // curved tusks
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#5a3d2e', [shade('#5a3d2e', -0.15)], seed ^ 2, 0.3);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#5a3d2e', [shade('#5a3d2e', 0.15), '#3a2820'], seed ^ 3, 0.35);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#4a3222', [shade('#4a3222', -0.1)], seed ^ 4, 0.25);
+    }, seed);
+  },
+  cinder_wraith(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      ctx.fillStyle = '#3a2418';
+      ctx.fillRect(0, 0, TILE, TILE);
+      ctx.fillStyle = '#f2a83a';
+      ctx.fillRect(3, 5, 4, 4);
+      ctx.fillRect(9, 5, 4, 4); // glowing eye-sockets, no pupils — a floating rod construct, not a face
+
+      put('headSide', 16, 0);
+      ctx.fillStyle = '#3a2418';
+      ctx.fillRect(16, 0, TILE, TILE);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#8a5220', [shade('#8a5220', 0.35), '#f2a83a'], seed ^ 3, 0.3); // embers scattered across a rod-segment body
+
+      put('limb', 48, 0);
+      ctx.fillStyle = '#3a2418';
+      ctx.fillRect(48, 0, TILE, TILE);
+      ctx.fillStyle = '#f2a83a';
+      ctx.fillRect(48, 6, TILE, 2); // a single ember band, not a limb — the shape builder still needs a 'limb' region
+    }, seed);
+  },
+  hollow_drifter(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#c9d3d3', [shade('#c9d3d3', -0.1)], seed ^ 1, 0.15);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(2, 5, 4, 6);
+      ctx.fillRect(10, 5, 4, 6); // large hollow eye pits
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#b9c9c9', [shade('#b9c9c9', -0.15)], seed ^ 2, 0.15);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#dfe6e6', [shade('#dfe6e6', -0.1), '#c2caca'], seed ^ 3, 0.2);
+      // Tattered hem, same technique as the zombie's — a huge drifting husk of a body.
+      ctx.fillStyle = shade('#dfe6e6', -0.3);
+      for (let px = 0; px < TILE; px += 2) {
+        if (rnd() < 0.5) ctx.fillRect(32 + px, 12 + Math.floor(rnd() * 3), 2, 3);
+      }
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#b9c9c9', [shade('#b9c9c9', -0.1)], seed ^ 4, 0.15);
+    }, seed);
+  },
+  magma_slug(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#e8621f', ['#1a1210', shade('#e8621f', 0.3)], seed ^ 1, 0.4);
+      drawEyes(ctx, 0, 0, '#0a0a0a');
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#e8621f', ['#1a1210', shade('#e8621f', 0.2)], seed ^ 2, 0.4);
+
+      put('body', 32, 0);
+      // Cracked-magma cell pattern, mirroring the overworld slime's cube segments in spirit.
+      ctx.fillStyle = '#e8621f';
+      ctx.fillRect(32, 0, TILE, TILE);
+      ctx.fillStyle = '#1a1210';
+      for (let ry = 0; ry < TILE; ry += 4) ctx.fillRect(32, ry, TILE, 1);
+      for (let rx = 0; rx < TILE; rx += 4) ctx.fillRect(32 + rx, 0, 1, TILE);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#c94f18', ['#1a1210'], seed ^ 4, 0.35);
+    }, seed);
+  },
+  ashbone(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#8a8478', [shade('#8a8478', -0.2)], seed ^ 1, 0.25); // ash-gray, not skeleton's pale bone
+      drawEyes(ctx, 0, 0, '#3aa0a0'); // a cold cyan glow, distinct from the skeleton's plain dark eyes
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#767066', [shade('#767066', -0.15)], seed ^ 2, 0.25);
+
+      put('body', 32, 0);
+      ctx.fillStyle = '#2a2622';
+      ctx.fillRect(32, 0, TILE, TILE); // charred, tattered robe rather than bare ribs
+      ctx.fillStyle = '#4a4038';
+      for (let ry = 1; ry < 14; ry += 3) ctx.fillRect(33, ry, 12, 1);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#5a544a', [shade('#5a544a', -0.15)], seed ^ 4, 0.2);
+    }, seed);
+  },
+  emberstrider(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      ctx.fillStyle = '#8a7256';
+      ctx.fillRect(0, 0, TILE, TILE);
+      drawEyes(ctx, 0, 0, '#f2c14d');
+
+      put('headSide', 16, 0);
+      ctx.fillStyle = '#7a6248';
+      ctx.fillRect(16, 0, TILE, TILE);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#9a8264', [shade('#9a8264', 0.1), '#6a5238'], seed ^ 3, 0.25);
+
+      put('limb', 48, 0);
+      // Long thin lava-walking legs get a warm ember glow near the "foot" end.
+      ctx.fillStyle = '#7a6248';
+      ctx.fillRect(48, 0, TILE, TILE);
+      ctx.fillStyle = '#f2c14d';
+      ctx.fillRect(48, 13, TILE, 3);
+    }, seed);
+  },
 };
 
 const cache = new Map();

@@ -149,13 +149,15 @@ const byId = new Map(nonBlockItems.map((i) => [i.id, i]));
 
 // Melee damage by tool type + material tier — roughly mirrors vanilla
 // (fist 1, wood/stone/iron sword 4/5/6, axes a bit behind swords,
-// pickaxe/shovel barely better than a fist). Tier is 1/2/3 for WOOD/
-// STONE/IRON respectively (see TOOL_MATERIAL above).
+// pickaxe/shovel barely better than a fist). Tier is 1/2/3/4 for WOOD/
+// STONE/IRON/VOIDSTEEL respectively (see TOOL_MATERIAL above) — the 4th
+// entry was missing through most of the Cinderdeep pass (Voidsteel tools
+// resolved to `undefined` damage), added alongside the smithing upgrade.
 const ATTACK_DAMAGE_BY_TIER = {
-  sword: [4, 5, 6],
-  axe: [3, 4, 5],
-  pickaxe: [2, 2, 3],
-  shovel: [2, 2, 2],
+  sword: [4, 5, 6, 8],
+  axe: [3, 4, 5, 7],
+  pickaxe: [2, 2, 3, 4],
+  shovel: [2, 2, 2, 3],
 };
 
 /** Damage a held item (or bare hand, if empty/holding a block) deals to a mob per hit. */
