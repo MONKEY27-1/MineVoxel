@@ -34,6 +34,11 @@ export class ParticleSystem {
     this.scene = scene;
     this.particles = [];
     this.geometry = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+    // Phase 10's particleDensity setting — a flat multiplier on every
+    // burst's requested count, set once from settings.graphics at boot
+    // (main.js) rather than threading a setting through every one of the
+    // many spawn call sites across the codebase.
+    this.densityMultiplier = 1;
   }
 
   spawnBlockBreak(position, blockId, count = 12) {
@@ -56,8 +61,10 @@ export class ParticleSystem {
 
   _spawn(position, color, count, speed) {
     if (this.particles.length > MAX_PARTICLES) return;
+    const scaledCount = Math.round(count * this.densityMultiplier);
+    if (scaledCount <= 0) return;
     const material = new THREE.MeshBasicMaterial({ color, transparent: true });
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < scaledCount; i++) {
       const mesh = new THREE.Mesh(this.geometry, material);
       mesh.position.set(
         position.x + (Math.random() - 0.5) * 0.8,

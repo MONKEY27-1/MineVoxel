@@ -28,6 +28,14 @@ export const DEFAULT_GRAPHICS = {
   viewmodelFov: 70,
   handSide: 'right',
   screenshotScale: 1, // 1x/2x/4x canvas-resolution multiplier
+  // The Cinderdeep pass (phase 10): fog/particle load scale with how
+  // hazy/busy the Cinderdeep specifically reads (dense fog + biome
+  // ambient particles, see cinderdeepBiomes.js), so these matter more
+  // there than in the overworld, but both apply everywhere — a
+  // dimension-wide multiplier, not a Cinderdeep-only setting, per the
+  // "config, not a dimensionId branch" rule everything else here follows.
+  fogDensity: 100, // % — scales how far a dimension's own fogNear/fogFar sit from the camera; lower = clearer, higher = hazier
+  particleDensity: 100, // % — scales spawnBurst's `count` argument everywhere (block break/place, mob hits, biome ambience, potion effects, explosions)
 };
 
 export const DEFAULT_PERFORMANCE = {

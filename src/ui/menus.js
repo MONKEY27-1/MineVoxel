@@ -65,6 +65,14 @@ const GRAPHICS_APPLIERS = {
   viewmodelFov: (v, ctx) => ctx.viewModel.setFov(v),
   handSide: (v, ctx) => (ctx.viewModel.handSide = v),
   screenshotScale: () => {}, // read at screenshot time (see _wireButtons), nothing to push live
+  // The Cinderdeep pass (phase 10): fogDensity is read straight off the
+  // live `settings` object every frame in main.js's own atmosphere
+  // block, same as every other per-frame settings read there — nothing
+  // to push live. particleDensity is cached on the ParticleSystem
+  // instance instead (every spawn call site reads that, not settings
+  // directly), so it needs a real push.
+  fogDensity: () => {},
+  particleDensity: (v, ctx) => (ctx.particles.densityMultiplier = v / 100),
 };
 
 const PERFORMANCE_APPLIERS = {
@@ -361,6 +369,8 @@ export class MenuController {
     this._wireGraphicsSlider('foliage-sway-strength-slider', 'foliage-sway-strength-val', 'foliageSwayStrength', (v) => `${v}%`);
     this._wireGraphicsCheckbox('sun-glare-toggle', 'sunGlare');
     this._wireGraphicsChoice('sky-quality-choice', 'skyQuality');
+    this._wireGraphicsSlider('fog-density-slider', 'fog-density-val', 'fogDensity', (v) => `${v}%`);
+    this._wireGraphicsSlider('particle-density-slider', 'particle-density-val', 'particleDensity', (v) => `${v}%`);
     this._wireGraphicsSlider('camera-bob-slider', 'camera-bob-val', 'cameraBobStrength', (v) => `${v}%`);
     this._wireGraphicsSlider('hand-bob-slider', 'hand-bob-val', 'viewBobStrength', (v) => `${v}%`);
     this._wireGraphicsCheckbox('viewmodel-toggle', 'viewmodelEnabled');
@@ -406,6 +416,10 @@ export class MenuController {
     document.getElementById('foliage-sway-strength-val').textContent = `${g.foliageSwayStrength}%`;
     document.getElementById('sun-glare-toggle').checked = g.sunGlare;
     setChoiceSelected(document.getElementById('sky-quality-choice'), g.skyQuality);
+    document.getElementById('fog-density-slider').value = g.fogDensity;
+    document.getElementById('fog-density-val').textContent = `${g.fogDensity}%`;
+    document.getElementById('particle-density-slider').value = g.particleDensity;
+    document.getElementById('particle-density-val').textContent = `${g.particleDensity}%`;
     document.getElementById('camera-bob-slider').value = g.cameraBobStrength;
     document.getElementById('camera-bob-val').textContent = `${g.cameraBobStrength}%`;
     document.getElementById('hand-bob-slider').value = g.viewBobStrength;

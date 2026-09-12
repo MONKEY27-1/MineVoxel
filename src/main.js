@@ -320,6 +320,7 @@ function main() {
 
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
+  particles.densityMultiplier = settings.graphics.particleDensity / 100;
   const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV, particles);
   const fallingBlocks = new FallingBlockManager(renderer.scene, atlasTexture, atlasUV);
   const fluids = new FluidSimulator();
@@ -700,6 +701,7 @@ function main() {
     atlasTexture,
     settings,
     fullscreenController,
+    particles,
     onPlay: startGame,
     onShadowQualityChange: applyShadowQuality,
     onScreenshot: takeScreenshot,
@@ -1174,14 +1176,17 @@ function main() {
     // really does differ per dimension, rather than on a dimensionId.
     let biomeName;
     let biomeFogTint;
+    let biomeFogDensity;
     if (activeDimension === overworld) {
       const climate = climateGenerator.heightAndBiome(rx, rz);
       biomeName = climate.isOcean ? OCEAN_BIOME.id : climate.dominant.id;
       biomeFogTint = climate.isOcean ? OCEAN_BIOME.fogTint : climate.dominant.fogTint;
+      biomeFogDensity = climate.isOcean ? OCEAN_BIOME.fogDensity : climate.dominant.fogDensity;
     } else {
       const biome = cinderdeepClimate.biomeAt(rx, rz);
       biomeName = biome.id;
       biomeFogTint = biome.fogTint;
+      biomeFogDensity = biome.fogDensity;
     }
 
     if (activeDimension.hasDayNightCycle) dayNight.update(dt);
@@ -1195,8 +1200,16 @@ function main() {
       targetFogColor.set(biomeFogTint);
       if (activeDimension.hasDayNightCycle) targetFogColor.multiply(dayTint);
       fogColor.lerp(targetFogColor, 0.02);
-      renderer.scene.fog.near = activeDimension.fogNear;
-      renderer.scene.fog.far = activeDimension.fogFar;
+      // Per-biome fog density (cinderdeepBiomes.js — "each biome: own
+      // fog color/density," phase 2) was defined but never actually
+      // read anywhere until now; overworld biomes have no such field
+      // and default to 1 (the dimension's own fogNear/fogFar, unscaled).
+      // The user's own fogDensity setting scales the *opposite*
+      // direction from the biome value (higher setting = more/closer
+      // fog = shorter distance), so it divides rather than multiplies.
+      const fogScale = (biomeFogDensity ?? 1) / (settings.graphics.fogDensity / 100);
+      renderer.scene.fog.near = activeDimension.fogNear * fogScale;
+      renderer.scene.fog.far = activeDimension.fogFar * fogScale;
     }
     renderer.scene.fog.color.copy(fogColor);
     // No day/night cycle means no dayFactor-driven dimming — the

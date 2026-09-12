@@ -6,8 +6,10 @@ at runtime.
 
 `POLISH.md` tracks the current/most recent stability, performance, and
 polish pass over this codebase (what's been fixed, what's deliberately
-left alone and why); `PERF.md` has the performance baselines it produced.
-Both are logs, not specs — read them for *why* something looks the way it
+left alone and why); `PERF.md` has the performance baselines it produced;
+`CINDERDEEP.md` is the same kind of log for the second dimension (see
+below) — phase-by-phase decisions, what got simplified and why. All three
+are logs, not specs — read them for *why* something looks the way it
 does, not as a second source of truth for how to build/run the game.
 
 ## Running it
@@ -44,6 +46,15 @@ npm run test:edge    # world-boundary/void/rapid-edit edge cases
 npm run test:feel    # movement/jump mechanics + the debug tuning panel
 npm run test:visual  # particle/fade-overlay event coverage
 npm run test:audio   # mute-on-blur, hurt-sound coverage
+
+# The Cinderdeep (dimension 2) — see below
+npm run test:mobs             # Cinderdeep mob spawning, Ashkin gold-neutrality/bartering/aggro, dimension-scoped natural spawning
+npm run test:structures       # plain Node script (no browser) — Emberhold/Ashkin Bastion/Ruined Gate placer output
+npm run test:structures-live  # drives the real game to precomputed structure coordinates, verifies the full generation->registry pipeline
+npm run test:alchemy          # plain Node script — every brew recipe, effect stacking/expiry/serialization
+npm run test:alchemy-live     # drinking a potion, lava damage with/without Fire Resistance, the HUD chip, save/reload of armor+effects
+npm run test:voidsteel        # the full Voidsteel chain: explosion sparing the ore, smelting, the ingot recipe, a smithing upgrade, knockback resistance, floating on lava
+npm run test:gate-linking     # the 8:1 overworld<->Cinderdeep coordinate scale, and that a nearby second trip reuses an existing gate instead of minting a duplicate
 ```
 
 Every script drives `tools/devserver.js` (a plain no-cache static file
@@ -908,6 +919,148 @@ against that, not against intuition.
   fresh spawn does, so a loaded world's player starts at rest exactly
   like a new one.
 
+## The Cinderdeep (dimension 2)
+
+A second, hostile dimension — a player-built obsidian **Cinder Gate**
+(same shape rules as a real portal frame: 4x5-23x23, corners optional,
+lit with flint and steel) links the overworld to **The Cinderdeep**, a
+mostly-open 0-128-tall cave dimension with no sky light, 5 biomes, its own
+mobs/structures/loot/alchemy, and an endgame material (**Voidsteel**) that
+requires exposing ore with an explosion. `CINDERDEEP.md` is the full
+phase-by-phase build log (what got simplified and why, in the same detail
+the Revision-pass sections above use) — this section is the short version
+plus the two things worth knowing before touching this code:
+**everything is config-driven through `Dimension`, never a
+`dimensionId === 'cinderdeep'` branch**, and gate linking is an 8:1
+coordinate scale, same as vanilla's nether-to-overworld ratio.
+
+Built in 7 phases (1-7 solid/fully tested; a summonable boss and a beacon
+were explicitly out-of-scope stretch goals and aren't built — see
+`CINDERDEEP.md`'s "Deliberately not done" lists for the complete
+inventory of every simplification across every phase, not just the two
+highlights below):
+
+1. **Dimension plumbing + the Cinder Gate** — a second `Dimension`
+   (`world/cinderdeepDimension.js`) with its own height range (0-128 vs.
+   the overworld's 0-256 — chunk height became a per-`ChunkManager` value
+   instead of a hardcoded constant, the single biggest structural change
+   here), no sky light, a dim red `ambientFloor` tint/level instead of the
+   overworld's neutral one, and its own `ChunkManager`/generator/spawn
+   tables — built lazily on first travel, not eagerly at boot.
+2. **Terrain + 5 biomes** (`world/cinderdeepGenerator.js`,
+   `cinderdeepBiomes.js`) — a mostly-open cave volume (cheese noise tuned
+   wide instead of tight) with a bedrock floor/ceiling, a y=31 lava sea,
+   and Cinder Wastes/Mourning Flats/Bloodcap Grove/Azurecap Hollow/Basalt
+   Fractures selected by 3D temperature/humidity noise, each with its own
+   fog tint/density, particle rate, and floor/wall palette.
+3. **Blocks + items** (`world/blocks.js`, `items/items.js`) — ~45 new
+   blocks and ~30 new items, following a strict dual-tier naming
+   convention: generic materials keep real-world names (obsidian,
+   basalt, glowstone), but every creature/structure/signature block gets
+   an original name (Cinderstone, not netherrack; the Ashen Sovereign,
+   not the wither) — see `CINDERDEEP.md`'s naming table if you're adding
+   more content here.
+4. **Mobs** (`entities/mobTypes.js`) — 8 new types on the existing
+   biped/quadruped/bird body builders. Ashkin are the one mechanically
+   interesting mob: hostile by default, neutral only while the player
+   wears gold armor (checked live every AI tick — see
+   `mob.js`'s `playerWearsGold`), barterable (right-click with a gold
+   ingot), and a wild group aggros if a chest is opened nearby
+   (`MobManager.aggroNearby`). Natural spawning is dimension-scoped via
+   `MOB_TYPES[id].dimension`, filtered against the *whole* active
+   `Dimension` object rather than a dimensionId check.
+5. **Structures** (`world/structures/emberhold.js`, `ashkinBastion.js`,
+   `ruinedGate.js`) — the exact same deferred-blueprint pattern the
+   overworld's dungeon/village/temple placers use (see "Adding a
+   discrete structure" below); Ashkin Bastion's 4 named variants share
+   one shell with a different interior/loot table/spawner per roll.
+   Ruined Gates are one module used by *both* dimensions, each passing
+   its own rubble palette rather than the module branching on which
+   dimension it's in.
+6. **Alchemy** (`items/brewingStand.js`, `entities/statusEffects.js`) — a
+   real status-effect system (Speed/Strength/Night Vision/Slow
+   Falling/Regeneration/Fire Resistance, each with a real gameplay hook)
+   didn't exist before this; neither did player lava/fire contact
+   damage, added because Fire Resistance needed something to protect
+   against.
+7. **Voidsteel** (`world/explosion.js`, `items/smithingTable.js`) — a
+   real explosion system (didn't exist at all before — TNT was
+   decorative) exposes Voidiron Ore by clearing the low-resistance
+   Cinderstone around it while leaving the ore's own
+   near-indestructible `blastResistance` untouched; smelt it, combine
+   4 scrap + 4 gold into a Voidsteel Ingot, then upgrade an existing
+   iron tool/armor piece at a smithing table.
+
+### The gate-linking algorithm
+
+`world/gate.js` + `main.js`'s `travelToDimension`:
+
+1. `findGateFrame` flood-fills from the ignition point looking for a
+   rectangle of air fully bordered by obsidian (corners optional, either
+   the XY or ZY plane) — this is generic gate-validation code, used
+   identically by both directions of travel and by Ruined Gates that
+   happen to still be intact.
+2. On arrival, `GateRegistry.findNear(dimensionId, x, z, maxDist)`
+   searches a widening radius (16 -> 32 -> 64 -> 128 blocks, in overworld
+   coordinates) for an existing gate near where an **8:1** coordinate
+   scale (`OVERWORLD_TO_CINDERDEEP_SCALE`) says the player should land —
+   walking 800 blocks in the overworld and building a gate lands you
+   within 100 blocks of one built from the Cinderdeep side, and vice
+   versa.
+3. If nothing turns up, `findSafePortalSite` searches for solid ground
+   with no lava in the footprint (ring search × top-down Y scan) and
+   `buildAndIgniteGate` carves + builds a fresh 4x5 frame there — never a
+   lethal landing, and the new gate registers itself so a return trip
+   finds it instead of minting another one.
+4. Breaking any frame block collapses the whole portal
+   (`collapseGateIfFrameBroken`, a flood-fill from the broken block
+   looking for adjacent portal-surface blocks) and deregisters it.
+
+### Dimensions (updated — two now exist)
+
+A `Dimension` (`world/dimension.js`) carries its own sky/fog color,
+ambient/sun intensity, height range, gravity, spawn tables, terrain
+generator, **and** (added for the Cinderdeep) `ambientFloorLevel/Color`,
+`hasWeather`/`hasClouds`, `lavaSpreadMultiplier`, `evaporatesWater`, and
+`passiveSpawnFloorId` — every dimension *quirk* the spec asked for
+(beds explode, water evaporates, lava flows farther) is one of these
+config fields, never a `dimensionId` check in engine code. `World` tracks
+both registered dimensions (`overworldDimension.js`,
+`cinderdeepDimension.js`) in a `Map`; `main.js` keeps a mutable
+`chunkManager`/`activeDimension` binding reassigned on travel, so the
+dozens of pre-existing call sites that already say `chunkManager.foo(...)`
+or `activeDimension.bar` automatically operate on whichever dimension is
+current without being touched individually.
+
+### How a third dimension would plug in
+
+The steps below are exactly what building the Cinderdeep followed — a
+third dimension repeats the same seam, doesn't add a new one:
+
+1. Write a `Dimension` config (`world/yourDimension.js`, mirroring
+   `cinderdeepDimension.js`) — id, name, height range,
+   sky/fog/ambient/gravity, and whichever quirk fields it needs (add a
+   new field to `Dimension`'s constructor if an existing quirk doesn't
+   cover it, same as the Cinderdeep pass did for `ambientFloorLevel` etc.).
+2. Write a `generateColumn(setBlock, cx, cz, rnd)` generator (see
+   `cinderdeepGenerator.js` for a from-scratch example, or
+   `generator.js` for the overworld's climate-driven one) and register
+   it in `workers/genWorker.js`'s `GENERATOR_FACTORIES` map, keyed by the
+   dimension's id.
+3. Register the `Dimension` with `World` in `main.js`, add it to the
+   `[overworld, cinderdeep, yourDimension]`-style arrays `persistNow`/
+   `saveGame` iterate, and give it a lazy `ensureDimensionChunkManager`
+   entry point the way `cinderdeep` has (build its `ChunkManager` only on
+   first travel, not at boot).
+4. Reuse `world/gate.js` as-is for a portal into it — it already takes
+   `chunkManager`/positions as plain arguments, nothing dimension-specific
+   baked in — or build a different kind of trigger; either way, call
+   `travelToDimension(fromDimension, toDimension)` from wherever that
+   trigger lives.
+5. If it needs new mobs/blocks/items/structures/loot, follow the
+   existing "Adding a ___" sections below exactly as written — none of
+   them assume a specific dimension, they just add to shared registries.
+
 ## Architecture
 
 - `src/core/` — renderer and input (keyboard + pointer-lock mouse +
@@ -922,18 +1075,25 @@ against that, not against intuition.
   builders + per-mob AI/physics/animation), `mobManager.js` (spawning,
   despawning, and the player's melee-attack resolution against mobs),
   `heldItemModel.js` + `viewModel.js` (revision-pass section 3: real 3D
-  held-item models and the first-person view-model render pass).
+  held-item models and the first-person view-model render pass),
+  `statusEffects.js` (the Cinderdeep pass: timed potion effects).
 - `src/items/` — `items.js` (tools/materials registry), `inventory.js`
   (stack merge/split/quick-move primitives shared by every UI),
   `crafting.js`/`recipes.js`, `furnace.js`, `containerRegistry.js`
-  (chest/furnace storage, keyed by world position), `drops.js`
-  (block-break → item resolution), `lootTables.js`.
+  (chest/furnace/brewing-stand/smithing-table storage, keyed by world
+  position), `drops.js` (block-break → item resolution), `lootTables.js`,
+  `brewingStand.js` + `smithingTable.js` (the Cinderdeep pass: alchemy +
+  the Voidsteel upgrade transform).
 - `src/world/` — block registry, the `Dimension`/`World` abstraction,
   chunk data structures (`section.js`, `chunkColumn.js`), the streaming
   `chunkManager.js`, noise (`noise.js`), biome definitions (`biomes.js`),
   the terrain generator (`generator.js`), lighting (`lighting.js`),
-  `dayNightCycle.js`, and `destroyBlock.js` (revision-pass section 6 —
-  the one path every block removal goes through).
+  `dayNightCycle.js`, `destroyBlock.js` (revision-pass section 6 — the one
+  path every block removal goes through), and, from the Cinderdeep pass:
+  `cinderdeepDimension.js` + `cinderdeepGenerator.js` +
+  `cinderdeepBiomes.js` (the second dimension's own config/terrain/biomes),
+  `gate.js` (the Cinder Gate — frame validation, linking, persistence),
+  and `explosion.js` (blast-resistance-based block destruction).
 - `src/world/structures/` — `caves.js`/`ravines.js` (carved directly
   during terrain generation), `caveNetwork.js` (revision-pass section 1:
   the region-grid cave-connectivity graph — chambers, connector tunnels,
@@ -943,7 +1103,9 @@ against that, not against intuition.
   on, plus `boreConnectorTunnel` for structure-to-cave-network links),
   `dungeon.js`, `mineshaft.js`, `village.js`, `temple.js` (desert temple +
   surface ruins), `spawnerRegistry.js` (monster spawner positions —
-  consumed by `entities/mobManager.js`, phase 8).
+  consumed by `entities/mobManager.js`, phase 8), and, from the
+  Cinderdeep pass: `emberhold.js`, `ashkinBastion.js` (4 variants sharing
+  one shell), and `ruinedGate.js` (one module, used by both dimensions).
 - `src/mesh/` — the procedural texture atlas, the greedy mesher
   (`greedy.js`), the tiled-atlas shader material with the day/night
   `dayFactor` uniform (`atlasMaterial.js`), section face-connectivity for
@@ -974,20 +1136,14 @@ against that, not against intuition.
 
 Nothing in the renderer, mesher, culling, or camera code is allowed to
 assume "the overworld" — everything goes through a `Dimension` handle
-owned by `World`. A `Dimension` (`src/world/dimension.js`) carries its own
-sky/fog color, ambient/sun intensity, height range, gravity, spawn tables,
-and terrain generator; it also owns a `ChunkManager` instance, so
-unloading a dimension only unloads its own chunks.
-
-Only one dimension (`overworld`, see `src/world/overworldDimension.js`) is
-registered today. The seam for a second one already exists:
-`src/world/travel.js` implements `travel(world, entity, targetDimensionId,
-position)`, which swaps the active dimension, resets the entity's
-position/velocity, and unloads/reloads chunks through the dimension's
-chunk manager. It's exercised on every page load by a self-test against a
-throwaway dummy dimension (`__selfTestTravel`, logged to the console) —
-there's no in-game way to reach it yet, and there won't be until a real
-second dimension and a portal feature are built.
+owned by `World`. Two are registered today, the overworld and **The
+Cinderdeep** — see that section above for what it is, `Dimension`'s full
+config surface, and how a third would plug in. `src/world/travel.js`'s
+`__selfTestTravel` self-test (run on every page load, logged to the
+console) predates the Cinderdeep and still exercises the generic
+swap-dimension/reset-position machinery against a throwaway dummy
+dimension; the real in-game path is `main.js`'s `travelToDimension`,
+triggered by standing in a lit Cinder Gate.
 
 ### The culling pipeline
 
@@ -1030,13 +1186,15 @@ across five object stores (`persistence/worldSave.js`):
   the whole column, since regeneration from the seed reproduces everything
   else deterministically. Diffs replay onto a column the moment it
   (re)generates (`ChunkManager._onGenerated`/`queueDiffsFor`).
-- **`blockEntities`** — one record per world: every chest/furnace's
-  contents, serialized from `items/containerRegistry.js` on save and
-  restored (before anything else can touch the registry) on load.
+- **`blockEntities`** — one record per world: every chest/furnace/brewing-
+  stand/smithing-table's contents, serialized from
+  `items/containerRegistry.js` on save and restored (before anything else
+  can touch the registry) on load.
 - **`playerState`** — one record per world: position/rotation, health,
-  breath, xp, game mode, hotbar selection, full inventory, time of day, and
-  whatever item was held on the inventory-screen cursor at save time (so a
-  save mid-drag doesn't lose it — see `POLISH.md`).
+  breath, xp, game mode, hotbar selection, full inventory, equipped armor,
+  active status effects (the Cinderdeep pass), time of day, and whatever
+  item was held on the inventory-screen cursor at save time (so a save
+  mid-drag doesn't lose it — see `POLISH.md`).
 - **`entitySnapshots`** — one record per world: mobs and dropped items
   that were loaded at save time (position, health/type for mobs;
   item/count/durability for drops). Anything outside the loaded radius at
@@ -1150,18 +1308,6 @@ Every current recipe needs a bench (`requiresBench: true`) or not; set
 `findMatchingRecipe()` and `consumeCraftingGrid()` need no changes — both
 already iterate `RECIPES` generically.
 
-### How a new dimension would plug in
-
-1. Add a block-palette subset if it needs new blocks (`world/blocks.js`
-   entries are global today; a per-dimension subset would need a filter
-   at registration).
-2. Write a `generateColumn(setBlock, cx, cz, rnd)` function (see
-   `world/generator.js` for the shape) and register it on a new
-   `Dimension` instance's `generator` field.
-3. Register the `Dimension` with `World`, give `genWorker.js` a way to
-   pick which generator module to load per dimension id (today it
-   hardcodes the overworld's), and give the `ChunkManager` constructor a
-   dimension reference so worker creation can pass that choice through.
-4. Call `travel()` (`world/travel.js`) with the new dimension's id from
-   wherever the portal/trigger lives — the function itself needs no
-   changes.
+(See "How a third dimension would plug in" under **The Cinderdeep**
+section above — the steps are identical regardless of which dimension
+count you're going from.)

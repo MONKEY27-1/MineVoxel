@@ -14,9 +14,9 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [x] Phase 5 — structures and loot
 - [x] Phase 6 — alchemy
 - [x] Phase 7 — Voidsteel
-- [ ] Phase 8 — The Ashen Sovereign (best-effort)
-- [ ] Phase 9 — Beacon (best-effort)
-- [ ] Phase 10 — loop verification, settings, migration, README
+- [ ] Phase 8 — The Ashen Sovereign (best-effort — not built, see below)
+- [ ] Phase 9 — Beacon (best-effort — not built, see below)
+- [~] Phase 10 — loop verification, settings, migration, README (partial — see below)
 
 ## Architecture decisions (Phase 1)
 
@@ -387,6 +387,84 @@ same as always — the user is away and asked for business-as-usual pushes.
   upgrade), knockback resistance measured directly against
   player.takeDamage, and a dropped Voidsteel item actually resting on a
   lava surface instead of sinking through it.
+
+## Decisions made (Phase 10 — partial)
+
+Done:
+
+- **Two new settings** (`graphics.fogDensity`, `graphics.particleDensity`,
+  both %, default 100) — real, live-applying, not placeholders.
+  `fogDensity` also surfaced a genuine pre-existing gap: `cinderdeepBiomes.js`
+  has defined a per-biome `fogDensity` field since Phase 2, but nothing
+  ever read it — `main.js`'s atmosphere block only used each biome's
+  `fogTint` (color). Fixed alongside adding the setting: fog near/far now
+  scale by `biome.fogDensity / (settings.graphics.fogDensity/100)`, so
+  each Cinderdeep biome is finally visually distinct in haziness, not just
+  tint, and overworld biomes (which have no `fogDensity` field) default
+  to 1 (unscaled) automatically. `particleDensity` scales every
+  `ParticleSystem.spawnBurst` count via a cached `densityMultiplier`.
+- **README** gained a full "The Cinderdeep (dimension 2)" section
+  (gate-linking algorithm, per-phase summary, "how a third dimension
+  would plug in" superseding the old single-dimension version of that
+  section) plus updated Architecture file listings and Save-format
+  bullets (armor/effects/brewing-stand/smithing-table weren't mentioned
+  there before this pass).
+- Every new item/block automatically appears in the creative palette —
+  `inventoryUI.js`'s `CREATIVE_ITEM_LIST` already derives from
+  `BLOCK_LIST`/`NON_BLOCK_ITEM_LIST` (every registered block/item, no
+  manual list), so this checklist item needed zero code.
+- **No new schema-version bump was needed.** Every phase 4-7 addition to
+  save data (`player.armor`, `player.effects`, brewing-stand/smithing-
+  table container state) is purely additive with `?? default` fallbacks
+  on read — the same pattern phase 1's dimension-aware chunk diffs
+  already established. `tools/test-save-fuzz.js`'s existing schema-
+  migration check (pre-dating this whole feature) still covers the real
+  migration seam; nothing about the Cinderdeep needed a new one.
+
+Not done (being explicit about scope, not silently skipping):
+
+- **Portal-warp intensity + reduced-motion setting** — Phase 1 already
+  logged that the portal surface has no shader-based UV distortion (a
+  static procedural texture, not an animated swirl); this setting has
+  nothing real to control without building that first, so it wasn't
+  added rather than being a no-op toggle. `atlasMaterial.js`'s `uTime`
+  uniform is still there, ready, if this gets picked up later.
+- **Boss-bar visibility / summon screen-shake settings** — both are
+  boss-specific (Phase 8), which isn't built.
+- **World-creation "generate Cinderdeep structures" toggle** — scoped
+  out once it became clear it needs real plumbing, not a UI checkbox:
+  `createOverworldGenerator`/`createCinderdeepGenerator` are constructed
+  *inside the generation worker* (`genWorker.js`) from just a seed, so a
+  per-world flag would need threading through the same `'init'`/`'seed'`
+  postMessage path `dimensionId`/`minHeight`/`maxHeight`/`hasSkylight`
+  already use — a real, boundedly-scoped change, just one that didn't
+  fit the remaining budget alongside everything else in this pass.
+- **A dedicated in-game "generate Cinderdeep structures" flag aside**,
+  no separate "creative-mode dimension access" shortcut (debug
+  teleport/creative item) was built either — creative mode already gets
+  instant gate travel (the standing-time threshold is 0, see Phase 1)
+  and the full creative palette already has every block a gate needs, so
+  building one in creative is already a ~10-second action; a dedicated
+  shortcut item felt like solving an already-small problem. The debug
+  hook's `travelToDimension(fromDimension, toDimension)` remains the
+  actual dev/debug entry point.
+- **No dedicated "full progression loop" Playwright test** — each
+  phase's own mechanics are covered end-to-end (test:mobs,
+  test:structures(-live), test:alchemy(-live), test:voidsteel all drive
+  the real game), but no single test walks Ruined
+  Gate->gate->Emberhold->fire-resistance->Bastion->Voidiron->Voidsteel
+  in one continuous run on a fixed seed the way the spec's Phase 10 asks
+  for. This is best done as a real manual playtest with someone actually
+  playing (this session has no access to a genuine playtester), not
+  simulated moves through a headless page — logged here rather than
+  produced a hollow "test" that clicks through the motions without
+  actually validating the *feel* of the loop.
+- ~~The 8:1 shortcut ratio has no standalone test~~ — added:
+  `tools/test-gate-linking.js` (`npm run test:gate-linking`) drives a
+  real trip from a known overworld position, asserts the Cinderdeep
+  landing is within tolerance of the scaled target, and confirms a
+  second nearby trip reuses the same registered gate instead of minting
+  a duplicate.
 
 ## Deliberately not done
 
