@@ -416,8 +416,18 @@ export class ChunkManager {
       // just +/-1 on the face's own axis) — not used by this material's
       // own unlit fragment shading, but three's automatic shadow-caster
       // pass reads it for sunLight.shadow.normalBias (see main.js), the
-      // standard fix for shadow acne at grazing light angles.
-      geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3));
+      // standard fix for shadow acne at grazing light angles. Guarded:
+      // a mesh worker running stale cached code from before this field
+      // existed would send a part with no `normals` at all — building a
+      // BufferAttribute from `undefined` doesn't throw here, but three
+      // does the moment it tries to actually upload/read it during
+      // rendering, taking the *entire* renderer.render() call down with
+      // it (caught live: terrain never appeared, sky/HUD did, because
+      // that's the last thing that had rendered before the throw).
+      // Skipping the attribute entirely just means that section's
+      // shadow acne isn't fixed until the stale worker reloads —
+      // nowhere near as bad as no terrain at all.
+      if (part.normals) geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3));
       geo.setIndex(new THREE.BufferAttribute(part.indices, 1));
       geo.computeBoundingBox();
       geo.computeBoundingSphere();
