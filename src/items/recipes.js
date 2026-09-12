@@ -9,6 +9,7 @@ export const TAGS = {
   planks: [BLOCKS.OAK_PLANKS],
   log: [BLOCKS.OAK_LOG],
   cobblestone: [BLOCKS.COBBLESTONE],
+  sand: [BLOCKS.SAND],
 };
 
 function tag(name) {
@@ -100,6 +101,50 @@ export const RECIPES = [
     outputCount: 1,
   },
   { id: 'cinder_powder', shapeless: true, ingredients: [item(ITEMS.CINDER_ROD.id)], outputId: ITEMS.CINDER_POWDER.id, outputCount: 2 },
+  // Phase 7 (Voidsteel): 4 scrap + 4 gold ingots, same recipe shape as
+  // vanilla's netherite ingot — a 3x3 bench grid (8 of its 9 cells
+  // filled) rather than the smithing table, which is reserved for the
+  // upgrade step below.
+  {
+    id: 'voidsteel_ingot',
+    shapeless: true,
+    requiresBench: true,
+    ingredients: [
+      item(ITEMS.VOIDIRON_SCRAP.id), item(ITEMS.VOIDIRON_SCRAP.id), item(ITEMS.VOIDIRON_SCRAP.id), item(ITEMS.VOIDIRON_SCRAP.id),
+      item(ITEMS.GOLD_INGOT.id), item(ITEMS.GOLD_INGOT.id), item(ITEMS.GOLD_INGOT.id), item(ITEMS.GOLD_INGOT.id),
+    ],
+    outputId: ITEMS.VOIDSTEEL_INGOT.id,
+    outputCount: 1,
+  },
+  // Phase 7 (Voidsteel): TNT had no recipe at all before this — without
+  // one, exposing Voidiron Ore ("only revealed by explosions") would be
+  // unreachable in survival. This game has no gunpowder-equivalent drop,
+  // so Cinder Powder (already the brewing-stand fuel, already a
+  // "volatile" material by that role) stands in for it instead of
+  // inventing a new item.
+  {
+    id: 'tnt',
+    shaped: true,
+    requiresBench: true,
+    pattern: [
+      [tag('sand'), item(ITEMS.CINDER_POWDER.id), tag('sand')],
+      [item(ITEMS.CINDER_POWDER.id), tag('sand'), item(ITEMS.CINDER_POWDER.id)],
+      [tag('sand'), item(ITEMS.CINDER_POWDER.id), tag('sand')],
+    ],
+    outputId: BLOCKS.TNT,
+    outputCount: 1,
+  },
+  {
+    id: 'smithing_table',
+    shaped: true,
+    requiresBench: true,
+    pattern: [
+      [tag('planks'), tag('planks')],
+      [item(ITEMS.IRON_INGOT.id), item(ITEMS.IRON_INGOT.id)],
+    ],
+    outputId: BLOCKS.SMITHING_TABLE,
+    outputCount: 1,
+  },
 ];
 
 function toolFamily(toolType, template) {
@@ -137,6 +182,10 @@ export const SMELTING_RECIPES = new Map([
   [BLOCKS.IRON_ORE, { outputId: ITEMS.IRON_INGOT.id, outputCount: 1, time: 10 }],
   [BLOCKS.GOLD_ORE, { outputId: ITEMS.GOLD_INGOT.id, outputCount: 1, time: 10 }],
   [BLOCKS.OAK_LOG, { outputId: ITEMS.CHARCOAL.id, outputCount: 1, time: 10 }],
+  // Phase 7 (Voidsteel): matches vanilla's ancient debris -> netherite
+  // scrap step — a much longer burn than every other smelt, since this
+  // is the endgame material, not a routine one.
+  [BLOCKS.VOIDIRON_ORE, { outputId: ITEMS.VOIDIRON_SCRAP.id, outputCount: 1, time: 25 }],
 ]);
 
 export const FUEL_ITEMS = new Map([

@@ -13,7 +13,7 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [x] Phase 4 — mobs
 - [x] Phase 5 — structures and loot
 - [x] Phase 6 — alchemy
-- [ ] Phase 7 — Voidsteel
+- [x] Phase 7 — Voidsteel
 - [ ] Phase 8 — The Ashen Sovereign (best-effort)
 - [ ] Phase 9 — Beacon (best-effort)
 - [ ] Phase 10 — loop verification, settings, migration, README
@@ -319,6 +319,75 @@ same as always — the user is away and asked for business-as-usual pushes.
   unprotected survival player but not a Fire-Resistant one, the HUD chip
   renders, and armor + effects both survive a save/reload.
 
+## Decisions made (Phase 7 — Voidsteel)
+
+- **A real explosion system exists now** (world/explosion.js) — this
+  codebase had none at all before this pass (TNT was decorative-only,
+  no crafting recipe even existed for it). Deliberately simple: a
+  distance-based power falloff checked against each block's own
+  `blastResistance` field (already real, added in Phase 1) rather than
+  vanilla's per-ray raycasting — enough to produce exactly the behavior
+  the spec asks for (a generous clearing radius through Cinderstone
+  that stops dead at Voidiron Ore's blastResistance:1200) without
+  building a full ray-marching simulation for a mechanic used in one
+  place. TNT is lit with flint and steel (same button/pattern as gate
+  ignition), fuses for `TNT_FUSE_SECONDS` (4s) tracked in a plain
+  main.js-local array, then detonates with real (if simple)
+  distance-scaled player damage/knockback too — TNT is dangerous, not
+  just a mining tool.
+- **Found and fixed in passing**: VOIDIRON_ORE's block definition had a
+  `drops: 'voidiron_scrap'` field that did *nothing* — items/drops.js's
+  actual drop logic is driven entirely by its `SPECIAL_DROPS` map, not
+  by a field on the block def (confirmed by reading that module). Fixed
+  by removing the misleading field (the ore now correctly drops itself,
+  matching "smelt -> Voidiron Scrap" being a separate furnace step) and
+  adding a real `SMELTING_RECIPES` entry for it.
+- **SmithingTable (items/smithingTable.js) is a new stateless-transform
+  container**, structurally closer to the crafting-grid + output-slot
+  pattern (inventoryUI.js's `_getCraftingOutput`/`_takeCraftingOutput`)
+  than Furnace/BrewingStand — no burn timer, `computeResult()` just
+  recomputes live from whatever's in its 3 fixed slots (base item,
+  Voidsteel Ingot, Voidsteel Upgrade Plate) every render, and taking the
+  output consumes exactly those 3 slots by one each (not "every occupied
+  cell," since a smithing table has fixed roles, not an arbitrary grid).
+- **Durability is preserved as damage-taken, not a raw value or ratio**
+  — matches vanilla's actual netherite-upgrade behavior: an iron
+  pickaxe with 10 damage taken becomes a Voidsteel pickaxe with 10
+  damage taken (out of its own, much larger, max), not a
+  proportionally-scaled fraction. Armor's maxDurability is already
+  material-independent (see Phase 4's `defineArmor`), so this is a
+  no-op there either way. "Preserving enchantments/names" is N/A — this
+  game has no enchantment system and no way to name/rename an item at
+  all (no anvil), so there's nothing those two phrases could apply to.
+- **8 upgradeable pieces** (`UPGRADE_TARGETS`): all 4 iron tools + all 4
+  iron armor pieces, each mapped 1:1 to its Voidsteel counterpart — iron
+  is this game's top pre-Voidsteel tier for both categories (no diamond
+  tier exists here).
+- **Knockback resistance is a flat 0.7x multiplier** on any incoming
+  knockback vector while ANY Voidsteel armor piece is worn (checked in
+  player.js's `takeDamage`) — "slight," per spec, not a percentage
+  ramping with pieces worn.
+- **Voidsteel items float on lava, not "never sink and never burn"
+  separately** — this codebase has no despawn-by-fire/lava mechanic for
+  ANY dropped item at all (same "already true by omission" pattern
+  Phase 4 hit for mob fire immunity), so "never burn" needed zero code;
+  only the "float" half needed a real addition (itemDrop.js's fall
+  physics now treats LAVA as solid ground for Voidsteel-item entities
+  specifically, via a new `isVoidsteelItem()` check in items.js).
+- **TNT is now actually craftable** — it had no recipe at all before
+  this pass, which would have made exposing Voidiron unreachable in
+  survival. This game has no gunpowder-equivalent drop, so the recipe
+  uses Cinder Powder (already the brewing-stand fuel, already a
+  "volatile" material by that role) + Sand in a vanilla-shaped X
+  pattern, rather than inventing a new item for one recipe.
+- **Testing**: tools/test-voidsteel.js drives the real game through the
+  whole chain — explode() sparing Voidiron Ore, smelting it, the 4-scrap
+  +4-gold crafting match, a smithing-table upgrade with correct
+  durability math (and a negative case: wrong ingredient refuses to
+  upgrade), knockback resistance measured directly against
+  player.takeDamage, and a dropped Voidsteel item actually resting on a
+  lava surface instead of sinking through it.
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil
@@ -386,3 +455,11 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [ ] Armor's `defense` stat still isn't applied to incoming damage (the
       gap Phase 4 logged already) — Ashkin neutrality is the only thing
       that reads `player.armor` for gameplay effect.
+- [ ] Explosions damage the player (distance-scaled) but not mobs —
+      mob.js has no `takeExplosionDamage`-style hook, and wiring one in
+      for a mechanic used only for mining Voidiron felt like scope creep
+      relative to what the spec actually asks for.
+- [ ] TNT doesn't visually flash/shake before detonating (vanilla's
+      alternating white flicker) — it just sits still for its 4-second
+      fuse, then disappears in the blast. A cosmetic gap, not a
+      functional one.

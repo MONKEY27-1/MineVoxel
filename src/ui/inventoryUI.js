@@ -2,6 +2,7 @@ import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockIte
 import { mergeOrSwap, splitStack } from '../items/inventory.js';
 import { findMatchingRecipe, consumeCraftingGrid } from '../items/crafting.js';
 import { SMELTING_RECIPES, FUEL_ITEMS, BREW_RECIPES, BREW_FUEL_ITEM } from '../items/recipes.js';
+import { UPGRADE_TARGETS } from '../items/smithingTable.js';
 import { BLOCK_LIST, BLOCKS } from '../world/blocks.js';
 import { applyIcon } from './itemIcon.js';
 
@@ -171,6 +172,7 @@ export class InventoryUI {
     if (group === 'secondary') {
       if (this.mode === 'furnace') return this.context.furnace;
       if (this.mode === 'brewing') return this.context.brewingStand;
+      if (this.mode === 'smithing') return this.context.smithingTable;
       return this.context.secondary;
     }
     return null;
@@ -209,6 +211,25 @@ export class InventoryUI {
     if (!this.cursor) this.cursor = { itemId: recipe.outputId, count: recipe.outputCount };
     else this.cursor.count += recipe.outputCount;
     consumeCraftingGrid(craftingGrid.slots);
+  }
+
+  /** Consumes the smithing table's 3 specific input slots by 1 each — unlike a crafting recipe, "every occupied cell" isn't the right rule here (there are exactly 3 fixed roles, not an arbitrary grid). */
+  _takeSmithingOutput(shiftKey) {
+    const table = this.context.smithingTable;
+    const result = table.computeResult();
+    if (!result) return;
+    if (shiftKey) {
+      if (!this.playerInventory.hasSpaceFor(result.itemId, result.count)) return;
+      this.playerInventory.addItem(result.itemId, result.count, result.durability);
+    } else {
+      if (this.cursor) return; // a single durability item — no meaningful "add to an existing stack" case
+      this.cursor = { itemId: result.itemId, count: result.count, durability: result.durability };
+    }
+    for (let i = 0; i < 3; i++) {
+      const slot = table.slots[i];
+      slot.count -= 1;
+      if (slot.count <= 0) table.slots[i] = null;
+    }
   }
 
   _pickCreativeItem(itemId) {
@@ -276,6 +297,18 @@ export class InventoryUI {
         stand.slots[3] = slot;
         inv.slots[idx] = null;
       }
+    } else if (this.mode === 'smithing') {
+      const table = this.context.smithingTable;
+      if (UPGRADE_TARGETS[slot.itemId] && !table.slots[0]) {
+        table.slots[0] = slot;
+        inv.slots[idx] = null;
+      } else if (slot.itemId === ITEMS.VOIDSTEEL_INGOT.id && !table.slots[1]) {
+        table.slots[1] = slot;
+        inv.slots[idx] = null;
+      } else if (slot.itemId === ITEMS.VOIDSTEEL_UPGRADE_PLATE.id && !table.slots[2]) {
+        table.slots[2] = slot;
+        inv.slots[idx] = null;
+      }
     } else {
       const isHotbar = idx < 9;
       this._moveWithinRange(inv, idx, isHotbar ? 9 : 0, isHotbar ? 36 : 9);
@@ -285,6 +318,11 @@ export class InventoryUI {
   _handleClick(group, idx, button, shiftKey) {
     if (group === 'craftingOutput') {
       this._takeCraftingOutput(shiftKey);
+      this.render();
+      return;
+    }
+    if (group === 'smithingOutput') {
+      this._takeSmithingOutput(shiftKey);
       this.render();
       return;
     }
@@ -551,7 +589,10 @@ export class InventoryUI {
 
     this.craftingEl.innerHTML = '';
     this.secondaryEl.innerHTML = '';
-    this.secondaryEl.classList.toggle('hidden', this.mode !== 'furnace' && this.mode !== 'chest' && this.mode !== 'brewing');
+    this.secondaryEl.classList.toggle(
+      'hidden',
+      this.mode !== 'furnace' && this.mode !== 'chest' && this.mode !== 'brewing' && this.mode !== 'smithing'
+    );
     this.craftingEl.classList.toggle('hidden', this.mode !== 'inventory' && this.mode !== 'bench' && this.mode !== 'creative');
 
     if (this.mode === 'creative') {
@@ -714,6 +755,23 @@ export class InventoryUI {
       bottleRow.className = 'brewing-bottles';
       for (let i = 0; i < 3; i++) bottleRow.appendChild(this._buildSlotEl('secondary', i, stand.slots[i]));
       wrap.appendChild(bottleRow);
+
+      this.secondaryEl.appendChild(wrap);
+    } else if (this.mode === 'smithing') {
+      const table = this.context.smithingTable;
+      const wrap = document.createElement('div');
+      wrap.className = 'smithing-layout';
+      for (let i = 0; i < 3; i++) wrap.appendChild(this._buildSlotEl('secondary', i, table.slots[i]));
+
+      const arrow = document.createElement('div');
+      arrow.className = 'crafting-arrow';
+      arrow.textContent = '→';
+      wrap.appendChild(arrow);
+
+      const result = table.computeResult();
+      const outEl = this._buildSlotEl('smithingOutput', 0, result);
+      outEl.classList.add('output-slot');
+      wrap.appendChild(outEl);
 
       this.secondaryEl.appendChild(wrap);
     } else if (this.mode === 'chest') {

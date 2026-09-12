@@ -39,10 +39,11 @@ import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
 import { ITEMS, POTION_EFFECTS } from './items/items.js';
-import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, allFurnaces, allBrewingStands } from './items/containerRegistry.js';
+import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands } from './items/containerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
-import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick } from './audio/synth.js';
+import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion } from './audio/synth.js';
+import { explode } from './world/explosion.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { TuningPanel } from './ui/tuningPanel.js';
 import { Hud } from './ui/hud.js';
@@ -62,6 +63,9 @@ const FOOTSTEP_STRIDE = 1.15; // blocks of horizontal travel between footstep tr
 const VOID_Y = -32; // fall-through-the-world safety net — see the check in tick()
 const SHADOW_MAP_SIZE_BY_TIER = { off: 0, low: 512, medium: 1024, high: 2048 };
 const THIRD_PERSON_DISTANCE = 4.5; // blocks — clamped shorter by raycastVoxel if a wall is closer
+const TNT_FUSE_SECONDS = 4;
+const TNT_EXPLOSION_RADIUS = 4;
+const TNT_EXPLOSION_POWER = 7;
 
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
@@ -482,6 +486,7 @@ function main() {
   let portalStandTime = 0;
   let nightVisionWasActive = false; // phase 6: tracks the transition edge so the ambient-floor override applies/restores exactly once, not every tick
   let effectParticleTimer = 0;
+  let tntFuses = []; // phase 7: [{x,y,z,timer}] — lit TNT waiting to detonate, see explosion.js
 
   /**
    * The Cinder Gate's actual link algorithm: search the destination
@@ -750,6 +755,8 @@ function main() {
       inventoryUI.open('furnace', { furnace: getOrCreateFurnace(x, y, z) }, 'Furnace');
     } else if (blockId === BLOCKS.BREWING_STAND) {
       inventoryUI.open('brewing', { brewingStand: getOrCreateBrewingStand(x, y, z) }, 'Brewing Stand');
+    } else if (blockId === BLOCKS.SMITHING_TABLE) {
+      inventoryUI.open('smithing', { smithingTable: getOrCreateSmithingTable(x, y, z) }, 'Smithing Table');
     } else if (blockId === BLOCKS.CHEST) {
       inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Chest');
     } else {
@@ -933,6 +940,16 @@ function main() {
               player.selectedItem.durability -= 1;
               if (player.selectedItem.durability <= 0) player.inventory.slots[player.selectedHotbar] = null;
             }
+          } else if (chunkManager.getBlock(bx, by, bz) === BLOCKS.TNT) {
+            // Phase 7 (Voidsteel): the only way to expose Voidiron Ore in
+            // survival — see world/explosion.js. A short fuse (matches
+            // vanilla's ~4s), ticked in the fixed-step loop below.
+            tntFuses.push({ x: bx, y: by, z: bz, timer: TNT_FUSE_SECONDS });
+            playBlockPlace(BLOCKS.TNT);
+            if (player.gameMode !== 'creative') {
+              player.selectedItem.durability -= 1;
+              if (player.selectedItem.durability <= 0) player.inventory.slots[player.selectedHotbar] = null;
+            }
           }
         }
 
@@ -992,6 +1009,45 @@ function main() {
       xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
       for (const stand of allBrewingStands()) stand.update(FIXED_DT);
+
+      // Lit TNT (phase 7): tick fuses, detonate the ones that reach 0.
+      // Iterated backwards so splicing mid-loop is safe, same pattern as
+      // every other per-frame entity list here.
+      for (let i = tntFuses.length - 1; i >= 0; i--) {
+        const fuse = tntFuses[i];
+        fuse.timer -= FIXED_DT;
+        if (fuse.timer > 0) continue;
+        tntFuses.splice(i, 1);
+        if (chunkManager.getBlock(fuse.x, fuse.y, fuse.z) !== BLOCKS.TNT) continue; // mined out from under its own fuse
+        chunkManager.setBlock(fuse.x, fuse.y, fuse.z, BLOCKS.AIR);
+        const destroyed = explode(chunkManager, fuse.x + 0.5, fuse.y + 0.5, fuse.z + 0.5, {
+          radius: TNT_EXPLOSION_RADIUS,
+          power: TNT_EXPLOSION_POWER,
+        });
+        for (const d of destroyed) {
+          fluids.notify(d.x, d.y, d.z);
+          checkFall(chunkManager, fallingBlocks, d.x, d.y + 1, d.z);
+        }
+        particles.spawnBurst({ x: fuse.x + 0.5, y: fuse.y + 0.5, z: fuse.z + 0.5 }, 0xff9933, 24, 6);
+        playExplosion();
+
+        // TNT is genuinely dangerous, not just a mining tool — a
+        // distance-scaled hit within a couple blocks past the clearing
+        // radius, same falloff spirit as explode()'s own block damage.
+        const dmgDist = Math.hypot(player.position.x - (fuse.x + 0.5), player.position.y - (fuse.y + 0.5), player.position.z - (fuse.z + 0.5));
+        const dangerRadius = TNT_EXPLOSION_RADIUS + 2;
+        if (dmgDist < dangerRadius) {
+          const dmg = Math.round((1 - dmgDist / dangerRadius) * 10);
+          if (dmg > 0) {
+            const kb = dmgDist > 0.01 ? 1 / dmgDist : 0;
+            player.takeDamage(dmg, {
+              x: (player.position.x - fuse.x) * kb,
+              y: 4,
+              z: (player.position.z - fuse.z) * kb,
+            });
+          }
+        }
+      }
       mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension);
       if (mobManager.justKilled) playMobDeath();
       if (player.justHurt) {

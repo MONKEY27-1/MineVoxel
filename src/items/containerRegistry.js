@@ -1,6 +1,7 @@
 import { Inventory } from './inventory.js';
 import { Furnace } from './furnace.js';
 import { BrewingStand } from './brewingStand.js';
+import { SmithingTable } from './smithingTable.js';
 import { rollLoot } from './lootTables.js';
 
 // In-memory only — there's no world save/load system yet (a later phase),
@@ -9,6 +10,7 @@ import { rollLoot } from './lootTables.js';
 const chests = new Map();
 const furnaces = new Map();
 const brewingStands = new Map();
+const smithingTables = new Map();
 // A structure-generated chest is registered here (by the worker's
 // generation result, see chunkManager.js's _onGenerated) with a loot
 // table id instead of pre-rolled items — the actual roll happens lazily,
@@ -62,11 +64,22 @@ export function getOrCreateBrewingStand(x, y, z) {
   return b;
 }
 
+export function getOrCreateSmithingTable(x, y, z) {
+  const k = key(x, y, z);
+  let s = smithingTables.get(k);
+  if (!s) {
+    s = new SmithingTable();
+    smithingTables.set(k, s);
+  }
+  return s;
+}
+
 export function removeContainerAt(x, y, z) {
   const k = key(x, y, z);
   chests.delete(k);
   furnaces.delete(k);
   brewingStands.delete(k);
+  smithingTables.delete(k);
   pendingLoot.delete(k);
 }
 
@@ -113,12 +126,17 @@ export function serializeContainers() {
     const [x, y, z] = k.split(',').map(Number);
     brewingStandData.push({ x, y, z, slots: b.slots, brewTimeRemaining: b.brewTimeRemaining, brewTimeTotal: b.brewTimeTotal, charges: b.charges });
   }
+  const smithingTableData = [];
+  for (const [k, s] of smithingTables) {
+    const [x, y, z] = k.split(',').map(Number);
+    smithingTableData.push({ x, y, z, slots: s.slots });
+  }
   const pendingLootData = [];
   for (const [k, p] of pendingLoot) {
     const [x, y, z] = k.split(',').map(Number);
     pendingLootData.push({ x, y, z, tableId: p.tableId, seed: p.seed });
   }
-  return { chests: chestData, furnaces: furnaceData, brewingStands: brewingStandData, pendingLoot: pendingLootData };
+  return { chests: chestData, furnaces: furnaceData, brewingStands: brewingStandData, smithingTables: smithingTableData, pendingLoot: pendingLootData };
 }
 
 /** Replaces all current container state — call this once, right after loading a save, before anything else touches the registry. */
@@ -126,6 +144,7 @@ export function restoreContainers(data) {
   chests.clear();
   furnaces.clear();
   brewingStands.clear();
+  smithingTables.clear();
   pendingLoot.clear();
   for (const c of data?.chests ?? []) {
     const inv = new Inventory(27);
@@ -148,6 +167,11 @@ export function restoreContainers(data) {
     stand.brewTimeTotal = b.brewTimeTotal;
     stand.charges = b.charges;
     brewingStands.set(key(b.x, b.y, b.z), stand);
+  }
+  for (const s of data?.smithingTables ?? []) {
+    const table = new SmithingTable();
+    table.slots = s.slots;
+    smithingTables.set(key(s.x, s.y, s.z), table);
   }
   for (const p of data?.pendingLoot ?? []) {
     pendingLoot.set(key(p.x, p.y, p.z), { tableId: p.tableId, seed: p.seed });

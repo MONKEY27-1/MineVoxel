@@ -276,7 +276,13 @@ export const BLOCKS = {
   // in a sane amount of time; nothing below iron is hard-blocked outright
   // (this codebase has no such gate, see interaction.js's
   // toolSpeedMultiplier), just impractically slow.
-  VOIDIRON_ORE: define({ name: 'voidiron_ore', texture: { all: 'voidiron_ore' }, hardness: 50, tool: 'pickaxe', blastResistance: 1200, drops: 'voidiron_scrap' }),
+  // Drops itself (the raw ore, like every other ore here) — smelting it
+  // into Voidiron Scrap is a real furnace recipe (recipes.js's
+  // SMELTING_RECIPES), matching the spec's "smelt -> Voidiron Scrap"
+  // step. A `drops: 'voidiron_scrap'` field here would do nothing —
+  // items/drops.js's SPECIAL_DROPS map is what actually drives non-self
+  // drops, not a field on the block def.
+  VOIDIRON_ORE: define({ name: 'voidiron_ore', texture: { all: 'voidiron_ore' }, hardness: 50, tool: 'pickaxe', blastResistance: 1200 }),
   EMBERWART: define({ name: 'emberwart', texture: { all: 'emberwart' }, solid: false, transparent: true, hardness: 0, cross: true, blastResistance: 0 }),
 
   // Bloodcap (crimson-analog) fungal wood set.

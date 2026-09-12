@@ -102,3 +102,11 @@ export function playMobDeath() {
 export function playPlayerHurt() {
   playProfile('mobs', { freq: 140, noise: 0.5, decay: 0.18 }, { volume: 0.55, pitchVariance: 0.1 });
 }
+
+// Phase 7 (Voidsteel): TNT's detonation — a low boom plus a long noise
+// tail, same synthesis approach as everything else here (no downloaded
+// assets), just a much longer decay/lower frequency than any existing
+// profile to read as an explosion rather than a block break.
+export function playExplosion() {
+  playProfile('blocks', { freq: 55, noise: 0.75, decay: 0.6 }, { volume: 1, pitchVariance: 0.1 });
+}

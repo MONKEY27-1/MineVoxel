@@ -396,6 +396,12 @@ html, body {
   gap: 8px;
 }
 
+.smithing-layout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 #inv-main,
 #inv-hotbar {
   display: grid;

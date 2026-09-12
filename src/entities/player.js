@@ -3,6 +3,9 @@ import { sweepAABB, aabbOverlapsBlock, aabbFits } from './physics.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
 import { Inventory } from '../items/inventory.js';
 import { StatusEffectManager } from './statusEffects.js';
+import { ARMOR_MATERIAL, getNonBlockItem } from '../items/items.js';
+
+const VOIDSTEEL_KNOCKBACK_RESISTANCE = 0.7; // phase 7: "slight knockback resistance" — a flat multiplier, any piece worn
 
 const FIRE_DAMAGE_INTERVAL = 0.5; // seconds between lava/fire contact ticks — matches vanilla's roughly-twice-a-second burn tick
 const FIRE_DAMAGE_PER_TICK = 2;
@@ -210,10 +213,16 @@ export class Player {
     this.justHurt = true; // one-shot flag — main.js reads+clears it to trigger the hurt sound (phase 10)
     this._triggerDamageShake();
     if (knockback) {
-      this.velocity.x += knockback.x;
-      this.velocity.y += knockback.y;
-      this.velocity.z += knockback.z;
+      const resist = this._wearsVoidsteel() ? VOIDSTEEL_KNOCKBACK_RESISTANCE : 1;
+      this.velocity.x += knockback.x * resist;
+      this.velocity.y += knockback.y * resist;
+      this.velocity.z += knockback.z * resist;
     }
+  }
+
+  /** Any Voidsteel armor piece equipped — phase 7's knockback resistance. */
+  _wearsVoidsteel() {
+    return this.armor.some((slot) => slot && getNonBlockItem(slot.itemId)?.material === ARMOR_MATERIAL.VOIDSTEEL);
   }
 
   update(dt, input, chunkManager) {

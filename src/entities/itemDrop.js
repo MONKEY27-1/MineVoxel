@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createAtlasMaterial } from '../mesh/atlasMaterial.js';
-import { itemIconTile } from '../items/items.js';
-import { isSolid } from '../world/blocks.js';
+import { itemIconTile, isVoidsteelItem } from '../items/items.js';
+import { isSolid, BLOCKS } from '../world/blocks.js';
 
 const GRAVITY = 20;
 const MERGE_RADIUS = 1.2;
@@ -88,7 +88,13 @@ export class ItemDropManager {
         const nextY = d.physicsY + d.vy * dt;
         const x = Math.floor(d.mesh.position.x);
         const z = Math.floor(d.mesh.position.z);
-        if (d.vy < 0 && isSolid(chunkManager.getBlock(x, Math.floor(nextY), z))) {
+        const belowId = chunkManager.getBlock(x, Math.floor(nextY), z);
+        // Voidsteel items float on lava instead of sinking through it
+        // (phase 7) — every other item just falls straight through lava
+        // today (no fluid buoyancy/despawn exists for drops at all), so
+        // "never burn" is already true by omission; this only adds the
+        // "float" half for Voidsteel specifically.
+        if (d.vy < 0 && (isSolid(belowId) || (belowId === BLOCKS.LAVA && isVoidsteelItem(d.itemId)))) {
           d.physicsY = Math.ceil(nextY);
           d.vy = 0;
           d.resting = true;

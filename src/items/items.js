@@ -222,3 +222,12 @@ export function itemIconTile(itemId) {
 }
 
 export const NON_BLOCK_ITEM_LIST = nonBlockItems;
+
+/** Phase 7: any Voidsteel tool/armor piece, ingot, or upgrade plate — itemDrop.js uses this to make dropped Voidsteel items float on lava and never burn (a block item can never be Voidsteel, so those short-circuit false). */
+export function isVoidsteelItem(itemId) {
+  if (isBlockItem(itemId)) return false;
+  const item = getNonBlockItem(itemId);
+  if (!item) return false;
+  if (item.material === TOOL_MATERIAL.VOIDSTEEL || item.material === ARMOR_MATERIAL.VOIDSTEEL) return true;
+  return itemId === ITEMS.VOIDSTEEL_INGOT.id || itemId === ITEMS.VOIDSTEEL_UPGRADE_PLATE.id;
+}
