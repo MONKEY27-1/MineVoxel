@@ -6,9 +6,22 @@ import { buildAtlas } from './mesh/atlas.js';
 import { World } from './world/world.js';
 import { Dimension } from './world/dimension.js';
 import { createOverworld } from './world/overworldDimension.js';
+import { createCinderdeep } from './world/cinderdeepDimension.js';
+import { createCinderdeepGenerator } from './world/cinderdeepGenerator.js';
 import { ChunkManager } from './world/chunkManager.js';
 import { createOverworldGenerator } from './world/generator.js';
 import { OCEAN_BIOME } from './world/biomes.js';
+import {
+  findGateFrame,
+  igniteGateFrame,
+  isPortalBlock,
+  collapseGateIfFrameBroken,
+  GateRegistry,
+  findSafePortalSite,
+  buildAndIgniteGate,
+  OVERWORLD_TO_CINDERDEEP_SCALE,
+  STAND_SECONDS_TO_TRAVEL,
+} from './world/gate.js';
 import { DayNightCycle } from './world/dayNightCycle.js';
 import { __selfTestTravel } from './world/travel.js';
 import { __selfTestLighting } from './world/lighting.js';
@@ -25,6 +38,7 @@ import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
+import { ITEMS } from './items/items.js';
 import { getOrCreateChest, getOrCreateFurnace, allFurnaces } from './items/containerRegistry.js';
 import { audioEngine } from './audio/audio.js';
 import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick } from './audio/synth.js';
@@ -34,7 +48,7 @@ import { Hud } from './ui/hud.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
-import { saveGame, loadGame, saveChunkDiff } from './persistence/worldSave.js';
+import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, getPlayerDimensionId } from './persistence/worldSave.js';
 import { loadSettings } from './settings/settings.js';
 import { applyMipmapping } from './mesh/atlas.js';
 import { Clouds } from './world/clouds.js';
@@ -72,7 +86,17 @@ function main() {
   // --- World / active dimension -------------------------------------
   const world = new World();
   const overworld = world.register(createOverworld());
+  const cinderdeep = world.register(createCinderdeep());
   applyDimensionAtmosphere(renderer.scene, overworld);
+  // Per-world gate registry (worldSave.js persists/restores it) — every
+  // Cinder Gate this world has ever ignited, so a return trip finds the
+  // same one instead of always minting a fresh gate. Reset to empty on
+  // createWorld; startGame's load branch below replaces it wholesale.
+  let gateRegistry = new GateRegistry();
+  // Chunk diffs for a dimension whose ChunkManager doesn't exist yet at
+  // load time (see loadGame's own comment) — applied the moment
+  // ensureDimensionChunkManager actually builds that dimension.
+  let pendingDiffsByDimension = {};
 
   // --- Input --------------------------------------------------------
   const input = new Input(canvas);
@@ -182,19 +206,65 @@ function main() {
   initItemIcons(atlasCanvas);
 
   // --- Chunk streaming ----------------------------------------------
-  const chunkManager = new ChunkManager(renderer.scene, atlasTexture, atlasUV, {
-    renderDistance: settings.graphics.renderDistance,
-    aoStrength: settings.graphics.smoothLighting / 100,
-    genWorkers: settings.performance.genWorkers,
-    meshWorkers: settings.performance.meshWorkers,
-    maxUploadsPerTick: settings.performance.maxUploadsPerTick,
-    maxGenPerTick: settings.performance.maxGenPerTick,
-    geometryPooling: settings.performance.geometryPooling,
-    rendererAttributes: renderer.three.attributes,
-  });
-  overworld.chunkManager = chunkManager;
-  chunkManager.setWaterQuality(settings.graphics.waterQuality);
-  chunkManager.setFoliageSwayStrength(settings.graphics.foliageSway ? settings.graphics.foliageSwayStrength / 100 : 0);
+  // `let`, not `const`: each dimension owns a fully separate ChunkManager
+  // (own worker pool, own everything — see CINDERDEEP.md), and this
+  // variable always points at whichever one is currently active so every
+  // *other* piece of code in this file that already says `chunkManager.…`
+  // keeps working unchanged across a dimension switch instead of needing
+  // every call site touched.
+  // Tracked so a Cinderdeep ChunkManager built lazily on first travel
+  // (ensureDimensionChunkManager, below) gets the real world seed instead
+  // of a placeholder — startGame() below updates this the moment the
+  // real one is known.
+  let currentSeed = WORLD_SEED;
+
+  function makeChunkManagerFor(dimension) {
+    const cm = new ChunkManager(renderer.scene, atlasTexture, atlasUV, {
+      dimensionId: dimension.id,
+      minHeight: dimension.minHeight,
+      maxHeight: dimension.maxHeight,
+      hasSkylight: dimension.hasSkylight,
+      renderDistance: settings.graphics.renderDistance,
+      aoStrength: settings.graphics.smoothLighting / 100,
+      genWorkers: settings.performance.genWorkers,
+      meshWorkers: settings.performance.meshWorkers,
+      maxUploadsPerTick: settings.performance.maxUploadsPerTick,
+      maxGenPerTick: settings.performance.maxGenPerTick,
+      geometryPooling: settings.performance.geometryPooling,
+      rendererAttributes: renderer.three.attributes,
+    });
+    dimension.chunkManager = cm;
+    cm.setSeed(currentSeed);
+    cm.setWaterQuality(settings.graphics.waterQuality);
+    cm.setFoliageSwayStrength(settings.graphics.foliageSway ? settings.graphics.foliageSwayStrength / 100 : 0);
+    cm.setAmbientFloor(dimension.ambientFloorLevel, dimension.ambientFloorColor);
+    // A column can stream out (player walks far enough away) between
+    // autosaves — persist its diff immediately rather than waiting, so a
+    // quick edit-then-leave isn't lost if the tab closes before the next
+    // autosave tick. Fire-and-forget, matching every other injected hook.
+    // Captures `cm`/`dimension.id` directly (not the mutable `chunkManager`
+    // variable elsewhere in this file) so a background unload on a
+    // dimension the player *isn't* currently in still saves under the
+    // right dimensionId.
+    cm.onChunkUnloadDirty = (cx, cz, diffs) => {
+      if (currentWorldId) saveChunkDiff(currentWorldId, dimension.id, cx, cz, diffs);
+    };
+    return cm;
+  }
+
+  /** Only the overworld is built eagerly — the Cinderdeep's worker pool (and the cost that comes with it) waits until a player actually first travels there. */
+  function ensureDimensionChunkManager(dimension) {
+    if (dimension.chunkManager) return dimension.chunkManager;
+    const cm = makeChunkManagerFor(dimension);
+    const pending = pendingDiffsByDimension[dimension.id];
+    if (pending) {
+      for (const d of pending) cm.queueDiffsFor(d.cx, d.cz, d.diffs);
+      delete pendingDiffsByDimension[dimension.id];
+    }
+    return cm;
+  }
+
+  let chunkManager = makeChunkManagerFor(overworld);
   applyMipmapping(atlasTexture, renderer.three, settings.graphics.mipmapping);
   renderer.fxaa.enabled = settings.graphics.antialiasing === 'fxaa';
 
@@ -205,6 +275,12 @@ function main() {
   // workers to rebuild their own copies via chunkManager.setSeed) once
   // the player picks a real seed instead of this placeholder default.
   let climateGenerator = createOverworldGenerator(WORLD_SEED);
+  // Same idea as climateGenerator above, but for the Cinderdeep's biome
+  // (fog tint, particle density) — cheap to build eagerly (just noise
+  // fields, no worker), rebuilt alongside climateGenerator whenever the
+  // world's real seed is known.
+  let cinderdeepClimate = createCinderdeepGenerator(WORLD_SEED);
+  let activeDimension = overworld;
   // The chosen world's stored spawn point (worldSave.js's createWorld —
   // seed-derived, not the origin; see generator.js's pickSpawnPoint for
   // why). Placeholder here; startGame() below sets the real value before
@@ -364,6 +440,18 @@ function main() {
   }
 
   function respawnPlayer() {
+    // Dying always sends you back to the overworld spawn, regardless of
+    // which dimension you died in — matches genre convention (a bed/
+    // spawn point is always an overworld concept), and avoids the much
+    // hairier alternative of respawning "safely" inside a hostile,
+    // mostly-cave dimension with no obvious safe point at all.
+    if (activeDimension !== overworld) {
+      chunkManager = overworld.chunkManager;
+      activeDimension = overworld;
+      player.dimension = overworld;
+      world.setActive(overworld.id);
+      applyDimensionAtmosphere(renderer.scene, overworld);
+    }
     // spawnX/spawnZ (worldSave.js's createWorld -> generator.js's
     // pickSpawnPoint) already resolved to dry land at world-creation
     // time via a real outward search, not just a single lucky-or-not
@@ -376,6 +464,101 @@ function main() {
     flashFadeOverlay();
   }
 
+  /** Repeatedly streams `cm` toward (x,z) until that column has actually finished generating, or times out. */
+  async function ensureChunkLoadedAt(cm, x, z, timeoutMs = 15000) {
+    const start = performance.now();
+    while (performance.now() - start < timeoutMs) {
+      cm.update({ x, z });
+      const col = cm.columns.get(`${Math.floor(x / 16)},${Math.floor(z / 16)}`);
+      if (col && col.state === 'generated') return true;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+  }
+
+  let isTraveling = false;
+  let travelCooldown = 0; // seconds — set after arriving, so stepping back into the destination portal doesn't immediately bounce you again
+  let portalStandTime = 0;
+
+  /**
+   * The Cinder Gate's actual link algorithm: search the destination
+   * dimension's gate registry near the scaled-8:1 target point (widening
+   * 16 -> 128), and if nothing turns up, generate a brand new gate there.
+   * `fromDimension`/`toDimension` are Dimension instances — nothing here
+   * branches on a dimensionId string.
+   */
+  async function travelToDimension(fromDimension, toDimension) {
+    if (isTraveling) return;
+    isTraveling = true;
+    fadeOverlayEl.style.transition = '';
+    fadeOverlayEl.classList.add('visible');
+    try {
+      const scale = fromDimension === overworld ? 1 / OVERWORLD_TO_CINDERDEEP_SCALE : OVERWORLD_TO_CINDERDEEP_SCALE;
+      const targetX = player.position.x * scale;
+      const targetZ = player.position.z * scale;
+      const targetChunkManager = ensureDimensionChunkManager(toDimension);
+
+      let standX;
+      let standY;
+      let standZ;
+
+      let existing = null;
+      for (const radius of [16, 32, 64, 128]) {
+        existing = gateRegistry.findNear(toDimension.id, targetX, targetZ, radius);
+        if (existing) break;
+      }
+
+      if (existing) {
+        await ensureChunkLoadedAt(targetChunkManager, existing.x, existing.z);
+        // Re-validate — a returning trip's frame may have been broken
+        // since it was registered (collapseGateIfFrameBroken already
+        // unregisters on break, but a stale registry entry from before
+        // this session, or an edge case it missed, shouldn't strand the
+        // player with no gate at all).
+        if (!isPortalBlock(targetChunkManager, existing.x, existing.y, existing.z)) {
+          const site = findSafePortalSite(targetChunkManager, existing.x, existing.z, toDimension.minHeight, toDimension.maxHeight) ?? existing;
+          const stand = buildAndIgniteGate(targetChunkManager, site.x, site.y, site.z);
+          gateRegistry.register(toDimension.id, site.x, site.y, site.z);
+          standX = stand.x;
+          standY = site.y;
+          standZ = stand.z;
+        } else {
+          standX = existing.x + 0.5;
+          standY = existing.y;
+          standZ = existing.z + 1.5;
+        }
+      } else {
+        await ensureChunkLoadedAt(targetChunkManager, targetX, targetZ);
+        const site =
+          findSafePortalSite(targetChunkManager, targetX, targetZ, toDimension.minHeight, toDimension.maxHeight) ??
+          // Every nearby candidate was unsafe (rare) — carve one anyway
+          // rather than stranding the player mid-travel with nowhere to go.
+          { x: Math.round(targetX), y: Math.floor((toDimension.minHeight + toDimension.maxHeight) / 2), z: Math.round(targetZ) };
+        const stand = buildAndIgniteGate(targetChunkManager, site.x, site.y, site.z);
+        gateRegistry.register(toDimension.id, site.x, site.y, site.z);
+        standX = stand.x;
+        standY = site.y;
+        standZ = stand.z;
+      }
+
+      chunkManager = targetChunkManager;
+      activeDimension = toDimension;
+      player.dimension = toDimension;
+      world.setActive(toDimension.id);
+      applyDimensionAtmosphere(renderer.scene, toDimension);
+      player.position.x = standX;
+      player.position.y = standY + 1;
+      player.position.z = standZ;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      travelCooldown = 3;
+    } finally {
+      setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
+      isTraveling = false;
+    }
+  }
+
   // --- Persistence: current world id, autosave scheduling ------------
   let currentWorldId = null;
   const saveIndicatorEl = document.getElementById('save-indicator');
@@ -385,7 +568,17 @@ function main() {
     if (!currentWorldId) return;
     saveIndicatorEl.classList.add('visible');
     try {
-      await saveGame(currentWorldId, { chunkManager, player, dayNight, mobManager, itemDrops, inventoryUI });
+      const chunkManagers = [overworld, cinderdeep].map((d) => d.chunkManager).filter(Boolean);
+      await saveGame(currentWorldId, {
+        chunkManagers,
+        player,
+        dayNight,
+        mobManager,
+        itemDrops,
+        inventoryUI,
+        dimensionId: activeDimension.id,
+      });
+      await saveGateRegistry(currentWorldId, gateRegistry);
     } finally {
       saveIndicatorEl.classList.remove('visible');
     }
@@ -421,14 +614,28 @@ function main() {
     // an old world's spawn never silently moves out from under it.
     spawnX = worldRecord.spawnX ?? 0.5;
     spawnZ = worldRecord.spawnZ ?? 0.5;
+    currentSeed = worldRecord.seed;
     chunkManager.setSeed(worldRecord.seed);
     climateGenerator = createOverworldGenerator(worldRecord.seed);
+    cinderdeepClimate = createCinderdeepGenerator(worldRecord.seed);
     player.setGameMode(worldRecord.mode);
 
     if (isNew) {
       respawnPlayer();
     } else {
-      const { playerState, entities } = await loadGame(worldRecord.id, { chunkManager });
+      gateRegistry = GateRegistry.fromJSON(await loadGateRegistry(worldRecord.id));
+      const savedDimensionId = (await getPlayerDimensionId(worldRecord.id)) ?? 'overworld';
+      if (savedDimensionId === 'cinderdeep') {
+        chunkManager = ensureDimensionChunkManager(cinderdeep);
+        activeDimension = cinderdeep;
+        player.dimension = cinderdeep;
+        applyDimensionAtmosphere(renderer.scene, cinderdeep);
+      }
+      const { playerState, entities, pendingDiffsByDimension: pending } = await loadGame(worldRecord.id, {
+        chunkManager,
+        dimensionId: activeDimension.id,
+      });
+      pendingDiffsByDimension = pending;
       if (playerState) {
         player.position = { ...playerState.position };
         player.yaw = playerState.yaw;
@@ -485,13 +692,9 @@ function main() {
   });
   menuController.onSaveAndQuit = persistNow;
 
-  // A column can stream out (player walks far enough away) between
-  // autosaves — persist its diff immediately rather than waiting, so a
-  // quick edit-then-leave isn't lost if the tab closes before the next
-  // autosave tick. Fire-and-forget, matching every other injected hook.
-  chunkManager.onChunkUnloadDirty = (cx, cz, diffs) => {
-    if (currentWorldId) saveChunkDiff(currentWorldId, cx, cz, diffs);
-  };
+  // onChunkUnloadDirty is set for every ChunkManager inside
+  // makeChunkManagerFor itself (including the overworld's, built above),
+  // not here — see that function's own comment for why.
 
   // Best-effort — beforeunload can't reliably await an async IndexedDB
   // write, but firing the save request here still beats losing an
@@ -607,6 +810,24 @@ function main() {
       // on a genuine fall-through.
       if (player.position.y < VOID_Y) respawnPlayer();
 
+      // Cinder Gate travel: standing inside the portal surface for a few
+      // seconds triggers the dimension swap (instant in creative). The
+      // cooldown after arriving stops an immediate bounce back through
+      // the destination gate's own portal block.
+      travelCooldown = Math.max(0, travelCooldown - FIXED_DT);
+      const feetBlock = chunkManager.getBlock(Math.floor(player.position.x), Math.floor(player.position.y), Math.floor(player.position.z));
+      if (feetBlock === BLOCKS.CINDER_PORTAL && !isTraveling && travelCooldown <= 0) {
+        portalStandTime += FIXED_DT;
+        const threshold = player.gameMode === 'creative' ? 0 : STAND_SECONDS_TO_TRAVEL;
+        if (portalStandTime >= threshold) {
+          portalStandTime = 0;
+          const target = activeDimension === overworld ? cinderdeep : overworld;
+          travelToDimension(activeDimension, target);
+        }
+      } else {
+        portalStandTime = 0;
+      }
+
       if (!inventoryUI.isOpen) {
         interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player));
         mobManager.tryPlayerAttack(player, input);
@@ -638,6 +859,12 @@ function main() {
           const bz = Math.floor(interaction.justBroke.position.z);
           checkFall(chunkManager, fallingBlocks, bx, by + 1, bz);
           fluids.notify(bx, by, bz);
+          // Breaking a frame block (obsidian) collapses the whole portal
+          // — matches nether portals: the interior can't exist without
+          // its frame. No-op unless CINDER_PORTAL is actually adjacent.
+          if (collapseGateIfFrameBroken(chunkManager, bx, by, bz)) {
+            gateRegistry.unregister(activeDimension.id, bx, by, bz);
+          }
         }
         if (interaction.justPlaced) {
           playBlockPlace(interaction.justPlaced.blockId);
@@ -653,8 +880,41 @@ function main() {
           const pz = Math.floor(interaction.justPlaced.position.z);
           checkFall(chunkManager, fallingBlocks, px, py, pz);
           fluids.notify(px, py, pz);
+
+          // Dimension quirk (Cinderdeep): water buckets evaporate on
+          // placement instead of creating a source. A config flag, not a
+          // dimensionId check.
+          if (activeDimension.evaporatesWater && interaction.justPlaced.blockId === BLOCKS.WATER) {
+            chunkManager.setBlock(px, py, pz, BLOCKS.AIR);
+            particles.spawnBlockBreak(interaction.justPlaced.position, BLOCKS.WATER);
+          }
         }
         if (interaction.wantsOpenContainer) openContainer(interaction.wantsOpenContainer);
+
+        // Flint and steel: interaction.js only places *block* items on
+        // right-click (isBlockItem gate in _updatePlacing), so a tool
+        // item's right-click otherwise does nothing — handled directly
+        // here instead of teaching the generic interaction controller
+        // about gates. Ignites into the face the player's looking at,
+        // same spot a placed block would land.
+        if (
+          input.wasMousePressed(1) &&
+          interaction.target &&
+          player.selectedItem?.itemId === ITEMS.FLINT_AND_STEEL.id
+        ) {
+          const [bx, by, bz] = interaction.target.blockPos;
+          const [nx, ny, nz] = interaction.target.normal;
+          const frame = findGateFrame(chunkManager, bx + nx, by + ny, bz + nz);
+          if (frame) {
+            igniteGateFrame(chunkManager, frame);
+            gateRegistry.register(activeDimension.id, bx + nx, by + ny, bz + nz);
+            playBlockPlace(BLOCKS.OBSIDIAN);
+            if (player.gameMode !== 'creative') {
+              player.selectedItem.durability -= 1;
+              if (player.selectedItem.durability <= 0) player.inventory.slots[player.selectedHotbar] = null;
+            }
+          }
+        }
 
         if (input.wasPressed('drop') && player.selectedItem) {
           const slot = player.selectedItem;
@@ -672,7 +932,7 @@ function main() {
         fluids.notify(x, y, z);
         playBlockPlace(blockId);
       });
-      fluids.update(FIXED_DT, chunkManager);
+      fluids.update(FIXED_DT, chunkManager, activeDimension.lavaSpreadMultiplier);
       xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
       mobManager.update(FIXED_DT, player, chunkManager, dayNight);
@@ -765,10 +1025,24 @@ function main() {
     });
 
     // --- Atmosphere: biome tint x day/night tint, swapped for a flat
-    // underwater fog when the camera's eye is submerged.
-    const climate = climateGenerator.heightAndBiome(rx, rz);
-    const biomeName = climate.isOcean ? OCEAN_BIOME.id : climate.dominant.id;
-    dayNight.update(dt);
+    // underwater fog when the camera's eye is submerged. The Cinderdeep
+    // has no climateGenerator-style height/ocean concept at all — its
+    // own generator's biomeAt() already returns a fogTint directly, so
+    // this branches on which *biome sampler* applies, the one thing that
+    // really does differ per dimension, rather than on a dimensionId.
+    let biomeName;
+    let biomeFogTint;
+    if (activeDimension === overworld) {
+      const climate = climateGenerator.heightAndBiome(rx, rz);
+      biomeName = climate.isOcean ? OCEAN_BIOME.id : climate.dominant.id;
+      biomeFogTint = climate.isOcean ? OCEAN_BIOME.fogTint : climate.dominant.fogTint;
+    } else {
+      const biome = cinderdeepClimate.biomeAt(rx, rz);
+      biomeName = biome.id;
+      biomeFogTint = biome.fogTint;
+    }
+
+    if (activeDimension.hasDayNightCycle) dayNight.update(dt);
     dayNight.getTint(dayTint);
 
     if (player.headInWater) {
@@ -776,36 +1050,51 @@ function main() {
       renderer.scene.fog.near = 2;
       renderer.scene.fog.far = 28;
     } else {
-      targetFogColor.set(climate.isOcean ? OCEAN_BIOME.fogTint : climate.dominant.fogTint).multiply(dayTint);
+      targetFogColor.set(biomeFogTint);
+      if (activeDimension.hasDayNightCycle) targetFogColor.multiply(dayTint);
       fogColor.lerp(targetFogColor, 0.02);
-      renderer.scene.fog.near = overworld.fogNear;
-      renderer.scene.fog.far = overworld.fogFar;
+      renderer.scene.fog.near = activeDimension.fogNear;
+      renderer.scene.fog.far = activeDimension.fogFar;
     }
     renderer.scene.fog.color.copy(fogColor);
-    const dayFactor = dayNight.getDayFactor();
+    // No day/night cycle means no dayFactor-driven dimming — the
+    // Cinderdeep's darkness comes entirely from its dim ambientFloor
+    // instead (see atlasMaterial.js), so terrain there should read at
+    // full "sky-lit" brightness rather than sitting at whatever the
+    // frozen dayFactor last was.
+    const dayFactor = activeDimension.hasDayNightCycle ? dayNight.getDayFactor() : 1;
     chunkManager.setDayFactor(dayFactor);
     chunkManager.setTime(now / 1000);
-    clouds.update(dt, rx, rz);
+    clouds.setEnabled(activeDimension.hasClouds);
+    if (activeDimension.hasClouds) clouds.update(dt, rx, rz);
 
     // Sky quality/glare (revision-pass section 8) — see sky.js for why
     // this is one warm-to-cool billboard rather than two celestial
     // bodies, and why "Enhanced" is a cheap gradient canvas texture
-    // rather than a full skydome.
-    dayNight.getSunDirection(sunDirVec);
-    zenithColor.copy(fogColor).multiplyScalar(0.55).lerp(new THREE.Color(0x0b1230), 0.35);
-    sky.updateGradient(zenithColor, fogColor);
-    sky.update(player.camera, sunDirVec, dayNight.getSunIntensity(), dayFactor, fogColor);
+    // rather than a full skydome. Skipped entirely for a dimension with
+    // no sky light source — applyDimensionAtmosphere already set
+    // scene.background to its flat skyColor on travel, and leaving that
+    // alone (rather than overwriting it with a gradient every frame) is
+    // exactly "no sun or moon, no sky".
+    sky.glareSprite.visible = activeDimension.hasSkylight;
+    sunLight.visible = activeDimension.hasDayNightCycle;
+    if (activeDimension.hasDayNightCycle) {
+      dayNight.getSunDirection(sunDirVec);
+      zenithColor.copy(fogColor).multiplyScalar(0.55).lerp(new THREE.Color(0x0b1230), 0.35);
+      sky.updateGradient(zenithColor, fogColor);
+      sky.update(player.camera, sunDirVec, dayNight.getSunIntensity(), dayFactor, fogColor);
 
-    // Sun shadow (revision-pass section 8) — the light + its shadow
-    // camera follow the player every frame rather than covering the
-    // whole render distance; see the shadow-quality setup above for why.
-    if (settings.graphics.shadowQuality !== 'off') {
-      sunLight.position.set(rx, ry, rz).addScaledVector(sunDirVec, 60);
-      sunLight.target.position.set(rx, ry, rz);
-      sunLight.target.updateMatrixWorld();
-      sunLight.shadow.updateMatrices(sunLight);
-      shadowMatrix.multiplyMatrices(sunLight.shadow.camera.projectionMatrix, sunLight.shadow.camera.matrixWorldInverse);
-      if (sunLight.shadow.map) chunkManager.setShadowUniforms(sunLight.shadow.map.texture, shadowMatrix, true);
+      // Sun shadow (revision-pass section 8) — the light + its shadow
+      // camera follow the player every frame rather than covering the
+      // whole render distance; see the shadow-quality setup above for why.
+      if (settings.graphics.shadowQuality !== 'off') {
+        sunLight.position.set(rx, ry, rz).addScaledVector(sunDirVec, 60);
+        sunLight.target.position.set(rx, ry, rz);
+        sunLight.target.updateMatrixWorld();
+        sunLight.shadow.updateMatrices(sunLight);
+        shadowMatrix.multiplyMatrices(sunLight.shadow.camera.projectionMatrix, sunLight.shadow.camera.matrixWorldInverse);
+        if (sunLight.shadow.map) chunkManager.setShadowUniforms(sunLight.shadow.map.texture, shadowMatrix, true);
+      }
     }
 
     particles.update(dt);
@@ -868,8 +1157,18 @@ function main() {
       debugOverlay,
       tuningPanel,
       renderer,
-      chunkManager,
+      get chunkManager() { return chunkManager; }, // `let`-backed — travelToDimension() reassigns it, so this must stay a live getter, not a stale snapshot
       get climateGenerator() { return climateGenerator; }, // `let`-backed — startGame() reassigns it, so this must stay a live getter, not a stale snapshot
+      get cinderdeepClimate() { return cinderdeepClimate; },
+      get activeDimension() { return activeDimension; },
+      overworld,
+      cinderdeep,
+      get gateRegistry() { return gateRegistry; },
+      travelToDimension,
+      ensureDimensionChunkManager,
+      findGateFrame,
+      igniteGateFrame,
+      buildAndIgniteGate,
       interaction,
       dayNight,
       itemDrops,

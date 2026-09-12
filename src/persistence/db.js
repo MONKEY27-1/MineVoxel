@@ -3,7 +3,12 @@
 // container/chunk-diff/player-state concept below is new.
 
 const DB_NAME = 'minevoxel';
-const DB_VERSION = 1;
+// Bumped for the Cinderdeep pass's new gateRegistry store — IndexedDB
+// version bumps are purely additive (onupgradeneeded only ever adds
+// missing stores below, never touches existing ones), so this needs no
+// data migration of its own; worldSave.js's own schemaVersion is what
+// migrates existing *world records*.
+const DB_VERSION = 2;
 
 // One flat key space per store, string keys built from parts joined with
 // '|' — lets range-queries (IDBKeyRange.bound) select "everything for
@@ -15,6 +20,7 @@ export const STORES = {
   blockEntities: 'blockEntities', // keyPath 'key' = `${worldId}|${x},${y},${z}`
   playerState: 'playerState', // keyPath 'worldId'
   entitySnapshots: 'entitySnapshots', // keyPath 'worldId' — mobs + item drops in loaded chunks at save time
+  gateRegistry: 'gateRegistry', // keyPath 'worldId' — every Cinder Gate this world has ever ignited (world/gate.js's GateRegistry)
 };
 
 let dbPromise = null;
@@ -30,6 +36,7 @@ export function openDB() {
       if (!db.objectStoreNames.contains(STORES.blockEntities)) db.createObjectStore(STORES.blockEntities, { keyPath: 'key' });
       if (!db.objectStoreNames.contains(STORES.playerState)) db.createObjectStore(STORES.playerState, { keyPath: 'worldId' });
       if (!db.objectStoreNames.contains(STORES.entitySnapshots)) db.createObjectStore(STORES.entitySnapshots, { keyPath: 'worldId' });
+      if (!db.objectStoreNames.contains(STORES.gateRegistry)) db.createObjectStore(STORES.gateRegistry, { keyPath: 'worldId' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

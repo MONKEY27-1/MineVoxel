@@ -1,5 +1,12 @@
 import { Section, SECTION_SIZE } from './section.js';
 
+// Legacy fixed values — still correct for the overworld, kept only so
+// nothing importing these two names for the overworld's own height needs
+// to change. Anything that must work for *any* dimension (this file
+// included) takes numSections as a real parameter instead: the
+// Cinderdeep is 0-128 (8 sections), not 0-256, and there is deliberately
+// no dimensionId check anywhere that would need to know that — see
+// CINDERDEEP.md's Phase 1 notes.
 export const CHUNK_HEIGHT = 256;
 export const NUM_SECTIONS = CHUNK_HEIGHT / SECTION_SIZE; // 16
 
@@ -7,20 +14,25 @@ export function columnKey(cx, cz) {
   return `${cx},${cz}`;
 }
 
-// A 16-wide x 256-tall x 16-deep stack of sections. Generation fills
-// `sections`; chunkManager.js drives meshing per-section and owns the
-// resulting THREE.Mesh objects (kept here in `meshes` purely as storage —
-// this class has no THREE.js dependency itself).
+// A 16-wide x (numSections*16)-tall x 16-deep stack of sections.
+// Generation fills `sections`; chunkManager.js drives meshing per-section
+// and owns the resulting THREE.Mesh objects (kept here in `meshes` purely
+// as storage — this class has no THREE.js dependency itself).
 export class ChunkColumn {
-  constructor(cx, cz) {
+  constructor(cx, cz, numSections = NUM_SECTIONS, hasSkylight = true) {
     this.cx = cx;
     this.cz = cz;
-    this.sections = new Array(NUM_SECTIONS).fill(null);
+    this.numSections = numSections;
+    // Read by lighting.js's recomputeColumnLight — the Cinderdeep has no
+    // sky light source at all (see dimension.js), so a live block edit
+    // there must not re-derive it from "is there open air above".
+    this.hasSkylight = hasSkylight;
+    this.sections = new Array(numSections).fill(null);
     this.state = 'unloaded'; // unloaded | generating | generated
-    this.meshes = new Array(NUM_SECTIONS).fill(null); // { opaque: Mesh|null, transparent: Mesh|null, cross: Mesh|null }
-    this.meshDirty = new Array(NUM_SECTIONS).fill(false);
-    this.meshPending = new Array(NUM_SECTIONS).fill(false);
-    this.connectivity = new Array(NUM_SECTIONS).fill(null); // number[6] per section, see mesh/connectivity.js
+    this.meshes = new Array(numSections).fill(null); // { opaque: Mesh|null, transparent: Mesh|null, cross: Mesh|null }
+    this.meshDirty = new Array(numSections).fill(false);
+    this.meshPending = new Array(numSections).fill(false);
+    this.connectivity = new Array(numSections).fill(null); // number[6] per section, see mesh/connectivity.js
 
     // Revision-pass section 7: every player-driven edit to this column
     // (never anything generation writes — see ChunkManager.setBlock,
@@ -34,6 +46,10 @@ export class ChunkColumn {
     return columnKey(this.cx, this.cz);
   }
 
+  get height() {
+    return this.numSections * SECTION_SIZE;
+  }
+
   getSection(sy) {
     return this.sections[sy] ?? null;
   }
@@ -44,14 +60,14 @@ export class ChunkColumn {
   }
 
   getBlock(lx, ly, lz) {
-    if (ly < 0 || ly >= CHUNK_HEIGHT) return 0;
+    if (ly < 0 || ly >= this.height) return 0;
     const section = this.sections[ly >> 4];
     if (!section) return 0;
     return section.get(lx, ly & 15, lz);
   }
 
   setBlock(lx, ly, lz, id) {
-    if (ly < 0 || ly >= CHUNK_HEIGHT) return false;
+    if (ly < 0 || ly >= this.height) return false;
     const sy = ly >> 4;
     if (id === 0 && !this.sections[sy]) return false;
     const section = this.ensureSection(sy);

@@ -1,12 +1,25 @@
 import { Section } from '../world/section.js';
-import { NUM_SECTIONS, CHUNK_HEIGHT } from '../world/chunkColumn.js';
 import { computeSkyLight } from '../world/lighting.js';
 import { createOverworldGenerator } from '../world/generator.js';
+import { createCinderdeepGenerator } from '../world/cinderdeepGenerator.js';
 
-// World seed: fixed for now — the world-creation menu (phase 9) will pass
-// a real one through the 'init' message below and this worker will
-// rebuild its generator, but nothing upstream sends that yet.
-let generator = createOverworldGenerator(1337);
+// dimensionId -> generator factory. Adding a third dimension means one
+// more entry here, not a new worker file or an if-branch anywhere else —
+// see chunkManager.js's _makeGenWorker, which is the only thing that
+// decides *which* dimensionId this particular worker was built for (via
+// the 'init' message below), and CINDERDEEP.md's Phase 1 notes.
+const GENERATOR_FACTORIES = {
+  overworld: createOverworldGenerator,
+  cinderdeep: createCinderdeepGenerator,
+};
+
+// Set by 'init', before any 'seed' or chunk-request message this worker
+// will ever receive (chunkManager.js sends init synchronously right after
+// constructing the worker, and postMessage preserves per-worker order).
+let dimensionId = 'overworld';
+let numSections = 16;
+let hasSkylight = true;
+let generator = GENERATOR_FACTORIES.overworld(1337);
 
 function mulberry32(seed) {
   let a = seed | 0;
@@ -20,17 +33,18 @@ function mulberry32(seed) {
 }
 
 function generateColumn(cx, cz) {
-  // All 16 sections are always allocated (even ones that stay pure air):
+  // All sections are always allocated (even ones that stay pure air):
   // sky light needs somewhere to live for the whole column height, not
   // just the sections that happen to contain blocks.
-  const sections = Array.from({ length: NUM_SECTIONS }, () => new Section());
+  const sections = Array.from({ length: numSections }, () => new Section());
+  const height = numSections * 16;
   const setBlock = (lx, ly, lz, id) => {
     // Structures that span multiple chunks are clipped to this chunk's
     // bounds *before* setBlock is ever called (structures/placement.js's
     // placeBlueprintInChunk) — see that file for how a structure still
     // completes correctly without a shared cross-chunk queue.
     if (lx < 0 || lx >= 16 || lz < 0 || lz >= 16) return;
-    if (ly < 0 || ly >= CHUNK_HEIGHT) return;
+    if (ly < 0 || ly >= height) return;
     sections[ly >> 4].set(lx, ly & 15, lz, id);
   };
 
@@ -39,15 +53,28 @@ function generateColumn(cx, cz) {
 
   computeSkyLight(
     sections.map((s) => s.blocks),
-    sections.map((s) => s.skyLight)
+    sections.map((s) => s.skyLight),
+    hasSkylight
   );
 
   return { sections, chests, spawners };
 }
 
 self.onmessage = (event) => {
+  if (event.data.type === 'init') {
+    dimensionId = event.data.dimensionId ?? 'overworld';
+    numSections = ((event.data.maxHeight ?? 256) - (event.data.minHeight ?? 0)) / 16;
+    hasSkylight = event.data.hasSkylight ?? true;
+    // The 'seed' message (below) rebuilds this properly once the real
+    // world seed is known — 1337 here only matters for the instant
+    // between 'init' and 'seed', which no chunk request can land in
+    // (chunkManager.setSeed always runs before streaming starts).
+    generator = (GENERATOR_FACTORIES[dimensionId] ?? GENERATOR_FACTORIES.overworld)(1337);
+    return;
+  }
+
   if (event.data.type === 'seed') {
-    generator = createOverworldGenerator(event.data.seed >>> 0);
+    generator = (GENERATOR_FACTORIES[dimensionId] ?? GENERATOR_FACTORIES.overworld)(event.data.seed >>> 0);
     return;
   }
 

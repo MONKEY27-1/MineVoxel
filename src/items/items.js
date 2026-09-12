@@ -21,6 +21,13 @@ export const TOOL_MATERIAL = {
   WOOD: { name: 'wooden', speedMultiplier: 2, durability: 60, tier: 1 },
   STONE: { name: 'stone', speedMultiplier: 4, durability: 132, tier: 2 },
   IRON: { name: 'iron', speedMultiplier: 6, durability: 251, tier: 3 },
+  // The Cinderdeep pass's endgame tier — iron was the top tier before
+  // this (see the note that there's no diamond tier in this game), so
+  // Voidsteel upgrades straight from iron rather than sitting behind a
+  // tier this game never had. speedMultiplier/durability roughly double
+  // iron's; tier 4 is what smithing.js's upgrade path checks for "is
+  // this already Voidsteel" (nothing to upgrade further).
+  VOIDSTEEL: { name: 'voidsteel', speedMultiplier: 9, durability: 600, tier: 4 },
 };
 
 function defineTool(toolType, material) {
@@ -36,6 +43,35 @@ function defineTool(toolType, material) {
 
 function defineMaterial(name) {
   return defineNonBlock({ name, kind: 'material' });
+}
+
+// Armor: didn't exist before this pass — needed for two Cinderdeep
+// mechanics (Ashkin are neutral toward any piece of GOLD armor; Voidsteel
+// upgrades an existing top-tier armor piece the same way it upgrades a
+// tool). Kept intentionally small: only the tiers those two mechanics
+// actually need (gold, iron as "top existing tier", Voidsteel as the
+// upgrade target) rather than a full wood/stone/leather/gold/diamond
+// ladder nothing else calls for. `defense` is a flat damage-reduction
+// point value, summed across all four equipped slots and applied as a
+// percentage in player.js — see ARMOR_DEFENSE below.
+export const ARMOR_MATERIAL = {
+  GOLD: { name: 'gold', defense: [2, 3, 2, 2] }, // helmet, chest, legs, boots
+  IRON: { name: 'iron', defense: [2, 6, 5, 2] },
+  VOIDSTEEL: { name: 'voidsteel', defense: [3, 8, 6, 3] },
+};
+export const ARMOR_SLOTS = ['helmet', 'chest', 'legs', 'boots'];
+
+function defineArmor(slot, material) {
+  const slotIndex = ARMOR_SLOTS.indexOf(slot);
+  return defineNonBlock({
+    name: `${material.name}_${slot}`,
+    kind: 'armor',
+    slot,
+    material,
+    defense: material.defense[slotIndex],
+    maxStack: 1,
+    maxDurability: 200 + slotIndex * 40,
+  });
 }
 
 export const ITEMS = {
@@ -71,6 +107,42 @@ export const ITEMS = {
   STRING: defineMaterial('string'),
   ROTTEN_FLESH: defineMaterial('rotten_flesh'),
   ARROW: defineMaterial('arrow'),
+
+  // --- The Cinderdeep (dimension 2) ------------------------------------
+  CINDER_ROD: defineMaterial('cinder_rod'),
+  CINDER_POWDER: defineMaterial('cinder_powder'),
+  DRIFTER_TEAR: defineMaterial('drifter_tear'),
+  ASHBONE_SKULL: defineMaterial('ashbone_skull'),
+  QUARTZ: defineMaterial('quartz'),
+  VOIDIRON_SCRAP: defineMaterial('voidiron_scrap'),
+  VOIDSTEEL_INGOT: defineMaterial('voidsteel_ingot'),
+  VOIDSTEEL_UPGRADE_PLATE: defineMaterial('voidsteel_upgrade_plate'),
+  AZURECAP_LURE: defineMaterial('azurecap_lure'),
+  HEARTSTAR: defineMaterial('heartstar'),
+  RAW_TUSKBEAST: defineMaterial('raw_tuskbeast'),
+  COOKED_TUSKBEAST: defineMaterial('cooked_tuskbeast'),
+  SADDLE: defineMaterial('saddle'),
+  FLINT_AND_STEEL: defineNonBlock({ name: 'flint_and_steel', kind: 'tool', toolType: 'igniter', maxStack: 1, maxDurability: 64 }),
+  GLASS_BOTTLE: defineMaterial('glass_bottle'),
+  WATER_BOTTLE: defineMaterial('water_bottle'),
+  AWKWARD_POTION: defineMaterial('awkward_potion'),
+
+  GOLD_HELMET: defineArmor('helmet', ARMOR_MATERIAL.GOLD),
+  GOLD_CHEST: defineArmor('chest', ARMOR_MATERIAL.GOLD),
+  GOLD_LEGS: defineArmor('legs', ARMOR_MATERIAL.GOLD),
+  GOLD_BOOTS: defineArmor('boots', ARMOR_MATERIAL.GOLD),
+  IRON_HELMET: defineArmor('helmet', ARMOR_MATERIAL.IRON),
+  IRON_CHEST: defineArmor('chest', ARMOR_MATERIAL.IRON),
+  IRON_LEGS: defineArmor('legs', ARMOR_MATERIAL.IRON),
+  IRON_BOOTS: defineArmor('boots', ARMOR_MATERIAL.IRON),
+  VOIDSTEEL_HELMET: defineArmor('helmet', ARMOR_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_CHEST: defineArmor('chest', ARMOR_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_LEGS: defineArmor('legs', ARMOR_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_BOOTS: defineArmor('boots', ARMOR_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_PICKAXE: defineTool('pickaxe', TOOL_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_AXE: defineTool('axe', TOOL_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_SHOVEL: defineTool('shovel', TOOL_MATERIAL.VOIDSTEEL),
+  VOIDSTEEL_SWORD: defineTool('sword', TOOL_MATERIAL.VOIDSTEEL),
 };
 
 const byId = new Map(nonBlockItems.map((i) => [i.id, i]));

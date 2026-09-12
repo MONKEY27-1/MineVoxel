@@ -24,6 +24,18 @@ export class Dimension {
     sunIntensity = 1.0,
     gravity = 32,
     spawnTables = { passive: [], hostile: [] },
+    // The Cinderdeep pass: no sky light source at all (hasSkylight below
+    // already covers "no sun to feed it", but even a fully sky-lit-and-
+    // dark dimension still needs *some* light so caves aren't literally
+    // black) — a minimum brightness + tint floor, read by
+    // atlasMaterial.js's shader in place of the overworld's previously
+    // hardcoded 0.06 white floor (see that file's own note).
+    ambientFloorLevel = 0.06,
+    ambientFloorColor = 0xffffff,
+    hasWeather = true,
+    hasClouds = true,
+    lavaSpreadMultiplier = 1,
+    evaporatesWater = false,
   }) {
     this.id = id;
     this.name = name;
@@ -40,6 +52,15 @@ export class Dimension {
     this.sunIntensity = sunIntensity;
     this.gravity = gravity;
     this.spawnTables = spawnTables;
+    this.ambientFloorLevel = ambientFloorLevel;
+    this.ambientFloorColor = ambientFloorColor;
+    this.hasWeather = hasWeather;
+    this.hasClouds = hasClouds;
+    // Dimension quirks (Cinderdeep spec): lava that flows further than
+    // the overworld's. A per-dimension multiplier on fluids.js's
+    // LAVA_MAX_SPREAD rather than a dimensionId check there.
+    this.lavaSpreadMultiplier = lavaSpreadMultiplier;
+    this.evaporatesWater = evaporatesWater;
 
     // Populated by chunkManager.js in phase 2; a dimension owns its own
     // manager instance so unloading a dimension unloads only its chunks.

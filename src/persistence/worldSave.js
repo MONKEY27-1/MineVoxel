@@ -2,15 +2,15 @@ import { STORES, dbPut, dbPutMany, dbGet, dbGetAll, dbGetByPrefix, dbDelete, dbD
 import { serializeContainers, restoreContainers } from '../items/containerRegistry.js';
 import { pickSpawnPoint } from '../world/generator.js';
 
-export const SCHEMA_VERSION = 2;
-const DIMENSION_ID = 'overworld'; // the only one that exists — see world/travel.js's own seam for a real second dimension
+export const SCHEMA_VERSION = 3;
+const DEFAULT_DIMENSION_ID = 'overworld'; // every pre-v3 save's chunk diffs implicitly belong to this — see migrateWorld
 
 function newWorldId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function chunkDiffKey(worldId, cx, cz) {
-  return `${worldId}|${DIMENSION_ID}|${cx},${cz}`;
+function chunkDiffKey(worldId, dimensionId, cx, cz) {
+  return `${worldId}|${dimensionId}|${cx},${cz}`;
 }
 
 /**
@@ -19,8 +19,8 @@ function chunkDiffKey(worldId, cx, cz) {
  * autosave if the player edits a block and then walks far enough away
  * that the column streams out and its `modifiedBlocks` map is discarded.
  */
-export async function saveChunkDiff(worldId, cx, cz, diffs) {
-  await dbPut(STORES.chunkDiffs, { key: chunkDiffKey(worldId, cx, cz), cx, cz, diffs });
+export async function saveChunkDiff(worldId, dimensionId, cx, cz, diffs) {
+  await dbPut(STORES.chunkDiffs, { key: chunkDiffKey(worldId, dimensionId, cx, cz), dimensionId, cx, cz, diffs });
 }
 
 /**
@@ -37,6 +37,16 @@ function migrateWorld(record) {
     // out from under returning players. Only brand-new worlds
     // (createWorld, below) get a real seed-derived point.
     record = { ...record, spawnX: record.spawnX ?? 0.5, spawnZ: record.spawnZ ?? 0.5 };
+  }
+  if (record.schemaVersion < 3) {
+    // The Cinderdeep pass: chunk-diff and player-state records now carry
+    // a real `dimensionId` field. No data rewrite needed here — every
+    // pre-v3 chunkDiffs key/record already used the literal string
+    // 'overworld' (it was a hardcoded constant, not yet a variable), and
+    // every reader below falls back to 'overworld' when the field is
+    // missing (old playerState records). This branch exists so the
+    // world record's own schemaVersion still reflects "has been through
+    // the v3 migration path", not because anything needs to change.
   }
   return { ...record, schemaVersion: SCHEMA_VERSION };
 }
@@ -61,7 +71,7 @@ export async function createWorld({ name, seed, mode }) {
     mode,
     spawnX: spawn.x,
     spawnZ: spawn.z,
-    dimensionId: DIMENSION_ID,
+    dimensionId: DEFAULT_DIMENSION_ID, // every world is created starting in the overworld — see playerState.dimensionId for "which dimension are they in *right now*"
     schemaVersion: SCHEMA_VERSION,
     createdAt: now,
     lastPlayedAt: now,
@@ -83,6 +93,7 @@ export async function deleteWorld(worldId) {
   await dbDelete(STORES.blockEntities, worldId);
   await dbDelete(STORES.playerState, worldId);
   await dbDelete(STORES.entitySnapshots, worldId);
+  await dbDelete(STORES.gateRegistry, worldId);
 }
 
 export async function duplicateWorld(worldId, newName) {
@@ -95,7 +106,7 @@ export async function duplicateWorld(worldId, newName) {
   const diffs = await dbGetByPrefix(STORES.chunkDiffs, `${worldId}|`);
   await dbPutMany(
     STORES.chunkDiffs,
-    diffs.map((d) => ({ ...d, key: chunkDiffKey(copy.id, d.cx, d.cz) }))
+    diffs.map((d) => ({ ...d, key: chunkDiffKey(copy.id, d.dimensionId ?? DEFAULT_DIMENSION_ID, d.cx, d.cz) }))
   );
   const blockEntities = await dbGet(STORES.blockEntities, worldId);
   if (blockEntities) await dbPut(STORES.blockEntities, { ...blockEntities, key: copy.id });
@@ -103,6 +114,8 @@ export async function duplicateWorld(worldId, newName) {
   if (playerState) await dbPut(STORES.playerState, { ...playerState, worldId: copy.id });
   const entities = await dbGet(STORES.entitySnapshots, worldId);
   if (entities) await dbPut(STORES.entitySnapshots, { ...entities, worldId: copy.id });
+  const gates = await dbGet(STORES.gateRegistry, worldId);
+  if (gates) await dbPut(STORES.gateRegistry, { ...gates, worldId: copy.id });
 
   return copy;
 }
@@ -119,17 +132,23 @@ export async function duplicateWorld(worldId, newName) {
  * autosave tick or an explicit Save-and-Quit) rather than from inside
  * the render loop itself, so this never stalls a frame.
  */
-export async function saveGame(worldId, { chunkManager, player, dayNight, mobManager, itemDrops, inventoryUI }) {
-  const dirty = chunkManager.getDirtyColumns();
-  await dbPutMany(
-    STORES.chunkDiffs,
-    dirty.map((d) => ({ key: chunkDiffKey(worldId, d.cx, d.cz), cx: d.cx, cz: d.cz, diffs: d.diffs }))
+export async function saveGame(worldId, { chunkManagers, player, dayNight, mobManager, itemDrops, inventoryUI, dimensionId }) {
+  // Every dimension that's ever had a ChunkManager built this session
+  // (see main.js's ensureDimensionChunkManager) gets its dirty columns
+  // saved, not just whichever one the player happens to be standing in
+  // right now — otherwise a Cinderdeep edit would only ever persist if
+  // the player happened to be in the Cinderdeep at the exact moment of
+  // the next autosave/quit.
+  const dirty = chunkManagers.flatMap((cm) =>
+    cm.getDirtyColumns().map((d) => ({ key: chunkDiffKey(worldId, cm.dimensionId, d.cx, d.cz), dimensionId: cm.dimensionId, cx: d.cx, cz: d.cz, diffs: d.diffs }))
   );
+  await dbPutMany(STORES.chunkDiffs, dirty);
 
   await dbPut(STORES.blockEntities, { key: worldId, ...serializeContainers() });
 
   await dbPut(STORES.playerState, {
     worldId,
+    dimensionId,
     position: { ...player.position },
     yaw: player.yaw,
     pitch: player.pitch,
@@ -140,6 +159,7 @@ export async function saveGame(worldId, { chunkManager, player, dayNight, mobMan
     gameMode: player.gameMode,
     selectedHotbar: player.selectedHotbar,
     inventory: player.inventory.slots,
+    armor: player.armor ?? [null, null, null, null],
     timeOfDay: dayNight.timeOfDay,
     // Whatever's on the inventory-screen cursor lives outside
     // player.inventory.slots entirely (it's mid-drag, not "in" any slot
@@ -174,9 +194,22 @@ export async function saveGame(worldId, { chunkManager, player, dayNight, mobMan
  * owns the actual Player/MobManager/ItemDropManager instances, this
  * module only knows the plain data shape.
  */
-export async function loadGame(worldId, { chunkManager }) {
+export async function loadGame(worldId, { chunkManager, dimensionId = 'overworld' }) {
+  // Diffs for OTHER dimensions the player edited but isn't currently in
+  // (e.g. the Cinderdeep, whose ChunkManager isn't built yet — see
+  // main.js's ensureDimensionChunkManager) are returned rather than
+  // queued here, so main.js can apply them the moment that dimension's
+  // ChunkManager actually gets built instead of losing them.
   const diffs = await dbGetByPrefix(STORES.chunkDiffs, `${worldId}|`);
-  for (const d of diffs) chunkManager.queueDiffsFor(d.cx, d.cz, d.diffs);
+  const pendingDiffsByDimension = {};
+  for (const d of diffs) {
+    const dimId = d.dimensionId ?? DEFAULT_DIMENSION_ID; // pre-v3 records never had this field
+    if (dimId === dimensionId) {
+      chunkManager.queueDiffsFor(d.cx, d.cz, d.diffs);
+    } else {
+      (pendingDiffsByDimension[dimId] ??= []).push(d);
+    }
+  }
 
   const blockEntities = await dbGet(STORES.blockEntities, worldId);
   restoreContainers(blockEntities ?? {});
@@ -184,5 +217,20 @@ export async function loadGame(worldId, { chunkManager }) {
   const playerState = await dbGet(STORES.playerState, worldId);
   const entities = await dbGet(STORES.entitySnapshots, worldId);
 
-  return { playerState, entities: entities ?? { mobs: [], drops: [] } };
+  return { playerState, entities: entities ?? { mobs: [], drops: [] }, pendingDiffsByDimension };
+}
+
+/** Just the dimension the player was last in — cheap to read before deciding which ChunkManager loadGame() needs. */
+export async function getPlayerDimensionId(worldId) {
+  const playerState = await dbGet(STORES.playerState, worldId);
+  return playerState?.dimensionId ?? 'overworld';
+}
+
+export async function saveGateRegistry(worldId, gateRegistry) {
+  await dbPut(STORES.gateRegistry, { worldId, gates: gateRegistry.toJSON() });
+}
+
+export async function loadGateRegistry(worldId) {
+  const record = await dbGet(STORES.gateRegistry, worldId);
+  return record?.gates ?? null;
 }

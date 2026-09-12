@@ -67,7 +67,8 @@ export class FluidSimulator {
     for (const [dx, dy, dz] of NEIGHBORS_6) this._addPending(x + dx, y + dy, z + dz);
   }
 
-  update(dt, chunkManager) {
+  /** `lavaSpreadMultiplier` — the Cinderdeep's "lava flows 3x further" dimension quirk (dimension.js), a config value, not a dimensionId check. */
+  update(dt, chunkManager, lavaSpreadMultiplier = 1) {
     this._waterAccum += dt;
     this._lavaAccum += dt;
     if (this._waterAccum >= WATER_TICK_SECONDS) {
@@ -76,7 +77,7 @@ export class FluidSimulator {
     }
     if (this._lavaAccum >= LAVA_TICK_SECONDS) {
       this._lavaAccum = 0;
-      this._drain(this.pendingLava, chunkManager, BLOCKS.LAVA, LAVA_MAX_SPREAD);
+      this._drain(this.pendingLava, chunkManager, BLOCKS.LAVA, Math.round(LAVA_MAX_SPREAD * lavaSpreadMultiplier));
     }
   }
 

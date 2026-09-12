@@ -68,6 +68,14 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.dayFactor = { value: 1.0 };
     shader.uniforms.uTime = { value: 0 };
+    // Per-dimension minimum brightness so caves are never literally
+    // pitch black — was a hardcoded 0.06 white floor; the Cinderdeep
+    // wants a dim *red* floor instead (see dimension.js's
+    // ambientFloorLevel/Color and main.js, which pushes the active
+    // dimension's values here on travel). Defaults match the overworld's
+    // old baked-in constant exactly, so its look is unchanged.
+    shader.uniforms.uAmbientFloor = { value: 0.06 };
+    shader.uniforms.uAmbientFloorColor = { value: new THREE.Color(0xffffff) };
     if (sway) shader.uniforms.uSwayStrength = { value: 0 };
     if (waterTint) {
       shader.uniforms.waterRect = { value: new THREE.Vector4(-1, -1, -1, -1) };
@@ -115,6 +123,8 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
         varying vec4 vAtlasRect;
         uniform float dayFactor;
         uniform float uTime;
+        uniform float uAmbientFloor;
+        uniform vec3 uAmbientFloorColor;
         ${
           waterTint
             ? 'uniform vec4 waterRect;\nuniform float waterAlpha;\nuniform float waterTintStrength;\nuniform vec3 waterTintColor;'
@@ -177,10 +187,11 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
         #ifdef USE_COLOR
         float mvSky = vColor.g * dayFactor;
         float mvLight = max( mvSky, vColor.b );
-        mvLight = max( mvLight, 0.06 );
         float mvShadow = 1.0;
         ${sunShadow ? 'if ( uShadowEnabled > 0.5 ) mvShadow = mvSampleShadow();' : ''}
-        diffuseColor.rgb *= vColor.r * mvLight * mvShadow;
+        vec3 mvLit = diffuseColor.rgb * vColor.r * mvLight * mvShadow;
+        vec3 mvFloorLit = diffuseColor.rgb * vColor.r * uAmbientFloorColor * uAmbientFloor;
+        diffuseColor.rgb = max( mvLit, mvFloorLit );
         #endif
         `
       );
@@ -193,6 +204,13 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
 export function setDayFactor(material, value) {
   const shader = material.userData.shader;
   if (shader) shader.uniforms.dayFactor.value = value;
+}
+
+export function setAmbientFloor(material, level, color) {
+  const shader = material.userData.shader;
+  if (!shader) return;
+  if (level !== undefined) shader.uniforms.uAmbientFloor.value = level;
+  if (color !== undefined) shader.uniforms.uAmbientFloorColor.value.set(color);
 }
 
 export function setMaterialTime(material, value) {

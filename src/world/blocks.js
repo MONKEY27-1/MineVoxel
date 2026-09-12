@@ -19,6 +19,16 @@ function define(def) {
     gravity: def.gravity ?? false,
     drops: def.drops ?? def.name,
     cross: def.cross ?? false, // cross-shaped (plants) instead of a cube
+    // The Cinderdeep pass's additions: how much an explosion resists
+    // clearing this block (see world/explosion.js) — defaults scale off
+    // hardness for every block defined before this existed, so nothing
+    // already placed changes behavior; `damageOnContact` (magma block,
+    // fire) and `slowness` (soul sand) are read by entities/player.js's
+    // movement/damage tick, same "block def flag, not a block-id check"
+    // pattern as every other per-block behavior here.
+    blastResistance: def.blastResistance ?? (def.hardness === Infinity ? Infinity : (def.hardness ?? 1) * 5),
+    damageOnContact: def.damageOnContact ?? false,
+    slowness: def.slowness ?? false,
     // `transparent` alone also controls face-culling looseness and light
     // passability (see isOpaque()) — both correct for leaves (you should
     // see between two adjacent leaf blocks, and some light should get
@@ -230,6 +240,82 @@ export const BLOCKS = {
   // this; flowing (non-source) lava touching water turns to the
   // already-existing COBBLESTONE instead.
   OBSIDIAN: define({ name: 'obsidian', texture: { all: 'obsidian' }, hardness: 8, tool: 'pickaxe' }),
+
+  // --- The Cinderdeep (dimension 2) ------------------------------------
+  CINDERSTONE: define({ name: 'cinderstone', texture: { all: 'cinderstone' }, hardness: 0.4, tool: 'pickaxe', blastResistance: 0.4 }),
+  SOUL_SAND: define({ name: 'soul_sand', texture: { all: 'soul_sand' }, hardness: 0.5, tool: 'shovel', blastResistance: 2.5, slowness: true }),
+  SOUL_SOIL: define({ name: 'soul_soil', texture: { all: 'soul_soil' }, hardness: 0.5, tool: 'shovel', blastResistance: 2.5 }),
+  QUARTZ_ORE: define({ name: 'quartz_ore', texture: { all: 'quartz_ore' }, hardness: 3, tool: 'pickaxe', blastResistance: 3, drops: 'quartz' }),
+  CINDERBRICK: define({ name: 'cinderbrick', texture: { all: 'cinderbrick' }, hardness: 2, tool: 'pickaxe', blastResistance: 6 }),
+  CINDERBRICK_FENCE: define({ name: 'cinderbrick_fence', texture: { all: 'cinderbrick' }, hardness: 2, tool: 'pickaxe', blastResistance: 6 }),
+  BLACKSTONE: define({ name: 'blackstone', texture: { all: 'blackstone' }, hardness: 1.5, tool: 'pickaxe', blastResistance: 6 }),
+  POLISHED_BLACKSTONE: define({ name: 'polished_blackstone', texture: { all: 'polished_blackstone' }, hardness: 1.5, tool: 'pickaxe', blastResistance: 6 }),
+  BLACKSTONE_BRICKS: define({ name: 'blackstone_bricks', texture: { all: 'blackstone_bricks' }, hardness: 1.5, tool: 'pickaxe', blastResistance: 6 }),
+  BLACKSTONE_TILES: define({ name: 'blackstone_tiles', texture: { all: 'blackstone_tiles' }, hardness: 1.5, tool: 'pickaxe', blastResistance: 6 }),
+  BASALT: define({ name: 'basalt', texture: { top: 'basalt_top', side: 'basalt_side', bottom: 'basalt_top' }, hardness: 1.25, tool: 'pickaxe', blastResistance: 4.2 }),
+  POLISHED_BASALT: define({ name: 'polished_basalt', texture: { top: 'polished_basalt_top', side: 'polished_basalt_side', bottom: 'polished_basalt_top' }, hardness: 1.25, tool: 'pickaxe', blastResistance: 4.2 }),
+  MAGMA_BLOCK: define({ name: 'magma_block', texture: { all: 'magma_block' }, hardness: 0.5, tool: 'pickaxe', blastResistance: 3, lightEmission: 3, damageOnContact: true }),
+  BONE_BLOCK: define({ name: 'bone_block', texture: { top: 'bone_block_top', side: 'bone_block_side', bottom: 'bone_block_top' }, hardness: 2, tool: 'pickaxe', blastResistance: 10 }),
+  GATE_ANCHOR: define({ name: 'gate_anchor', texture: { all: 'gate_anchor' }, hardness: 5, tool: 'pickaxe', blastResistance: 1200, lightEmission: 4 }),
+  FIRE: define({
+    name: 'fire',
+    texture: { all: 'fire' },
+    solid: false,
+    transparent: true,
+    hardness: 0,
+    lightEmission: 14,
+    damageOnContact: true,
+    cross: true,
+    drops: null,
+    blastResistance: 0,
+  }),
+  // Extremely tough (see explosion.js) so an explosion clears the
+  // Cinderstone around it without touching the ore itself — that's the
+  // entire "only revealed by explosions" mechanic. hardness is high
+  // enough that only an iron (this game's top existing) pickaxe mines it
+  // in a sane amount of time; nothing below iron is hard-blocked outright
+  // (this codebase has no such gate, see interaction.js's
+  // toolSpeedMultiplier), just impractically slow.
+  VOIDIRON_ORE: define({ name: 'voidiron_ore', texture: { all: 'voidiron_ore' }, hardness: 50, tool: 'pickaxe', blastResistance: 1200, drops: 'voidiron_scrap' }),
+  EMBERWART: define({ name: 'emberwart', texture: { all: 'emberwart' }, solid: false, transparent: true, hardness: 0, cross: true, blastResistance: 0 }),
+
+  // Bloodcap (crimson-analog) fungal wood set.
+  BLOODCAP_STEM: define({ name: 'bloodcap_stem', texture: { top: 'bloodcap_stem_top', side: 'bloodcap_stem_side', bottom: 'bloodcap_stem_top' }, hardness: 1, tool: 'axe', blastResistance: 5 }),
+  BLOODCAP_HYPHAE: define({ name: 'bloodcap_hyphae', texture: { all: 'bloodcap_stem_side' }, hardness: 1, tool: 'axe', blastResistance: 5 }),
+  BLOODCAP_PLANKS: define({ name: 'bloodcap_planks', texture: { all: 'bloodcap_planks' }, hardness: 1, tool: 'axe', blastResistance: 5 }),
+  BLOODCAP_CAP: define({ name: 'bloodcap_cap', texture: { all: 'bloodcap_cap' }, hardness: 0.6, blastResistance: 3 }),
+  BLOODCAP_FUNGUS: define({ name: 'bloodcap_fungus', texture: { all: 'bloodcap_fungus' }, solid: false, transparent: true, hardness: 0, cross: true, blastResistance: 0 }),
+  BLOODCAP_ROOTS: define({ name: 'bloodcap_roots', texture: { all: 'bloodcap_roots' }, solid: false, transparent: true, hardness: 0, cross: true, blastResistance: 0 }),
+  BLOODCAP_VINES: define({ name: 'bloodcap_vines', texture: { all: 'bloodcap_vines' }, solid: false, transparent: true, hardness: 0.2, cross: true, blastResistance: 0 }),
+  SHROOMLIGHT_RED: define({ name: 'shroomlight_red', texture: { all: 'shroomlight_red' }, hardness: 1, blastResistance: 1, lightEmission: 15 }),
+
+  // Azurecap (warped-analog) fungal wood set.
+  AZURECAP_STEM: define({ name: 'azurecap_stem', texture: { top: 'azurecap_stem_top', side: 'azurecap_stem_side', bottom: 'azurecap_stem_top' }, hardness: 1, tool: 'axe', blastResistance: 5 }),
+  AZURECAP_HYPHAE: define({ name: 'azurecap_hyphae', texture: { all: 'azurecap_stem_side' }, hardness: 1, tool: 'axe', blastResistance: 5 }),
+  AZURECAP_PLANKS: define({ name: 'azurecap_planks', texture: { all: 'azurecap_planks' }, hardness: 1, tool: 'axe', blastResistance: 5 }),
+  AZURECAP_CAP: define({ name: 'azurecap_cap', texture: { all: 'azurecap_cap' }, hardness: 0.6, blastResistance: 3 }),
+  AZURECAP_FUNGUS: define({ name: 'azurecap_fungus', texture: { all: 'azurecap_fungus' }, solid: false, transparent: true, hardness: 0, cross: true, blastResistance: 0 }),
+  AZURECAP_ROOTS: define({ name: 'azurecap_roots', texture: { all: 'azurecap_roots' }, solid: false, transparent: true, hardness: 0, cross: true, blastResistance: 0 }),
+  AZURECAP_VINES: define({ name: 'azurecap_vines', texture: { all: 'azurecap_vines' }, solid: false, transparent: true, hardness: 0.2, cross: true, blastResistance: 0 }),
+  SHROOMLIGHT_BLUE: define({ name: 'shroomlight_blue', texture: { all: 'shroomlight_blue' }, hardness: 1, blastResistance: 1, lightEmission: 15 }),
+
+  // Structure/utility blocks used by the alchemy, smithing, and beacon systems (phases 6/7/9).
+  BREWING_STAND: define({ name: 'brewing_stand', texture: { all: 'brewing_stand' }, solid: false, transparent: true, hardness: 0.5, blastResistance: 0 }),
+  SMITHING_TABLE: define({ name: 'smithing_table', texture: { top: 'smithing_table_top', side: 'smithing_table_side', bottom: 'planks' }, hardness: 2.5, tool: 'axe', blastResistance: 12.5 }),
+  BEACON: define({ name: 'beacon', texture: { all: 'beacon' }, hardness: 3, blastResistance: Infinity, lightEmission: 15 }),
+  // The Cinder Gate's interior surface — not minable (matches nether
+  // portals: it's a byproduct of the frame, not a placeable item), never
+  // dropped, cleared by breaking any frame block (see gate.js).
+  CINDER_PORTAL: define({
+    name: 'cinder_portal',
+    texture: { all: 'cinder_portal' },
+    solid: false,
+    transparent: true,
+    hardness: Infinity,
+    lightEmission: 11,
+    drops: null,
+    blastResistance: Infinity,
+  }),
 };
 
 export function getBlock(id) {

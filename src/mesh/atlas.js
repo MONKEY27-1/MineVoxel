@@ -470,7 +470,7 @@ const painters = {
 // --- Item icons (phase 6): small centered sprites rather than tileable
 // surfaces, but they live in the same atlas/painter system since
 // itemIconTile() (items/items.js) just resolves to another tile name.
-const TOOL_HEAD_COLOR = { wooden: '#8b5a2b', stone: '#8a8a8a', iron: '#d8d8d8' };
+const TOOL_HEAD_COLOR = { wooden: '#8b5a2b', stone: '#8a8a8a', iron: '#d8d8d8', voidsteel: '#3a3550' };
 
 function drawToolHandle(ctx, ox, oy) {
   ctx.strokeStyle = '#6b4423';
@@ -849,6 +849,370 @@ painters.raw_chicken = (ctx, ox, oy) => {
 
 painters.obsidian = (ctx, ox, oy) => {
   speckle(ctx, ox, oy, '#0a0612', ['#1b0f33', '#2a1854', '#050308'], 0.4, 703);
+};
+
+// --- The Cinderdeep (dimension 2) ---------------------------------------
+
+function ringTop(ctx, ox, oy, base, ring, speck, seed) {
+  const rnd = mulberry32(seed);
+  ctx.fillStyle = base;
+  ctx.fillRect(ox, oy, TILE, TILE);
+  const cx = ox + TILE / 2;
+  const cy = oy + TILE / 2;
+  for (let r = TILE / 2; r > 0; r -= 1.6) {
+    ctx.strokeStyle = Math.floor(r) % 2 === 0 ? ring : base;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 8; i++) {
+    ctx.fillStyle = speck;
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+}
+
+function stripeSide(ctx, ox, oy, base, stripe, speck, seed) {
+  ctx.fillStyle = base;
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let x = 0; x < TILE; x += 2) {
+    ctx.fillStyle = x % 4 === 0 ? stripe : base;
+    ctx.fillRect(ox + x, oy, 2, TILE);
+  }
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = speck;
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+}
+
+function brickGrid(ctx, ox, oy, base, mortar, seed, brickW = 8, brickH = 4) {
+  speckle(ctx, ox, oy, base, [base], 0, seed);
+  ctx.strokeStyle = mortar;
+  for (let row = 0; row * brickH < TILE; row++) {
+    const y = row * brickH;
+    const offset = row % 2 === 0 ? 0 : brickW / 2;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy + y + 0.5);
+    ctx.lineTo(ox + TILE, oy + y + 0.5);
+    ctx.stroke();
+    for (let x = -brickW; x < TILE + brickW; x += brickW) {
+      ctx.beginPath();
+      ctx.moveTo(ox + x + offset + 0.5, oy + y);
+      ctx.lineTo(ox + x + offset + 0.5, oy + y + brickH);
+      ctx.stroke();
+    }
+  }
+}
+
+function glowBlob(ctx, ox, oy, core, mid, outer, seed) {
+  ctx.fillStyle = outer;
+  ctx.fillRect(ox, oy, TILE, TILE);
+  ctx.fillStyle = mid;
+  ctx.fillRect(ox + 2, oy + 2, TILE - 4, TILE - 4);
+  ctx.fillStyle = core;
+  ctx.fillRect(ox + 5, oy + 5, TILE - 10, TILE - 10);
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = core;
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+}
+
+function thinCross(ctx, ox, oy, variants, seed, count = 5) {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < count; i++) {
+    const x = 2 + Math.floor(rnd() * (TILE - 4));
+    const h = 5 + Math.floor(rnd() * 8);
+    ctx.strokeStyle = variants[Math.floor(rnd() * variants.length)];
+    ctx.beginPath();
+    ctx.moveTo(ox + x + 0.5, oy + TILE);
+    ctx.lineTo(ox + x + 0.5 + (rnd() - 0.5) * 3, oy + TILE - h);
+    ctx.stroke();
+  }
+}
+
+painters.cinderstone = (ctx, ox, oy) => speckle(ctx, ox, oy, '#5a2020', ['#4a1818', '#6e2a26', '#3d1414', '#7a3428'], 0.55, 801);
+painters.soul_sand = (ctx, ox, oy) => speckle(ctx, ox, oy, '#4a3f38', ['#3c332d', '#584c43', '#2e2723'], 0.5, 802);
+painters.soul_soil = (ctx, ox, oy) => speckle(ctx, ox, oy, '#3a2f2a', ['#2e2622', '#463a33'], 0.4, 803);
+painters.quartz_ore = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#5a2020', ['#4a1818', '#6e2a26'], 0.45, 804);
+  const rnd = mulberry32(805);
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = '#e8e2d8';
+    const x = ox + Math.floor(rnd() * (TILE - 3));
+    const y = oy + Math.floor(rnd() * (TILE - 3));
+    ctx.fillRect(x, y, 2, 2);
+  }
+};
+painters.cinderbrick = (ctx, ox, oy) => brickGrid(ctx, ox, oy, '#3d1a1a', '#241010', 806);
+painters.blackstone = (ctx, ox, oy) => speckle(ctx, ox, oy, '#2b262c', ['#211d22', '#363037', '#1a1719'], 0.5, 807);
+painters.polished_blackstone = (ctx, ox, oy) => speckle(ctx, ox, oy, '#302a31', ['#282329', '#39333a'], 0.2, 808);
+painters.blackstone_bricks = (ctx, ox, oy) => brickGrid(ctx, ox, oy, '#2b262c', '#18151a', 809);
+painters.blackstone_tiles = (ctx, ox, oy) => brickGrid(ctx, ox, oy, '#302a31', '#1e1a20', 810, 4, 4);
+painters.basalt_top = (ctx, ox, oy) => ringTop(ctx, ox, oy, '#4a494c', '#38373a', '#2c2b2d', 811);
+painters.basalt_side = (ctx, ox, oy) => stripeSide(ctx, ox, oy, '#3f3e41', '#333235', '#2a292b', 812);
+painters.polished_basalt_top = (ctx, ox, oy) => speckle(ctx, ox, oy, '#48474a', ['#403f42', '#4f4e51'], 0.15, 813);
+painters.polished_basalt_side = (ctx, ox, oy) => speckle(ctx, ox, oy, '#403f42', ['#39383b', '#48474a'], 0.15, 814);
+painters.magma_block = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#1c1414', ['#140f0f', '#241818'], 0.4, 815);
+  const rnd = mulberry32(816);
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? '#e8621f' : '#f2a83a';
+    const x = ox + Math.floor(rnd() * (TILE - 2));
+    const y = oy + Math.floor(rnd() * (TILE - 2));
+    ctx.fillRect(x, y, 2, 1);
+  }
+};
+painters.bone_block_top = (ctx, ox, oy) => ringTop(ctx, ox, oy, '#e3dcc3', '#cfc6a5', '#b8ad8c', 817);
+painters.bone_block_side = (ctx, ox, oy) => stripeSide(ctx, ox, oy, '#d8d0b4', '#c4bb9c', '#aca283', 818);
+painters.gate_anchor = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#120a1e', ['#1e1030', '#0a0614'], 0.45, 819);
+  ctx.fillStyle = '#7a3ff2';
+  ctx.fillRect(ox + 6, oy + 6, 4, 4);
+  ctx.fillStyle = '#b98cff';
+  ctx.fillRect(ox + 7, oy + 7, 2, 2);
+};
+painters.fire = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#ff8a1e', '#ffcf4d', '#ff5c1e'], 820, 7);
+painters.voidiron_ore = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#241f26', ['#1a1720', '#2e2833'], 0.5, 821);
+  const rnd = mulberry32(822);
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = '#9a86c9';
+    const x = ox + Math.floor(rnd() * (TILE - 2));
+    const y = oy + Math.floor(rnd() * (TILE - 2));
+    ctx.fillRect(x, y, 2, 2);
+  }
+};
+painters.emberwart = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#8a1e2b', '#6e1622', '#a8303f'], 823, 6);
+
+painters.bloodcap_stem_top = (ctx, ox, oy) => ringTop(ctx, ox, oy, '#7a1f2e', '#5e1622', '#93283a', 824);
+painters.bloodcap_stem_side = (ctx, ox, oy) => stripeSide(ctx, ox, oy, '#6e1c29', '#581520', '#822233', 825);
+painters.bloodcap_planks = (ctx, ox, oy) => {
+  ctx.fillStyle = '#7a2b38';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let y = 0; y < TILE; y += 4) {
+    ctx.fillStyle = '#6b2430';
+    ctx.fillRect(ox, oy + y, TILE, 1);
+  }
+  const rnd = mulberry32(826);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = '#5c1e28';
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+};
+painters.bloodcap_cap = (ctx, ox, oy) => speckle(ctx, ox, oy, '#c62b46', ['#b02039', '#d94a63', '#8f1c30'], 0.5, 827);
+painters.bloodcap_fungus = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#c62b46', '#8f1c30', '#d94a63'], 828, 4);
+painters.bloodcap_roots = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#8a5a52', '#6e453f', '#a06d63'], 829, 5);
+painters.bloodcap_vines = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#7a2b38', '#5c1e28', '#93384a'], 830, 4);
+painters.shroomlight_red = (ctx, ox, oy) => glowBlob(ctx, ox, oy, '#ffb199', '#f2704d', '#c23f28', 831);
+
+painters.azurecap_stem_top = (ctx, ox, oy) => ringTop(ctx, ox, oy, '#1f6a7a', '#164e5e', '#288394', 832);
+painters.azurecap_stem_side = (ctx, ox, oy) => stripeSide(ctx, ox, oy, '#1c5e6e', '#154a58', '#227382', 833);
+painters.azurecap_planks = (ctx, ox, oy) => {
+  ctx.fillStyle = '#245e6b';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let y = 0; y < TILE; y += 4) {
+    ctx.fillStyle = '#1e505c';
+    ctx.fillRect(ox, oy + y, TILE, 1);
+  }
+  const rnd = mulberry32(834);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = '#173e48';
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+};
+painters.azurecap_cap = (ctx, ox, oy) => speckle(ctx, ox, oy, '#2ba3b8', ['#1f8a9c', '#4bc0d4', '#186f7d'], 0.5, 835);
+painters.azurecap_fungus = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#2ba3b8', '#186f7d', '#4bc0d4'], 836, 4);
+painters.azurecap_roots = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#4a7a7a', '#385e5e', '#5e9494'], 837, 5);
+painters.azurecap_vines = (ctx, ox, oy) => thinCross(ctx, ox, oy, ['#245e6b', '#1c4a54', '#317888'], 838, 4);
+painters.shroomlight_blue = (ctx, ox, oy) => glowBlob(ctx, ox, oy, '#c2f5ff', '#5cc7db', '#278a9c', 839);
+
+painters.brewing_stand = (ctx, ox, oy) => {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  ctx.fillStyle = '#5a5560';
+  ctx.fillRect(ox + 2, oy + 12, TILE - 4, 3);
+  ctx.fillStyle = '#3a3640';
+  ctx.fillRect(ox + 7, oy, 2, 13);
+  ctx.fillStyle = '#7a5fd9';
+  ctx.fillRect(ox + 6, oy + 3, 4, 2);
+};
+painters.smithing_table_top = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#3a3a40', ['#2f2f34', '#45454c'], 0.35, 840);
+  ctx.strokeStyle = '#1c1c20';
+  ctx.strokeRect(ox + 1.5, oy + 1.5, TILE - 3, TILE - 3);
+};
+painters.smithing_table_side = (ctx, ox, oy) => {
+  ctx.fillStyle = '#4a4650';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let y = 0; y < TILE; y += 4) {
+    ctx.fillStyle = '#3a3640';
+    ctx.fillRect(ox, oy + y, TILE, 1);
+  }
+  ctx.fillStyle = '#2f2c34';
+  ctx.fillRect(ox + 2, oy, 2, TILE);
+  ctx.fillRect(ox + TILE - 4, oy, 2, TILE);
+};
+painters.beacon = (ctx, ox, oy) => glowBlob(ctx, ox, oy, '#ffffff', '#bdeeff', '#5cc7db', 841);
+
+// Armor icons: didn't exist before this pass (see items.js's ARMOR_MATERIAL
+// note) — one small shape per slot, tinted per material, generated the
+// same data-driven way as the existing tool-head loop above rather than
+// one-off painters per material x slot.
+const ARMOR_ICON_COLOR = { gold: '#f2d543', iron: '#d8d3c8', voidsteel: '#3a3550' };
+const ARMOR_ICON_PAINTERS = {
+  helmet(ctx, ox, oy, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(ox + 8, oy + 7, 5, Math.PI, 0);
+    ctx.fill();
+    ctx.fillRect(ox + 3, oy + 7, 10, 2);
+  },
+  chest(ctx, ox, oy, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(ox + 4, oy + 2, 8, 9);
+    ctx.fillRect(ox + 2, oy + 3, 2, 5);
+    ctx.fillRect(ox + 12, oy + 3, 2, 5);
+  },
+  legs(ctx, ox, oy, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(ox + 4, oy + 2, 3, 12);
+    ctx.fillRect(ox + 9, oy + 2, 3, 12);
+  },
+  boots(ctx, ox, oy, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(ox + 4, oy + 9, 3, 5);
+    ctx.fillRect(ox + 9, oy + 9, 3, 5);
+    ctx.fillRect(ox + 4, oy + 12, 8, 2);
+  },
+};
+for (const slot of Object.keys(ARMOR_ICON_PAINTERS)) {
+  for (const material of Object.keys(ARMOR_ICON_COLOR)) {
+    painters[`${material}_${slot}`] = (ctx, ox, oy) => ARMOR_ICON_PAINTERS[slot](ctx, ox, oy, ARMOR_ICON_COLOR[material]);
+  }
+}
+
+painters.cinder_rod = (ctx, ox, oy) => {
+  ctx.fillStyle = '#f2c14d';
+  ctx.fillRect(ox + 7, oy + 1, 2, 13);
+  ctx.fillStyle = '#c98f1e';
+  ctx.fillRect(ox + 7, oy + 5, 2, 2);
+  ctx.fillRect(ox + 7, oy + 10, 2, 2);
+};
+painters.cinder_powder = (ctx, ox, oy) => speckle(ctx, ox, oy, 'rgba(0,0,0,0)', ['#f2c14d', '#e8a838'], 0.35, 842);
+painters.drifter_tear = (ctx, ox, oy) => {
+  ctx.fillStyle = '#b9c9c9';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 2);
+  ctx.quadraticCurveTo(ox + 13, oy + 9, ox + 8, oy + 14);
+  ctx.quadraticCurveTo(ox + 3, oy + 9, ox + 8, oy + 2);
+  ctx.fill();
+};
+painters.ashbone_skull = (ctx, ox, oy) => {
+  ctx.fillStyle = '#e3dcc3';
+  ctx.fillRect(ox + 4, oy + 3, 8, 7);
+  ctx.fillStyle = '#2b2b2e';
+  ctx.fillRect(ox + 5, oy + 5, 2, 2);
+  ctx.fillRect(ox + 9, oy + 5, 2, 2);
+};
+painters.quartz = (ctx, ox, oy) => {
+  ctx.fillStyle = '#efe9dd';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 1);
+  ctx.lineTo(ox + 12, oy + 8);
+  ctx.lineTo(ox + 8, oy + 15);
+  ctx.lineTo(ox + 4, oy + 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#c9c0a8';
+  ctx.stroke();
+};
+painters.voidiron_scrap = (ctx, ox, oy) => speckle(ctx, ox, oy, 'rgba(0,0,0,0)', ['#4a4356', '#241f26'], 0.5, 843);
+painters.voidsteel_ingot = (ctx, ox, oy) => {
+  ctx.fillStyle = '#3a3550';
+  ctx.fillRect(ox + 3, oy + 5, 10, 6);
+  ctx.fillStyle = '#6a5fae';
+  ctx.fillRect(ox + 3, oy + 5, 10, 2);
+};
+painters.voidsteel_upgrade_plate = (ctx, ox, oy) => {
+  ctx.fillStyle = '#241f26';
+  ctx.fillRect(ox + 2, oy + 4, 12, 8);
+  ctx.strokeStyle = '#6a5fae';
+  ctx.strokeRect(ox + 2.5, oy + 4.5, 11, 7);
+};
+painters.azurecap_lure = (ctx, ox, oy) => {
+  ctx.strokeStyle = '#8b5a2b';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(ox + 3, oy + 13);
+  ctx.lineTo(ox + 12, oy + 3);
+  ctx.stroke();
+  ctx.fillStyle = '#2ba3b8';
+  ctx.beginPath();
+  ctx.arc(ox + 12, oy + 3, 2, 0, Math.PI * 2);
+  ctx.fill();
+};
+painters.heartstar = (ctx, ox, oy) => glowBlob(ctx, ox, oy, '#ffe1e8', '#ff5c7a', '#a8203f', 844);
+painters.raw_tuskbeast = (ctx, ox, oy) => {
+  ctx.fillStyle = '#c99a8a';
+  ctx.fillRect(ox + 2, oy + 4, 12, 8);
+  ctx.fillStyle = '#e0b8ab';
+  ctx.fillRect(ox + 2, oy + 4, 12, 2);
+};
+painters.cooked_tuskbeast = (ctx, ox, oy) => {
+  ctx.fillStyle = '#8a5a35';
+  ctx.fillRect(ox + 2, oy + 4, 12, 8);
+  ctx.fillStyle = '#a97a42';
+  ctx.fillRect(ox + 2, oy + 4, 12, 2);
+};
+painters.saddle = (ctx, ox, oy) => {
+  ctx.fillStyle = '#6b4423';
+  ctx.beginPath();
+  ctx.ellipse(ox + 8, oy + 8, 6, 4, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#4a2f18';
+  ctx.stroke();
+};
+painters.flint_and_steel = (ctx, ox, oy) => {
+  ctx.fillStyle = '#4a4a4a';
+  ctx.fillRect(ox + 3, oy + 8, 8, 3);
+  ctx.fillStyle = '#8a8580';
+  ctx.fillRect(ox + 9, oy + 3, 4, 3);
+};
+painters.glass_bottle = (ctx, ox, oy) => {
+  ctx.strokeStyle = 'rgba(180,220,230,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(ox + 6, oy + 2);
+  ctx.lineTo(ox + 6, oy + 5);
+  ctx.lineTo(ox + 4, oy + 8);
+  ctx.lineTo(ox + 4, oy + 13);
+  ctx.lineTo(ox + 12, oy + 13);
+  ctx.lineTo(ox + 12, oy + 8);
+  ctx.lineTo(ox + 10, oy + 5);
+  ctx.lineTo(ox + 10, oy + 2);
+  ctx.closePath();
+  ctx.stroke();
+};
+painters.water_bottle = (ctx, ox, oy) => {
+  painters.glass_bottle(ctx, ox, oy);
+  ctx.fillStyle = 'rgba(58,125,214,0.6)';
+  ctx.fillRect(ox + 5, oy + 9, 6, 3);
+};
+painters.awkward_potion = (ctx, ox, oy) => {
+  painters.glass_bottle(ctx, ox, oy);
+  ctx.fillStyle = 'rgba(180,110,214,0.6)';
+  ctx.fillRect(ox + 5, oy + 9, 6, 3);
+};
+
+painters.cinder_portal = (ctx, ox, oy) => {
+  const rnd = mulberry32(845);
+  ctx.fillStyle = '#2a0a3a';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let i = 0; i < 30; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? '#7a3ff2' : '#f2a83a';
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
 };
 
 const TILE_NAMES = Object.keys(painters);

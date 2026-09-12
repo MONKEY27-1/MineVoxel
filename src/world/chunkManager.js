@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { ChunkColumn, columnKey, NUM_SECTIONS } from './chunkColumn.js';
+import { ChunkColumn, columnKey } from './chunkColumn.js';
 import { Section, SECTION_SIZE, sectionIndex } from './section.js';
-import { createAtlasMaterial, setDayFactor, setMaterialTime, setSwayStrength, setWaterTint, setShadowUniforms } from '../mesh/atlasMaterial.js';
+import { createAtlasMaterial, setDayFactor, setMaterialTime, setSwayStrength, setWaterTint, setShadowUniforms, setAmbientFloor } from '../mesh/atlasMaterial.js';
 import { BLOCKS, getBlock } from './blocks.js';
 import { recomputeColumnLight } from './lighting.js';
 import { FULLY_OPEN_CONNECTIVITY } from '../mesh/connectivity.js';
@@ -45,6 +45,17 @@ export class ChunkManager {
     this.scene = scene;
     this.atlasTexture = atlasTexture;
     this.atlasUV = atlasUV;
+
+    // Which dimension this manager belongs to, and how tall its world is
+    // — the Cinderdeep is 0-128 (8 sections), not the overworld's 0-256
+    // (16). Every dimension gets its own ChunkManager instance (see
+    // main.js), so this is fixed for the manager's whole lifetime, not
+    // something branched on per-call.
+    this.dimensionId = options.dimensionId ?? 'overworld';
+    this.minHeight = options.minHeight ?? 0;
+    this.maxHeight = options.maxHeight ?? 256;
+    this.numSections = (this.maxHeight - this.minHeight) / SECTION_SIZE;
+    this.hasSkylight = options.hasSkylight ?? true;
 
     this.renderDistance = options.renderDistance ?? 8;
     this.maxGenPerTick = options.maxGenPerTick ?? 4;
@@ -141,6 +152,20 @@ export class ChunkManager {
 
   _makeGenWorker() {
     const worker = new Worker(new URL('../workers/genWorker.js', import.meta.url), { type: 'module' });
+    // Which dimension (and therefore which generator + height range) this
+    // worker builds for — genWorker.js keeps a small dimensionId ->
+    // generator-factory registry rather than hardcoding one, so a second
+    // dimension is a registry entry, not a branch. Sent once, before any
+    // 'seed'/chunk-request message this same worker will ever receive
+    // (postMessage preserves per-worker order), so the worker always has
+    // this before it needs it.
+    worker.postMessage({
+      type: 'init',
+      dimensionId: this.dimensionId,
+      minHeight: this.minHeight,
+      maxHeight: this.maxHeight,
+      hasSkylight: this.hasSkylight,
+    });
     worker.onmessage = (e) => this._onGenerated(e.data);
     worker.onerror = (e) => console.error('[genWorker]', e.message, e);
     return worker;
@@ -232,7 +257,7 @@ export class ChunkManager {
   _requestGenerate(cx, cz) {
     const key = columnKey(cx, cz);
     this.pendingGenerate.add(key);
-    const col = new ChunkColumn(cx, cz);
+    const col = new ChunkColumn(cx, cz, this.numSections, this.hasSkylight);
     col.state = 'generating';
     this.columns.set(key, col);
     const worker = this.genWorkers[this.genRoundRobin++ % this.activeGenWorkers];
@@ -245,7 +270,7 @@ export class ChunkManager {
     const col = this.columns.get(key);
     if (!col) return; // unloaded before generation finished
 
-    for (let sy = 0; sy < NUM_SECTIONS; sy++) {
+    for (let sy = 0; sy < this.numSections; sy++) {
       const s = sections[sy];
       col.sections[sy] = s ? Section.fromGenerated(s.blocks, s.skyLight, s.blockLight, s.blockCount) : null;
     }
@@ -303,7 +328,7 @@ export class ChunkManager {
     for (const col of this.columns.values()) {
       if (col.state !== 'generated' || !this._neighborsReady(col.cx, col.cz)) continue;
       const distSq = (col.cx - pcx) ** 2 + (col.cz - pcz) ** 2;
-      for (let sy = 0; sy < NUM_SECTIONS; sy++) {
+      for (let sy = 0; sy < this.numSections; sy++) {
         if (col.meshDirty[sy] && !col.meshPending[sy]) candidates.push({ col, sy, distSq });
       }
     }
@@ -371,7 +396,7 @@ export class ChunkManager {
       negZ: negZCol ? negZCol.borderSliceZ(sy, SECTION_SIZE - 1) : emptySlice(),
       posZ: posZCol ? posZCol.borderSliceZ(sy, 0) : emptySlice(),
       negY: sy > 0 ? col.borderSliceY(sy - 1, SECTION_SIZE - 1) : opaqueFloorSlice(),
-      posY: sy < NUM_SECTIONS - 1 ? col.borderSliceY(sy + 1, 0) : emptySlice(),
+      posY: sy < this.numSections - 1 ? col.borderSliceY(sy + 1, 0) : emptySlice(),
     };
   }
 
@@ -458,7 +483,7 @@ export class ChunkManager {
   // possibly see never reaches a draw call.
 
   _getConnectivity(cx, cz, sy) {
-    if (sy < 0 || sy >= NUM_SECTIONS) return null;
+    if (sy < 0 || sy >= this.numSections) return null;
     const col = this.columns.get(columnKey(cx, cz));
     if (!col) return null;
     return col.connectivity[sy] ?? FULLY_OPEN_CONNECTIVITY;
@@ -472,7 +497,7 @@ export class ChunkManager {
 
     const camCx = Math.floor(camera.position.x / SECTION_SIZE);
     const camCz = Math.floor(camera.position.z / SECTION_SIZE);
-    const camSy = Math.min(NUM_SECTIONS - 1, Math.max(0, Math.floor(camera.position.y / SECTION_SIZE)));
+    const camSy = Math.min(this.numSections - 1, Math.max(0, Math.floor(camera.position.y / SECTION_SIZE)));
 
     const visited = this._visVisited;
     visited.clear();
@@ -492,7 +517,7 @@ export class ChunkManager {
         const ncx = cx + dir.dcx;
         const ncz = cz + dir.dcz;
         const nsy = sy + dir.dsy;
-        if (nsy < 0 || nsy >= NUM_SECTIONS) continue;
+        if (nsy < 0 || nsy >= this.numSections) continue;
         const key = `${ncx},${ncz},${nsy}`;
         if (visited.has(key)) continue;
         if (!this.columns.has(columnKey(ncx, ncz))) continue; // BFS stops at the streamed-in boundary
@@ -505,7 +530,7 @@ export class ChunkManager {
     const box = this._visBox;
     let visibleSections = 0;
     for (const col of this.columns.values()) {
-      for (let sy = 0; sy < NUM_SECTIONS; sy++) {
+      for (let sy = 0; sy < this.numSections; sy++) {
         const entry = col.meshes[sy];
         if (!entry) continue;
 
@@ -570,7 +595,7 @@ export class ChunkManager {
     // does its own (async, IndexedDB-backed) write; nothing here waits
     // on it, matching every other injected-callback pattern in this file.
     if (col.modifiedBlocks.size > 0) this.onChunkUnloadDirty?.(col.cx, col.cz, [...col.modifiedBlocks.entries()]);
-    for (let sy = 0; sy < NUM_SECTIONS; sy++) this._disposeSectionMeshes(col, sy);
+    for (let sy = 0; sy < this.numSections; sy++) this._disposeSectionMeshes(col, sy);
     this.columns.delete(col.key);
     this.pendingGenerate.delete(col.key);
   }
@@ -599,7 +624,7 @@ export class ChunkManager {
    * themselves (`skyLight * dayFactor`), same as the shader does.
    */
   getRawLight(wx, wy, wz) {
-    if (wy < 0 || wy >= 256) return { sky: 15, block: 0 };
+    if (wy < 0 || wy >= this.maxHeight - this.minHeight) return { sky: 15, block: 0 };
     const cx = Math.floor(wx / SECTION_SIZE);
     const cz = Math.floor(wz / SECTION_SIZE);
     const col = this.columns.get(columnKey(cx, cz));
@@ -718,6 +743,13 @@ export class ChunkManager {
     setDayFactor(this.materials.cross, value);
   }
 
+  /** Per-dimension minimum brightness/tint — see dimension.js's ambientFloorLevel/Color. */
+  setAmbientFloor(level, color) {
+    setAmbientFloor(this.materials.opaque, level, color);
+    setAmbientFloor(this.materials.transparent, level, color);
+    setAmbientFloor(this.materials.cross, level, color);
+  }
+
   /** Drives the sway/water-ripple animation uniforms — call once a frame with a running seconds counter. */
   setTime(value) {
     setMaterialTime(this.materials.opaque, value);
@@ -794,7 +826,7 @@ export class ChunkManager {
   dispose() {
     for (const worker of [...this.genWorkers, ...this.meshWorkers]) worker.terminate();
     for (const col of this.columns.values()) {
-      for (let sy = 0; sy < NUM_SECTIONS; sy++) this._disposeSectionMeshes(col, sy);
+      for (let sy = 0; sy < this.numSections; sy++) this._disposeSectionMeshes(col, sy);
     }
     this.columns.clear();
     for (const geo of this._geometryPool) geo.dispose();

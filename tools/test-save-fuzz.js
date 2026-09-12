@@ -104,7 +104,7 @@ export default async function run(baseUrl) {
       await page.evaluate(() => {
         const M = window.__minevoxel;
         return M.saveGame(M.currentWorldId, {
-          chunkManager: M.chunkManager, player: M.player, dayNight: M.dayNight,
+          chunkManagers: [M.chunkManager], dimensionId: M.activeDimension.id, player: M.player, dayNight: M.dayNight,
           mobManager: M.mobManager, itemDrops: M.itemDrops, inventoryUI: M.inventoryUI,
         });
       });
