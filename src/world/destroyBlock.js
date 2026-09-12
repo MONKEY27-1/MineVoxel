@@ -1,8 +1,8 @@
 import { BLOCKS } from './blocks.js';
 import { getBlockDrop } from '../items/drops.js';
-import { getOrCreateChest, getOrCreateFurnace, removeContainerAt } from '../items/containerRegistry.js';
+import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, removeContainerAt } from '../items/containerRegistry.js';
 
-const CONTAINER_BLOCKS = new Set([BLOCKS.CHEST, BLOCKS.FURNACE]);
+const CONTAINER_BLOCKS = new Set([BLOCKS.CHEST, BLOCKS.FURNACE, BLOCKS.BREWING_STAND]);
 
 /**
  * Revision-pass section 6: the single path every block removal must go
@@ -29,7 +29,8 @@ export function destroyBlock(chunkManager, x, y, z) {
 
   let containerDrops = null;
   if (CONTAINER_BLOCKS.has(blockId)) {
-    const container = blockId === BLOCKS.CHEST ? getOrCreateChest(x, y, z) : getOrCreateFurnace(x, y, z);
+    const container =
+      blockId === BLOCKS.CHEST ? getOrCreateChest(x, y, z) : blockId === BLOCKS.FURNACE ? getOrCreateFurnace(x, y, z) : getOrCreateBrewingStand(x, y, z);
     if (blockId === BLOCKS.FURNACE) {
       // Cancels the burn timer explicitly — removeContainerAt below also
       // drops it from the registry (so nothing would tick it again

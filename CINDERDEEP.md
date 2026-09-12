@@ -12,7 +12,7 @@ same as always — the user is away and asked for business-as-usual pushes.
 - [x] Phase 3 — blocks and items (see decisions below)
 - [x] Phase 4 — mobs
 - [x] Phase 5 — structures and loot
-- [ ] Phase 6 — alchemy
+- [x] Phase 6 — alchemy
 - [ ] Phase 7 — Voidsteel
 - [ ] Phase 8 — The Ashen Sovereign (best-effort)
 - [ ] Phase 9 — Beacon (best-effort)
@@ -248,6 +248,77 @@ same as always — the user is away and asked for business-as-usual pushes.
   since it's out of scope for a structures pass and touches core engine
   code this spec explicitly says not to destabilize.
 
+## Decisions made (Phase 6 — alchemy)
+
+- **A real status-effect system exists now** (entities/statusEffects.js)
+  — none existed before this pass, and potions were inert placeholder
+  items. Kept intentionally small: a `Map<type, secondsRemaining>` per
+  player, so distinct effects genuinely coexist (drink Speed then
+  Strength and both are active, expiring independently) without a
+  stacking/priority system for the *same* effect twice — re-drinking one
+  just refreshes its timer. Healing is NOT a timed effect — it's an
+  instant heal applied directly to `player.health` where a potion is
+  drunk, since "heal once" has no duration to track.
+- **A real gameplay hook per effect**, not just a flag: Speed (walk-speed
+  multiplier in player.js's `_updateGround`), Slow Falling (clamps fall
+  velocity + cancels fall damage), Regeneration (a heal-over-time tick),
+  Strength (+3 flat melee damage in mobManager.js's tryPlayerAttack,
+  matching vanilla's per-level bonus rather than a multiplier), Night
+  Vision (temporarily overrides the active Dimension's own
+  ambientFloorLevel/Color — a config override through the exact same
+  uniforms every other ambient-floor change already uses, not new
+  render-path branching), Fire Resistance (blocks the new lava/fire
+  contact damage tick below).
+- **Player lava/fire contact damage is a new mechanic**, added because it
+  had to be for Fire Resistance to mean anything — this codebase had NO
+  fire/lava damage system for the player at all before this pass (mobs
+  didn't either — see Phase 4's note that "fire-immune" mobs needed zero
+  code for the same reason). A modest, self-contained addition in
+  player.js (`_updateStatusEffects`): touching LAVA or FIRE ticks
+  periodic damage, survival-only, skipped entirely while Fire Resistance
+  is active.
+- **BrewingStand mirrors Furnace's own shape** (`items/furnace.js`) —
+  plain `.slots` array so the same generic inventory-UI slot handlers
+  work unmodified, `update(dt)` driven the same way. 5 slots: [0,1,2]
+  bottles, [3] ingredient, [4] fuel (Cinder Powder only, per spec — a
+  separate `BREW_FUEL_ITEM`/`BREW_CHARGES_PER_FUEL` pair in recipes.js,
+  not the furnace's general `FUEL_ITEMS` table). One `BREW_RECIPES` entry
+  transforms every bottle slot currently holding its `from` potion into
+  `to` at once (a real brewing stand affects up to 3 bottles per brew),
+  consuming exactly one ingredient regardless of how many of the 3
+  actually converted.
+- **7 ingredient-to-potion mappings, all reusing existing items** rather
+  than inventing new ones beyond the one the spec explicitly requires
+  (Magma Cream, gating Fire Resistance behind a Magma Slug kill — a 50%
+  drop chance, so it's a real but not grindy hunt): Healing<-Drifter
+  Tear (per spec), Strength<-Gold Ingot, Speed<-Raw Tuskbeast, Night
+  Vision<-Quartz, Slow Falling<-Bone, Regeneration<-Cinder Rod. None of
+  these exact ingredient choices are spec-mandated beyond the two named
+  ones (fire resistance, healing) — picked for rough vanilla-adjacent
+  theming using only items this dimension already has.
+- **Filling a bottle and drinking a potion are both new main.js hooks**,
+  same pattern flint-and-steel already established: a held tool/material
+  item's right-click does nothing through the generic
+  `interaction.js`/`_updatePlacing` path (that only places *block*
+  items), so both get their own small conditional block. Drinking
+  deliberately does NOT require a block target (works looking at open
+  sky, matching vanilla); filling a bottle does (needs to be looking at
+  a WATER source).
+- **Found and fixed in passing**: `player.armor` was saved
+  (worldSave.js) since phase 4 but never actually read back on load —
+  main.js's load path set position/health/inventory/etc. but not armor,
+  so a saved-and-reloaded world silently forgot equipped armor every
+  time. Fixed alongside wiring the new `player.effects` restore, since
+  both needed the identical fix in the identical spot.
+- **Testing**: tools/test-alchemy.js (pure Node, no browser — BrewingStand
+  and StatusEffectManager have no THREE/DOM dependency, same reasoning
+  as test-structures.js) covers every brew recipe, fuel-charge counting,
+  mixed-bottle independence, and effect stacking/expiry/serialization.
+  tools/test-alchemy-live.js drives the real game for the parts that
+  need it: drinking actually changes movement speed, lava damages an
+  unprotected survival player but not a Fire-Resistant one, the HUD chip
+  renders, and armor + effects both survive a save/reload.
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil
@@ -302,3 +373,16 @@ same as always — the user is away and asked for business-as-usual pushes.
       wild/spawner-placed mobs, not a bespoke "boss guard" — there's no
       unique named Bastion guardian, just the same Ashkin/Ashkin Warden/
       Tuskbeast roster from Phase 4.
+- [ ] Splash and lingering potions (area-effect-cloud entities) are not
+      implemented — this codebase has no projectile/thrown-item system
+      at all (same gap already logged for Cinder Wraith/Hollow Drifter's
+      real attacks in Phase 4), so a throwable potion has nothing to
+      fly on. Only drunk potions work.
+- [ ] Duration/potency/inversion brewing modifiers (vanilla's Redstone/
+      Glowstone Dust/Fermented Spider Eye) are not implemented — this
+      game has no Redstone or Fermented Spider Eye item, and adding
+      Glowstone-only potency without the other two felt like half a
+      feature. Every potion brews at one fixed duration/potency.
+- [ ] Armor's `defense` stat still isn't applied to incoming damage (the
+      gap Phase 4 logged already) — Ashkin neutrality is the only thing
+      that reads `player.armor` for gameplay effect.

@@ -126,6 +126,18 @@ export const ITEMS = {
   GLASS_BOTTLE: defineMaterial('glass_bottle'),
   WATER_BOTTLE: defineMaterial('water_bottle'),
   AWKWARD_POTION: defineMaterial('awkward_potion'),
+  // Phase 6 (alchemy): a Magma Slug drop (generic material name — not a
+  // creature/structure/signature block, so the naming table doesn't
+  // apply) needed for the fire-resistance potion. Magma Slug dropped
+  // nothing before this pass (mobTypes.js).
+  MAGMA_CREAM: defineMaterial('magma_cream'),
+  POTION_FIRE_RESISTANCE: defineMaterial('potion_of_fire_resistance'),
+  POTION_HEALING: defineMaterial('potion_of_healing'),
+  POTION_STRENGTH: defineMaterial('potion_of_strength'),
+  POTION_SPEED: defineMaterial('potion_of_speed'),
+  POTION_NIGHT_VISION: defineMaterial('potion_of_night_vision'),
+  POTION_SLOW_FALLING: defineMaterial('potion_of_slow_falling'),
+  POTION_REGENERATION: defineMaterial('potion_of_regeneration'),
 
   GOLD_HELMET: defineArmor('helmet', ARMOR_MATERIAL.GOLD),
   GOLD_CHEST: defineArmor('chest', ARMOR_MATERIAL.GOLD),
@@ -146,6 +158,19 @@ export const ITEMS = {
 };
 
 const byId = new Map(nonBlockItems.map((i) => [i.id, i]));
+
+// Phase 6 (alchemy): drinking a potion (main.js) looks up its effect
+// here. 'healing' is a special-cased instant heal rather than a
+// statusEffects.js timed effect (see that module's own note on why).
+export const POTION_EFFECTS = {
+  [ITEMS.POTION_FIRE_RESISTANCE.id]: 'fire_resistance',
+  [ITEMS.POTION_HEALING.id]: 'healing',
+  [ITEMS.POTION_STRENGTH.id]: 'strength',
+  [ITEMS.POTION_SPEED.id]: 'speed',
+  [ITEMS.POTION_NIGHT_VISION.id]: 'night_vision',
+  [ITEMS.POTION_SLOW_FALLING.id]: 'slow_falling',
+  [ITEMS.POTION_REGENERATION.id]: 'regeneration',
+};
 
 // Melee damage by tool type + material tier — roughly mirrors vanilla
 // (fist 1, wood/stone/iron sword 4/5/6, axes a bit behind swords,

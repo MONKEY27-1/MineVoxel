@@ -1,7 +1,7 @@
-import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockItem, NON_BLOCK_ITEM_LIST } from '../items/items.js';
+import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockItem, NON_BLOCK_ITEM_LIST, ITEMS, POTION_EFFECTS } from '../items/items.js';
 import { mergeOrSwap, splitStack } from '../items/inventory.js';
 import { findMatchingRecipe, consumeCraftingGrid } from '../items/crafting.js';
-import { SMELTING_RECIPES, FUEL_ITEMS } from '../items/recipes.js';
+import { SMELTING_RECIPES, FUEL_ITEMS, BREW_RECIPES, BREW_FUEL_ITEM } from '../items/recipes.js';
 import { BLOCK_LIST, BLOCKS } from '../world/blocks.js';
 import { applyIcon } from './itemIcon.js';
 
@@ -12,6 +12,11 @@ const CREATIVE_ITEM_LIST = [
 ];
 
 const SLOT_SIZE = 40;
+
+// Phase 6 (alchemy): anything shift-clickable into a brewing stand's 3
+// bottle slots — Water Bottle, Awkward Potion, and every named-effect
+// potion (POTION_EFFECTS' own keys already list exactly those).
+const BOTTLE_ITEM_IDS = new Set([ITEMS.WATER_BOTTLE.id, ITEMS.AWKWARD_POTION.id, ...Object.keys(POTION_EFFECTS).map(Number)]);
 
 function range(a, b) {
   const out = [];
@@ -150,7 +155,7 @@ export class InventoryUI {
     // character) and the scrollable creative grid (fighting any
     // in-progress scroll). Furnace mode is the one exception: its
     // burn/cook progress genuinely advances on its own between clicks.
-    if (this.isOpen && this.mode === 'furnace') this.render();
+    if (this.isOpen && (this.mode === 'furnace' || this.mode === 'brewing')) this.render();
   }
 
   _dropCursorInWorld() {
@@ -164,7 +169,9 @@ export class InventoryUI {
     if (group === 'player') return this.playerInventory;
     if (group === 'crafting') return this.context.craftingGrid;
     if (group === 'secondary') {
-      return this.mode === 'furnace' ? this.context.furnace : this.context.secondary;
+      if (this.mode === 'furnace') return this.context.furnace;
+      if (this.mode === 'brewing') return this.context.brewingStand;
+      return this.context.secondary;
     }
     return null;
   }
@@ -254,6 +261,19 @@ export class InventoryUI {
         inv.slots[idx] = null;
       } else if (FUEL_ITEMS.has(slot.itemId) && !furnace.slots[1]) {
         furnace.slots[1] = slot;
+        inv.slots[idx] = null;
+      }
+    } else if (this.mode === 'brewing') {
+      const stand = this.context.brewingStand;
+      const emptyBottleSlot = [0, 1, 2].find((i) => !stand.slots[i]);
+      if (BOTTLE_ITEM_IDS.has(slot.itemId) && emptyBottleSlot !== undefined) {
+        stand.slots[emptyBottleSlot] = slot;
+        inv.slots[idx] = null;
+      } else if (slot.itemId === BREW_FUEL_ITEM && !stand.slots[4]) {
+        stand.slots[4] = slot;
+        inv.slots[idx] = null;
+      } else if (BREW_RECIPES.some((r) => r.ingredient === slot.itemId) && !stand.slots[3]) {
+        stand.slots[3] = slot;
         inv.slots[idx] = null;
       }
     } else {
@@ -531,7 +551,7 @@ export class InventoryUI {
 
     this.craftingEl.innerHTML = '';
     this.secondaryEl.innerHTML = '';
-    this.secondaryEl.classList.toggle('hidden', this.mode !== 'furnace' && this.mode !== 'chest');
+    this.secondaryEl.classList.toggle('hidden', this.mode !== 'furnace' && this.mode !== 'chest' && this.mode !== 'brewing');
     this.craftingEl.classList.toggle('hidden', this.mode !== 'inventory' && this.mode !== 'bench' && this.mode !== 'creative');
 
     if (this.mode === 'creative') {
@@ -663,6 +683,37 @@ export class InventoryUI {
       const outEl = this._buildSlotEl('secondary', 2, furnace.slots[2]);
       outEl.classList.add('output-slot');
       wrap.appendChild(outEl);
+
+      this.secondaryEl.appendChild(wrap);
+    } else if (this.mode === 'brewing') {
+      const stand = this.context.brewingStand;
+      const wrap = document.createElement('div');
+      wrap.className = 'brewing-layout';
+
+      const topRow = document.createElement('div');
+      topRow.className = 'brewing-top';
+      topRow.appendChild(this._buildSlotEl('secondary', 3, stand.slots[3]));
+
+      const middle = document.createElement('div');
+      middle.className = 'furnace-middle';
+      const flame = document.createElement('div');
+      flame.className = `furnace-flame${stand.isBrewing ? ' lit' : ''}`;
+      const progress = document.createElement('div');
+      progress.className = 'furnace-progress';
+      const fill = document.createElement('div');
+      fill.className = 'furnace-progress-fill';
+      fill.style.width = `${stand.brewTimeTotal > 0 ? Math.min(100, ((stand.brewTimeTotal - stand.brewTimeRemaining) / stand.brewTimeTotal) * 100) : 0}%`;
+      progress.appendChild(fill);
+      middle.append(flame, progress);
+      topRow.appendChild(middle);
+
+      topRow.appendChild(this._buildSlotEl('secondary', 4, stand.slots[4]));
+      wrap.appendChild(topRow);
+
+      const bottleRow = document.createElement('div');
+      bottleRow.className = 'brewing-bottles';
+      for (let i = 0; i < 3; i++) bottleRow.appendChild(this._buildSlotEl('secondary', i, stand.slots[i]));
+      wrap.appendChild(bottleRow);
 
       this.secondaryEl.appendChild(wrap);
     } else if (this.mode === 'chest') {

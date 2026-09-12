@@ -160,6 +160,7 @@ export async function saveGame(worldId, { chunkManagers, player, dayNight, mobMa
     selectedHotbar: player.selectedHotbar,
     inventory: player.inventory.slots,
     armor: player.armor ?? [null, null, null, null],
+    effects: player.effects?.toJSON() ?? [],
     timeOfDay: dayNight.timeOfDay,
     // Whatever's on the inventory-screen cursor lives outside
     // player.inventory.slots entirely (it's mid-drag, not "in" any slot

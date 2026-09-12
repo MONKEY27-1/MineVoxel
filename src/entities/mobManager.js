@@ -320,7 +320,8 @@ export class MobManager {
 
     this._playerAttackCooldown = ATTACK_COOLDOWN;
     this.justHit = { mobTypeId: target.typeId };
-    const damage = attackDamageFor(player.selectedItem);
+    // Strength (phase 6): a flat bonus, matching vanilla's per-level +3 rather than a multiplier.
+    const damage = attackDamageFor(player.selectedItem) + (player.effects?.has('strength') ? 3 : 0);
     const dx = target.position.x - player.position.x;
     const dz = target.position.z - player.position.z;
     const len = Math.hypot(dx, dz) || 1;

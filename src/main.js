@@ -38,8 +38,9 @@ import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
-import { ITEMS } from './items/items.js';
-import { getOrCreateChest, getOrCreateFurnace, allFurnaces } from './items/containerRegistry.js';
+import { ITEMS, POTION_EFFECTS } from './items/items.js';
+import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, allFurnaces, allBrewingStands } from './items/containerRegistry.js';
+import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
 import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick } from './audio/synth.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
@@ -479,6 +480,8 @@ function main() {
   let isTraveling = false;
   let travelCooldown = 0; // seconds — set after arriving, so stepping back into the destination portal doesn't immediately bounce you again
   let portalStandTime = 0;
+  let nightVisionWasActive = false; // phase 6: tracks the transition edge so the ambient-floor override applies/restores exactly once, not every tick
+  let effectParticleTimer = 0;
 
   /**
    * The Cinder Gate's actual link algorithm: search the destination
@@ -646,6 +649,12 @@ function main() {
         player.xp = playerState.xp;
         player.selectedHotbar = playerState.selectedHotbar;
         player.inventory.slots = playerState.inventory;
+        // Phase 4 gap found while wiring phase 6's own effects restore
+        // right below: armor was saved (worldSave.js) but never actually
+        // read back here, so a saved-and-reloaded world silently forgot
+        // any equipped armor (Ashkin neutrality/defense) every time.
+        player.armor = playerState.armor ?? [null, null, null, null];
+        player.effects = StatusEffectManager.fromJSON(playerState.effects);
         dayNight.timeOfDay = playerState.timeOfDay;
         // See saveGame's heldCursorItem comment — fold it back into the
         // inventory rather than losing it; overflow drops at spawn like
@@ -739,6 +748,8 @@ function main() {
       inventoryUI.open('bench', { craftingGrid: benchCraftingGrid, gridW: 3, gridH: 3, benchAvailable: true }, 'Crafting Table');
     } else if (blockId === BLOCKS.FURNACE) {
       inventoryUI.open('furnace', { furnace: getOrCreateFurnace(x, y, z) }, 'Furnace');
+    } else if (blockId === BLOCKS.BREWING_STAND) {
+      inventoryUI.open('brewing', { brewingStand: getOrCreateBrewingStand(x, y, z) }, 'Brewing Stand');
     } else if (blockId === BLOCKS.CHEST) {
       inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Chest');
     } else {
@@ -925,6 +936,42 @@ function main() {
           }
         }
 
+        // Filling a bottle (phase 6): right-click a water source with a
+        // Glass Bottle held — same "tool item, not a block, needs its own
+        // hook" reasoning as flint and steel above.
+        if (
+          input.wasMousePressed(1) &&
+          interaction.target &&
+          player.selectedItem?.itemId === ITEMS.GLASS_BOTTLE.id &&
+          chunkManager.getBlock(...interaction.target.blockPos) === BLOCKS.WATER
+        ) {
+          const held = player.selectedItem;
+          held.count -= 1;
+          if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+          player.inventory.addItem(ITEMS.WATER_BOTTLE.id, 1);
+          playUIClick();
+        }
+
+        // Drinking a potion (phase 6): works regardless of what's being
+        // looked at — unlike the two hooks above, drinking needs no block
+        // target. 'healing' is an instant heal; everything else is a
+        // timed statusEffects.js effect.
+        {
+          const heldEffect = POTION_EFFECTS[player.selectedItem?.itemId];
+          // Guarded against wantsOpenContainer so right-clicking a chest
+          // while holding a potion opens the chest, not both that and a
+          // drink on the same click.
+          if (input.wasMousePressed(1) && heldEffect && !interaction.wantsOpenContainer) {
+            const held = player.selectedItem;
+            held.count -= 1;
+            if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+            player.inventory.addItem(ITEMS.GLASS_BOTTLE.id, 1);
+            if (heldEffect === 'healing') player.health = Math.min(player.maxHealth, player.health + 6);
+            else player.effects.add(heldEffect);
+            playUIClick();
+          }
+        }
+
         if (input.wasPressed('drop') && player.selectedItem) {
           const slot = player.selectedItem;
           spawnDropNearPlayer(slot.itemId, 1, slot.durability);
@@ -944,6 +991,7 @@ function main() {
       fluids.update(FIXED_DT, chunkManager, activeDimension.lavaSpreadMultiplier);
       xpOrbs.update(FIXED_DT, player.position, (amount) => player.addXP(amount));
       for (const furnace of allFurnaces()) furnace.update(FIXED_DT);
+      for (const stand of allBrewingStands()) stand.update(FIXED_DT);
       mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension);
       if (mobManager.justKilled) playMobDeath();
       if (player.justHurt) {
@@ -951,6 +999,35 @@ function main() {
         player.justHurt = false;
       }
       if (player.gameMode === 'survival' && player.health <= 0) respawnPlayer();
+
+      // Night Vision (phase 6): temporarily overrides the active
+      // dimension's own ambient-floor config (see dimension.js) with a
+      // bright neutral floor, restoring the dimension's real value the
+      // instant the effect ends. A config override, not new render-path
+      // branching — same uniforms every other ambient-floor change uses.
+      const nightVisionActive = player.effects.has('night_vision');
+      if (nightVisionActive !== nightVisionWasActive) {
+        nightVisionWasActive = nightVisionActive;
+        if (nightVisionActive) chunkManager.setAmbientFloor(0.5, 0xffffff);
+        else chunkManager.setAmbientFloor(activeDimension.ambientFloorLevel, activeDimension.ambientFloorColor);
+      }
+
+      // A faint particle cue while any timed effect is active — the
+      // spec's "particle colors" for drunk potions (splash/lingering
+      // potion clouds are a separate, deliberately-deferred feature —
+      // see CINDERDEEP.md).
+      effectParticleTimer -= FIXED_DT;
+      if (effectParticleTimer <= 0 && player.effects.active.size > 0) {
+        effectParticleTimer = 0.4;
+        for (const type of player.effects.active.keys()) {
+          particles.spawnBurst(
+            { x: player.position.x, y: player.position.y + player.size.height * 0.5, z: player.position.z },
+            EFFECT_TYPES[type]?.color ?? 0xffffff,
+            1,
+            0.6
+          );
+        }
+      }
 
       if (wasOnGround && player.onGround) {
         const dx = player.position.x - startX;

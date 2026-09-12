@@ -1,5 +1,6 @@
 import { Inventory } from './inventory.js';
 import { Furnace } from './furnace.js';
+import { BrewingStand } from './brewingStand.js';
 import { rollLoot } from './lootTables.js';
 
 // In-memory only — there's no world save/load system yet (a later phase),
@@ -7,6 +8,7 @@ import { rollLoot } from './lootTables.js';
 // piece of world state today.
 const chests = new Map();
 const furnaces = new Map();
+const brewingStands = new Map();
 // A structure-generated chest is registered here (by the worker's
 // generation result, see chunkManager.js's _onGenerated) with a loot
 // table id instead of pre-rolled items — the actual roll happens lazily,
@@ -50,15 +52,30 @@ export function getOrCreateFurnace(x, y, z) {
   return f;
 }
 
+export function getOrCreateBrewingStand(x, y, z) {
+  const k = key(x, y, z);
+  let b = brewingStands.get(k);
+  if (!b) {
+    b = new BrewingStand();
+    brewingStands.set(k, b);
+  }
+  return b;
+}
+
 export function removeContainerAt(x, y, z) {
   const k = key(x, y, z);
   chests.delete(k);
   furnaces.delete(k);
+  brewingStands.delete(k);
   pendingLoot.delete(k);
 }
 
 export function allFurnaces() {
   return furnaces.values();
+}
+
+export function allBrewingStands() {
+  return brewingStands.values();
 }
 
 /**
@@ -91,18 +108,24 @@ export function serializeContainers() {
       isBurning: f.isBurning,
     });
   }
+  const brewingStandData = [];
+  for (const [k, b] of brewingStands) {
+    const [x, y, z] = k.split(',').map(Number);
+    brewingStandData.push({ x, y, z, slots: b.slots, brewTimeRemaining: b.brewTimeRemaining, brewTimeTotal: b.brewTimeTotal, charges: b.charges });
+  }
   const pendingLootData = [];
   for (const [k, p] of pendingLoot) {
     const [x, y, z] = k.split(',').map(Number);
     pendingLootData.push({ x, y, z, tableId: p.tableId, seed: p.seed });
   }
-  return { chests: chestData, furnaces: furnaceData, pendingLoot: pendingLootData };
+  return { chests: chestData, furnaces: furnaceData, brewingStands: brewingStandData, pendingLoot: pendingLootData };
 }
 
 /** Replaces all current container state — call this once, right after loading a save, before anything else touches the registry. */
 export function restoreContainers(data) {
   chests.clear();
   furnaces.clear();
+  brewingStands.clear();
   pendingLoot.clear();
   for (const c of data?.chests ?? []) {
     const inv = new Inventory(27);
@@ -117,6 +140,14 @@ export function restoreContainers(data) {
     furnace.cookProgress = f.cookProgress;
     furnace.isBurning = f.isBurning;
     furnaces.set(key(f.x, f.y, f.z), furnace);
+  }
+  for (const b of data?.brewingStands ?? []) {
+    const stand = new BrewingStand();
+    stand.slots = b.slots;
+    stand.brewTimeRemaining = b.brewTimeRemaining;
+    stand.brewTimeTotal = b.brewTimeTotal;
+    stand.charges = b.charges;
+    brewingStands.set(key(b.x, b.y, b.z), stand);
   }
   for (const p of data?.pendingLoot ?? []) {
     pendingLoot.set(key(p.x, p.y, p.z), { tableId: p.tableId, seed: p.seed });

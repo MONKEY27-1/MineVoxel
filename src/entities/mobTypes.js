@@ -210,7 +210,11 @@ export const MOB_TYPES = {
     attackCooldown: 0.8,
     aggroRange: 12,
     particleColor: 0xe8621f,
-    drops: [],
+    // Phase 6: the required source of Magma Cream, which gates the fire
+    // resistance potion — "Fire resistance gated behind finding a Magma
+    // Slug" per spec. Not a guaranteed drop, so it's a real (if short)
+    // hunt rather than a certainty the first time one is killed.
+    drops: [{ itemId: ITEMS.MAGMA_CREAM.id, min: 1, max: 1, chance: 0.5, lootingBoost: true }],
   }),
   ashbone: hostile({
     name: 'ashbone',

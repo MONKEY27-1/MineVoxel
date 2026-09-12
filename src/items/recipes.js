@@ -85,6 +85,21 @@ export const RECIPES = [
     ['H'],
     ['S'],
   ]),
+  // Phase 6 (alchemy) — Cinder Rod stands in for blaze rod exactly the
+  // way it does everywhere else in this dimension: fuels/builds the
+  // brewing stand, and grinds down into its powder form.
+  {
+    id: 'brewing_stand',
+    shaped: true,
+    requiresBench: true,
+    pattern: [
+      [null, item(ITEMS.CINDER_ROD.id), null],
+      [tag('cobblestone'), tag('cobblestone'), tag('cobblestone')],
+    ],
+    outputId: BLOCKS.BREWING_STAND,
+    outputCount: 1,
+  },
+  { id: 'cinder_powder', shapeless: true, ingredients: [item(ITEMS.CINDER_ROD.id)], outputId: ITEMS.CINDER_POWDER.id, outputCount: 2 },
 ];
 
 function toolFamily(toolType, template) {
@@ -131,3 +146,25 @@ export const FUEL_ITEMS = new Map([
   [BLOCKS.OAK_PLANKS, 7.5],
   [ITEMS.STICK.id, 5],
 ]);
+
+// Phase 6 (alchemy): each entry transforms every filled bottle slot whose
+// current item matches `from` into `to`, consuming one `ingredient` per
+// brew (brewingStand.js applies this to up to 3 slots at once, matching
+// a real brewing stand). The base recipe (Emberwart turns Water Bottle
+// into Awkward Potion) and every named-effect recipe both live in this
+// one table — nothing about brewingStand.js needs to know which tier a
+// recipe belongs to.
+export const BREW_RECIPES = [
+  { ingredient: BLOCKS.EMBERWART, from: ITEMS.WATER_BOTTLE.id, to: ITEMS.AWKWARD_POTION.id, time: 20 },
+  { ingredient: ITEMS.MAGMA_CREAM.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_FIRE_RESISTANCE.id, time: 20 },
+  { ingredient: ITEMS.DRIFTER_TEAR.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_HEALING.id, time: 20 },
+  { ingredient: ITEMS.GOLD_INGOT.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_STRENGTH.id, time: 20 },
+  { ingredient: ITEMS.RAW_TUSKBEAST.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_SPEED.id, time: 20 },
+  { ingredient: ITEMS.QUARTZ.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_NIGHT_VISION.id, time: 20 },
+  { ingredient: ITEMS.BONE.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_SLOW_FALLING.id, time: 20 },
+  { ingredient: ITEMS.CINDER_ROD.id, from: ITEMS.AWKWARD_POTION.id, to: ITEMS.POTION_REGENERATION.id, time: 20 },
+];
+
+/** Brewing-stand fuel — Cinder Powder only, per spec (not the general FUEL_ITEMS table). Each unit burns enough for BREW_CHARGES_PER_FUEL brews. */
+export const BREW_FUEL_ITEM = ITEMS.CINDER_POWDER.id;
+export const BREW_CHARGES_PER_FUEL = 20;

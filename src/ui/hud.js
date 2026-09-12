@@ -1,5 +1,6 @@
 import { itemIconTile, itemDisplayName, isBlockItem, getNonBlockItem } from '../items/items.js';
 import { applyIcon } from './itemIcon.js';
+import { EFFECT_TYPES } from '../entities/statusEffects.js';
 
 const HOTBAR_ICON_SIZE = 36;
 
@@ -12,6 +13,7 @@ export class Hud {
     this.breathBarEl = document.getElementById('breath-bar');
     this.hotbarEl = document.getElementById('hotbar');
     this.underwaterEl = document.getElementById('underwater-overlay');
+    this.statusEffectsEl = document.getElementById('status-effects');
 
     this._slots = Array.from({ length: 9 }, () => {
       const el = document.createElement('div');
@@ -35,6 +37,25 @@ export class Hud {
       this.breathBarEl.classList.toggle('hidden', player.breath >= player.maxBreath && !player.headInWater);
     }
     this.underwaterEl.classList.toggle('hidden', !player.headInWater);
+
+    this.statusEffectsEl.innerHTML = '';
+    for (const [type, remaining] of player.effects.active) {
+      const def = EFFECT_TYPES[type];
+      if (!def) continue;
+      const chip = document.createElement('div');
+      chip.className = 'status-effect-chip';
+      const swatch = document.createElement('div');
+      swatch.className = 'status-effect-swatch';
+      swatch.style.background = `#${def.color.toString(16).padStart(6, '0')}`;
+      const label = document.createElement('span');
+      const mm = Math.floor(remaining / 60);
+      const ss = Math.floor(remaining % 60)
+        .toString()
+        .padStart(2, '0');
+      label.textContent = `${def.name} ${mm}:${ss}`;
+      chip.append(swatch, label);
+      this.statusEffectsEl.appendChild(chip);
+    }
 
     for (let i = 0; i < 9; i++) {
       const el = this._slots[i];

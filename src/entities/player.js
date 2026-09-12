@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { sweepAABB, aabbOverlapsBlock, aabbFits } from './physics.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
 import { Inventory } from '../items/inventory.js';
+import { StatusEffectManager } from './statusEffects.js';
+
+const FIRE_DAMAGE_INTERVAL = 0.5; // seconds between lava/fire contact ticks — matches vanilla's roughly-twice-a-second burn tick
+const FIRE_DAMAGE_PER_TICK = 2;
+const REGEN_INTERVAL = 2.5; // seconds per heal pulse
+const SPEED_EFFECT_MULTIPLIER = 1.2;
+const SLOW_FALLING_MAX_SPEED = 1.2; // blocks/sec downward, matches the gentle vanilla drift
 
 const PI_2 = Math.PI / 2;
 const BASE_MOUSE_SENSITIVITY = 0.0022;
@@ -123,6 +130,13 @@ export class Player {
     // {itemId, durability} or null, same shape as an inventory slot
     // minus `count` (armor doesn't stack).
     this.armor = [null, null, null, null];
+    // Phase 6 (alchemy): no status-effect system existed before this
+    // pass — see statusEffects.js. `_fireDamageTimer`/`_regenTimer` pace
+    // the two periodic effects that need their own tick independent of
+    // the general dt (lava/fire contact damage, regeneration healing).
+    this.effects = new StatusEffectManager();
+    this._fireDamageTimer = 0;
+    this._regenTimer = 0;
 
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 1000);
     this._baseFov = 75; // matches the camera's construction above
@@ -215,10 +229,34 @@ export class Player {
     else this._updateGround(dt, input, chunkManager);
 
     this._updateBreathAndDamage(dt);
+    this._updateStatusEffects(dt, chunkManager);
     this._updateCameraBob(dt);
     this._updateFov(dt);
     this._updateDamageShake(dt);
     this._syncCamera();
+  }
+
+  /** Timed potion effects (statusEffects.js) plus the two gameplay ticks that ride on them: lava/fire contact damage (blocked by Fire Resistance) and Regeneration healing. */
+  _updateStatusEffects(dt, chunkManager) {
+    this.effects.update(dt);
+
+    if (this.gameMode !== 'survival') return;
+
+    this._fireDamageTimer = Math.max(0, this._fireDamageTimer - dt);
+    if (this._fireDamageTimer <= 0 && !this.effects.has('fire_resistance')) {
+      const feet = chunkManager.getBlock(Math.floor(this.position.x), Math.floor(this.position.y), Math.floor(this.position.z));
+      const head = chunkManager.getBlock(Math.floor(this.position.x), Math.floor(this.position.y + this.eyeHeight), Math.floor(this.position.z));
+      if (feet === BLOCKS.LAVA || head === BLOCKS.LAVA || feet === BLOCKS.FIRE) {
+        this._fireDamageTimer = FIRE_DAMAGE_INTERVAL;
+        this.takeDamage(FIRE_DAMAGE_PER_TICK, null);
+      }
+    }
+
+    this._regenTimer = Math.max(0, this._regenTimer - dt);
+    if (this._regenTimer <= 0 && this.effects.has('regeneration') && this.health < this.maxHealth) {
+      this._regenTimer = REGEN_INTERVAL;
+      this.health = Math.min(this.maxHealth, this.health + 1);
+    }
   }
 
   /** Respects `sneakMode`: 'hold' reads the key live, 'toggle' flips a persisted flag on each press. */
@@ -358,7 +396,8 @@ export class Player {
     this.sprinting = this._wantsSprint(input) && !this.sneaking;
 
     const move = this._moveVector(input, false);
-    const speed = this.sneaking ? TUNING.SNEAK_SPEED : this.sprinting ? TUNING.SPRINT_SPEED : TUNING.WALK_SPEED;
+    let speed = this.sneaking ? TUNING.SNEAK_SPEED : this.sprinting ? TUNING.SPRINT_SPEED : TUNING.WALK_SPEED;
+    if (this.effects.has('speed')) speed *= SPEED_EFFECT_MULTIPLIER;
     const desired = move.multiplyScalar(speed);
 
     // Instant accel, exponential-ish friction on release — simple and
@@ -387,6 +426,9 @@ export class Player {
     }
 
     this.velocity.y -= dim.gravity * dt;
+    if (this.effects.has('slow_falling') && this.velocity.y < -SLOW_FALLING_MAX_SPEED) {
+      this.velocity.y = -SLOW_FALLING_MAX_SPEED;
+    }
 
     // Jump buffering: a press is remembered for JUMP_BUFFER_TIME even if
     // it lands a tick or two before touching down, instead of being
@@ -495,7 +537,7 @@ export class Player {
 
     if (!wasOnGround && this._fallStartY === null && this.velocity.y < 0) this._fallStartY = this.position.y;
     if (this.onGround) {
-      if (this.gameMode === 'survival' && this._fallStartY !== null && !this.inWater) {
+      if (this.gameMode === 'survival' && this._fallStartY !== null && !this.inWater && !this.effects.has('slow_falling')) {
         const fallDistance = this._fallStartY - this.position.y;
         if (fallDistance > 3) {
           this.health = Math.max(0, this.health - Math.floor(fallDistance - 3));

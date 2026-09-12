@@ -17,6 +17,8 @@
     "test:mobs": "node tools/run-with-server.js tools/test-mobs.js",
     "test:structures": "node tools/test-structures.js",
     "test:structures-live": "node tools/run-with-server.js tools/test-structures-live.js",
+    "test:alchemy": "node tools/test-alchemy.js",
+    "test:alchemy-live": "node tools/run-with-server.js tools/test-alchemy-live.js",
     "test:feel": "node tools/run-with-server.js tools/test-feel.js",
     "test:visual": "node tools/run-with-server.js tools/test-visual.js",
     "test:audio": "node tools/run-with-server.js tools/test-audio.js"

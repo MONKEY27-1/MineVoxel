@@ -1205,6 +1205,39 @@ painters.awkward_potion = (ctx, ox, oy) => {
   ctx.fillRect(ox + 5, oy + 9, 6, 3);
 };
 
+// Phase 6 (alchemy): every named potion reuses the same bottle outline,
+// only the fill color differs — mirrors the tool-head/armor-icon
+// data-driven painter loops elsewhere in this file, just small enough
+// (7 potions) that a literal list reads clearer than another loop.
+const POTION_FILL_COLOR = {
+  potion_of_fire_resistance: 'rgba(232,98,31,0.7)',
+  potion_of_healing: 'rgba(224,70,90,0.7)',
+  potion_of_strength: 'rgba(160,40,40,0.7)',
+  potion_of_speed: 'rgba(58,142,224,0.7)',
+  potion_of_night_vision: 'rgba(46,46,110,0.7)',
+  potion_of_slow_falling: 'rgba(217,198,165,0.7)',
+  potion_of_regeneration: 'rgba(200,95,192,0.7)',
+};
+for (const [name, color] of Object.entries(POTION_FILL_COLOR)) {
+  painters[name] = (ctx, ox, oy) => {
+    painters.glass_bottle(ctx, ox, oy);
+    ctx.fillStyle = color;
+    ctx.fillRect(ox + 5, oy + 9, 6, 3);
+  };
+}
+
+painters.magma_cream = (ctx, ox, oy) => {
+  const rnd = mulberry32(733);
+  ctx.fillStyle = '#e8a24a';
+  ctx.beginPath();
+  ctx.ellipse(ox + 8, oy + 9, 5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  for (let i = 0; i < 8; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? '#c9791f' : '#f2c17a';
+    ctx.fillRect(ox + 4 + Math.floor(rnd() * 8), oy + 6 + Math.floor(rnd() * 6), 1, 1);
+  }
+};
+
 painters.cinder_portal = (ctx, ox, oy) => {
   const rnd = mulberry32(845);
   ctx.fillStyle = '#2a0a3a';
