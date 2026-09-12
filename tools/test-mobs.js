@@ -108,7 +108,15 @@ export default async function run(baseUrl) {
       if (aiState === 'idle') throw new Error(`aggroNearby did not make the neutral, gold-armored Ashkin hostile, aiState=${aiState}`);
     });
 
-    await step('bartering: right-clicking Ashkin with a gold ingot consumes it and tosses an item back', async () => {
+    await step('bartering: a real right-click on Ashkin with a gold ingot consumes it and tosses an item back', async () => {
+      // Drives the REAL Input instance (M.input), not a fake mock — a
+      // fake `{ wasMousePressed: (b) => b === 1 }` here previously
+      // matched a real bug (tryPlayerBarter checked button 1/middle-
+      // click instead of 2/right-click, so an actual right-click never
+      // bartered) and made this test pass while validating the wrong
+      // behavior. input.js's mousedown handler no-ops without
+      // `pointerLocked` (this sandbox can't grant real Pointer Lock),
+      // so that's forced for the duration of the simulated click.
       const res = await page.evaluate(async () => {
         const M = window.__minevoxel;
         const { ITEMS } = await import('/src/items/items.js');
@@ -119,7 +127,10 @@ export default async function run(baseUrl) {
         ashkin.position.z = p.z - 1.2;
         M.player.inventory.slots[M.player.selectedHotbar] = { itemId: ITEMS.GOLD_INGOT.id, count: 5 };
         const dropCountBefore = M.itemDrops.drops.length;
-        M.mobManager.tryPlayerBarter(M.player, { wasMousePressed: (b) => b === 1, isMouseDown: () => false });
+        M.input.pointerLocked = true;
+        window.dispatchEvent(new MouseEvent('mousedown', { button: 2 }));
+        M.mobManager.tryPlayerBarter(M.player, M.input);
+        window.dispatchEvent(new MouseEvent('mouseup', { button: 2 }));
         return {
           barteredWith: M.mobManager.justBartered,
           countAfter: M.player.inventory.slots[M.player.selectedHotbar]?.count,

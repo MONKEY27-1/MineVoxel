@@ -55,6 +55,7 @@ npm run test:alchemy          # plain Node script — every brew recipe, effect 
 npm run test:alchemy-live     # drinking a potion, lava damage with/without Fire Resistance, the HUD chip, save/reload of armor+effects
 npm run test:voidsteel        # the full Voidsteel chain: explosion sparing the ore, smelting, the ingot recipe, a smithing upgrade, knockback resistance, floating on lava
 npm run test:gate-linking     # the 8:1 overworld<->Cinderdeep coordinate scale, and that a nearby second trip reuses an existing gate instead of minting a duplicate
+npm run test:flint-and-steel  # a REAL right-click (dispatched MouseEvent, not a state shortcut) actually ignites a gate frame and lights TNT — see the mouse-button bug note below
 ```
 
 Every script drives `tools/devserver.js` (a plain no-cache static file

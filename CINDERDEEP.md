@@ -466,6 +466,45 @@ Not done (being explicit about scope, not silently skipping):
   second nearby trip reuses the same registered gate instead of minting
   a duplicate.
 
+## Post-launch fix: flint and steel (and bottle-filling, drinking, bartering) used the wrong mouse button
+
+Reported by the user after this build finished: "the flint and steel doesn't work." Root cause, found by reading `core/input.js`'s own documented convention (`button: 0 = left (break), 1 = middle (pick block), 2 = right (place)`):
+
+- `main.js`'s flint-and-steel gate/TNT ignition, glass-bottle filling, and
+  potion drinking all checked `input.wasMousePressed(1)` — middle-click,
+  not right-click.
+- `mobManager.js`'s `tryPlayerBarter` (Ashkin bartering, Phase 4) had the
+  identical bug.
+
+An actual right-click (what the in-game Controls list has always
+promised: "Right click | Place block / use item / open a container")
+never fired any of the four. All five checks now use `wasMousePressed(2)`,
+matching `interaction.js`'s own `_updatePlacing` (which already correctly
+used button 2 for continuous right-click block placement) — the
+inconsistency between the two was there to notice from the start.
+
+**Why every test in this whole build passed anyway**: none of them drove
+a real mouse click. This sandbox can't grant real Pointer Lock, so every
+test in this suite exercises game logic by directly manipulating state or
+calling functions — including, critically, `test-mobs.js`'s bartering
+test, which passed a *fake* input mock (`{ wasMousePressed: (b) => b ===
+1 }`) that matched the bug instead of real button semantics. A test built
+against a mock of the thing it's testing can validate the bug perfectly.
+
+Fixed alongside the bug: `tools/test-flint-and-steel.js` is new and
+dispatches a **real** `MouseEvent(button: 2)` on `window` (input.js's
+actual listener target), forcing `input.pointerLocked = true` first since
+`_onMouseDown` no-ops without it — proving the fix against the real Input
+class, not a mock of it. `test-mobs.js`'s bartering test was rewritten the
+same way (driving `M.input` for real instead of a fake object). Neither
+of these two real-input tests existed before this fix — every other
+Cinderdeep interaction added across phases 1-7 (drinking, bottle-filling)
+still only has a state-manipulation-style test, so the same class of bug
+could theoretically still be hiding in one of those; not re-audited here
+since the user's report was specifically about flint and steel and this
+fix covers everywhere the exact same broken constant (`wasMousePressed(1)`
+used for what should be a right-click) appeared.
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil

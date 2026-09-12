@@ -927,7 +927,7 @@ function main() {
         // about gates. Ignites into the face the player's looking at,
         // same spot a placed block would land.
         if (
-          input.wasMousePressed(1) &&
+          input.wasMousePressed(2) &&
           interaction.target &&
           player.selectedItem?.itemId === ITEMS.FLINT_AND_STEEL.id
         ) {
@@ -959,7 +959,7 @@ function main() {
         // Glass Bottle held — same "tool item, not a block, needs its own
         // hook" reasoning as flint and steel above.
         if (
-          input.wasMousePressed(1) &&
+          input.wasMousePressed(2) &&
           interaction.target &&
           player.selectedItem?.itemId === ITEMS.GLASS_BOTTLE.id &&
           chunkManager.getBlock(...interaction.target.blockPos) === BLOCKS.WATER
@@ -980,7 +980,7 @@ function main() {
           // Guarded against wantsOpenContainer so right-clicking a chest
           // while holding a potion opens the chest, not both that and a
           // drink on the same click.
-          if (input.wasMousePressed(1) && heldEffect && !interaction.wantsOpenContainer) {
+          if (input.wasMousePressed(2) && heldEffect && !interaction.wantsOpenContainer) {
             const held = player.selectedItem;
             held.count -= 1;
             if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;

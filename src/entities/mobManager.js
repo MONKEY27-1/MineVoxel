@@ -338,7 +338,7 @@ export class MobManager {
   /** Right-click a barterable mob (Ashkin) with its accepted item — tosses back one weighted-random item and consumes the held one. */
   tryPlayerBarter(player, input) {
     this.justBartered = null;
-    if (!input.wasMousePressed(1) || this._playerBarterCooldown > 0) return;
+    if (!input.wasMousePressed(2) || this._playerBarterCooldown > 0) return;
     const held = player.selectedItem;
     if (!held || held.itemId !== ITEMS.GOLD_INGOT.id) return;
     const target = this._findAttackTarget(player);
