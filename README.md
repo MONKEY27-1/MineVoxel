@@ -56,6 +56,7 @@ npm run test:alchemy-live     # drinking a potion, lava damage with/without Fire
 npm run test:voidsteel        # the full Voidsteel chain: explosion sparing the ore, smelting, the ingot recipe, a smithing upgrade, knockback resistance, floating on lava
 npm run test:gate-linking     # the 8:1 overworld<->Cinderdeep coordinate scale, and that a nearby second trip reuses an existing gate instead of minting a duplicate
 npm run test:flint-and-steel  # a REAL right-click (dispatched MouseEvent, not a state shortcut) actually ignites a gate frame and lights TNT — see the mouse-button bug note below
+npm run test:cinderdeep-terrain  # per-biome open/solid terrain ratio stays healthy (guards against the ~6%-open terrain-generation bug described below)
 ```
 
 Every script drives `tools/devserver.js` (a plain no-cache static file
@@ -949,11 +950,23 @@ highlights below):
    overworld's neutral one, and its own `ChunkManager`/generator/spawn
    tables — built lazily on first travel, not eagerly at boot.
 2. **Terrain + 5 biomes** (`world/cinderdeepGenerator.js`,
-   `cinderdeepBiomes.js`) — a mostly-open cave volume (cheese noise tuned
-   wide instead of tight) with a bedrock floor/ceiling, a y=31 lava sea,
+   `cinderdeepBiomes.js`) — a bedrock floor/ceiling with a y=31 lava sea,
    and Cinder Wastes/Mourning Flats/Bloodcap Grove/Azurecap Hollow/Basalt
-   Fractures selected by 3D temperature/humidity noise, each with its own
-   fog tint/density, particle rate, and floor/wall palette.
+   Fractures selected by 3D temperature/humidity noise. Each biome has
+   its own fog tint/density, particle rate, floor/wall palette, **and
+   terrain shape** (a config flag on the biome, dispatched through
+   `isOpen(wx, wy, wz, biome)`, never a biome-id check): Cinder Wastes is
+   an open cavern network (cheese noise tuned wide instead of tight, like
+   `structures/caves.js`'s trick but open by design); Mourning Flats/
+   Bloodcap Grove/Azurecap Hollow (`flatValley: true`) are a relatively
+   flat, walkable floor-to-ceiling band, matching Soul Sand Valley/
+   Crimson Forest/Warped Forest's real silhouette; Basalt Fractures is a
+   bumpy solid surface with lava pooling in the low ground and frequent
+   full-height pillar spikes, not a cave at all. The cave threshold was
+   recalibrated against directly-sampled noise output after an earlier,
+   never-actually-measured value produced only ~6% open space — see
+   CINDERDEEP.md's "terrain generation didn't actually resemble the
+   Nether" entry.
 3. **Blocks + items** (`world/blocks.js`, `items/items.js`) — ~45 new
    blocks and ~30 new items, following a strict dual-tier naming
    convention: generic materials keep real-world names (obsidian,

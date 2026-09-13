@@ -22,6 +22,7 @@
     "test:voidsteel": "node tools/run-with-server.js tools/test-voidsteel.js",
     "test:gate-linking": "node tools/run-with-server.js tools/test-gate-linking.js",
     "test:flint-and-steel": "node tools/run-with-server.js tools/test-flint-and-steel.js",
+    "test:cinderdeep-terrain": "node tools/test-cinderdeep-terrain.js",
     "test:feel": "node tools/run-with-server.js tools/test-feel.js",
     "test:visual": "node tools/run-with-server.js tools/test-visual.js",
     "test:audio": "node tools/run-with-server.js tools/test-audio.js"
