@@ -36,6 +36,10 @@ export const DEFAULT_GRAPHICS = {
   // "config, not a dimensionId branch" rule everything else here follows.
   fogDensity: 100, // % — scales how far a dimension's own fogNear/fogFar sit from the camera; lower = clearer, higher = hazier
   particleDensity: 100, // % — scales spawnBurst's `count` argument everywhere (block break/place, mob hits, biome ambience, potion effects, explosions)
+  // Polish-pass tier-9 fix: confirmed fully absent (no scale slider, no
+  // relative-unit CSS) — 50-200%, applied as a --hud-scale CSS custom
+  // property that each HUD widget scales itself by (see main.css).
+  guiScale: 100,
 };
 
 export const DEFAULT_PERFORMANCE = {
@@ -56,6 +60,12 @@ export const DEFAULT_CONTROLS = {
   startFullscreen: false,
   fullscreenHoldMs: 3000, // 1000 | 2000 | 3000 | 0 ("instant")
   escapeTapOpensPause: true,
+  // Polish-pass tier-9 fix: confirmed fully absent — disables camera
+  // damage-shake and sprint FOV widening (see player.js's
+  // _triggerDamageShake/_updateFov), the two motion-heavy camera effects
+  // in the game with no separate strength slider of their own to tune
+  // down to zero already.
+  reducedMotion: false,
 };
 
 export const DEFAULT_AUDIO = {

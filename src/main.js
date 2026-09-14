@@ -43,7 +43,7 @@ import { ITEMS, POTION_EFFECTS } from './items/items.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands } from './items/containerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
-import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion } from './audio/synth.js';
+import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash } from './audio/synth.js';
 import { explode } from './world/explosion.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { TuningPanel } from './ui/tuningPanel.js';
@@ -431,7 +431,14 @@ function main() {
   viewModel.handSide = settings.graphics.handSide;
   mobManager.despawnDist = settings.graphics.entityRenderDistance;
   itemDrops.despawnDist = settings.graphics.entityRenderDistance;
+  // GUI/HUD scale (polish-pass tier-9 fix — confirmed fully absent
+  // before this): a single CSS custom property, scaled per-widget in
+  // main.css (each HUD element already anchors to a fixed edge via
+  // position:absolute; scaling the whole fixed #hud container instead
+  // would have thrown every edge-anchored widget wildly out of place).
+  document.documentElement.style.setProperty('--hud-scale', settings.graphics.guiScale / 100);
   player.sensitivityScale = settings.controls.sensitivity;
+  player.reducedMotion = settings.controls.reducedMotion;
   player.autoJumpEnabled = settings.controls.autoJump;
   player.doubleTapSprintEnabled = settings.controls.doubleTapSprint;
   player.sneakMode = settings.controls.sneakMode;
@@ -1167,6 +1174,10 @@ function main() {
       if (player.justHurt) {
         playPlayerHurt();
         player.justHurt = false;
+      }
+      if (player.justEnteredWater) {
+        particles.spawnSplash(player.justEnteredWater, player.justEnteredWater.speed);
+        playSplash(player.justEnteredWater.speed);
       }
       if (player.gameMode === 'survival' && player.health <= 0) respawnPlayer();
 

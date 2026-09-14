@@ -26,7 +26,7 @@ html, body {
   left: 50%;
   width: 18px;
   height: 18px;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--hud-scale, 1));
   pointer-events: none;
   z-index: 10;
 }
@@ -113,7 +113,8 @@ html, body {
   position: absolute;
   left: 50%;
   bottom: 78px;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--hud-scale, 1));
+  transform-origin: center bottom;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -147,6 +148,8 @@ html, body {
   position: absolute;
   top: 16px;
   right: 16px;
+  transform: scale(var(--hud-scale, 1));
+  transform-origin: top right;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -178,7 +181,8 @@ html, body {
   position: absolute;
   left: 50%;
   bottom: 16px;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--hud-scale, 1));
+  transform-origin: center bottom;
   display: flex;
   gap: 4px;
 }
@@ -210,7 +214,8 @@ html, body {
   position: absolute;
   left: 50%;
   bottom: 68px;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(var(--hud-scale, 1));
+  transform-origin: center bottom;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   padding: 4px 10px;

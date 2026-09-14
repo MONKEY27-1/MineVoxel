@@ -59,7 +59,13 @@ export class ParticleSystem {
     this._spawn(position, color, count, speed);
   }
 
-  _spawn(position, color, count, speed) {
+  /** Water-entry splash — polish pass. `speed` is the player's fall speed at entry (clamped by the caller), scaling both count and spread so a cliff dive kicks up more than a gentle wade. */
+  spawnSplash(position, speed = 4) {
+    const count = Math.round(6 + speed * 1.5);
+    this._spawn(position, CATEGORY_COLORS.water, count, Math.max(2, speed * 0.6), { flat: true });
+  }
+
+  _spawn(position, color, count, speed, { flat = false } = {}) {
     if (this.particles.length > MAX_PARTICLES) return;
     const scaledCount = Math.round(count * this.densityMultiplier);
     if (scaledCount <= 0) return;
@@ -71,7 +77,13 @@ export class ParticleSystem {
         position.y + (Math.random() - 0.5) * 0.8,
         position.z + (Math.random() - 0.5) * 0.8
       );
-      const vel = new THREE.Vector3((Math.random() - 0.5) * speed, Math.random() * speed, (Math.random() - 0.5) * speed);
+      // A splash fans outward across the water's surface with a modest
+      // upward pop, not the generic burst's fully-random sphere (which
+      // sends a chunk of "water" straight down into the water it just
+      // entered — looks wrong specifically for this one case).
+      const vel = flat
+        ? new THREE.Vector3((Math.random() - 0.5) * speed, Math.random() * speed * 0.6 + speed * 0.2, (Math.random() - 0.5) * speed)
+        : new THREE.Vector3((Math.random() - 0.5) * speed, Math.random() * speed, (Math.random() - 0.5) * speed);
       this.scene.add(mesh);
       this.particles.push({ mesh, velocity: vel, life: 0, maxLife: 0.4 + Math.random() * 0.4, material });
     }

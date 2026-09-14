@@ -145,6 +145,82 @@ export default async function run(baseUrl) {
       if (window.__minevoxel.inventoryUI.isOpen) window.__minevoxel.toggleInventory();
     });
 
+    await step('GUI scale slider live-updates the --hud-scale CSS var, persists, and reapplies on reload', async () => {
+      await page.evaluate(() => document.getElementById('pause-settings-btn').click());
+      const before = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--hud-scale').trim());
+      if (before !== '1') throw new Error(`expected the default --hud-scale to be 1, got "${before}"`);
+
+      const live = await page.evaluate(() => {
+        const slider = document.getElementById('gui-scale-slider');
+        slider.value = 150;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        return {
+          cssVar: getComputedStyle(document.documentElement).getPropertyValue('--hud-scale').trim(),
+          label: document.getElementById('gui-scale-val').textContent,
+          settingsValue: window.__minevoxel.settings.graphics.guiScale,
+        };
+      });
+      if (live.cssVar !== '1.5') throw new Error(`expected --hud-scale to become 1.5 at 150%, got "${live.cssVar}"`);
+      if (live.label !== '150%') throw new Error(`expected the displayed value to read 150%, got "${live.label}"`);
+      if (live.settingsValue !== 150) throw new Error(`expected settings.graphics.guiScale to be 150, got ${live.settingsValue}`);
+
+      const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('minevoxel_settings_v1')).graphics.guiScale);
+      if (persisted !== 150) throw new Error(`expected the persisted settings record to carry guiScale=150, got ${persisted}`);
+
+      // A fresh boot (not just a re-render) must re-apply it — this is
+      // the exact bug class every other graphics.* setting already has
+      // to guard against (see main.js's "apply every remaining loaded
+      // setting" block): a value that only lives in a live object
+      // reference until the next startGame() reads settings.graphics
+      // fresh. Reload the page (fresh module state) and resume the same
+      // world, mirroring test-dup.js's own reload pattern.
+      const worldId = await page.evaluate(() => window.__minevoxel.currentWorldId);
+      await page.reload();
+      await page.waitForFunction(() => !!window.__minevoxel, { timeout: 15000 });
+      const afterResumeCssVar = await page.evaluate(async (worldId) => {
+        const worldSave = await import('/src/persistence/worldSave.js');
+        const rec = await worldSave.getWorld(worldId);
+        await window.__minevoxel.startGame(rec, { isNew: false });
+        return getComputedStyle(document.documentElement).getPropertyValue('--hud-scale').trim();
+      }, worldId);
+      if (afterResumeCssVar !== '1.5') throw new Error(`expected --hud-scale to still be 1.5 after a fresh reload + resume, got "${afterResumeCssVar}"`);
+    });
+
+    await step('reduced-motion checkbox live-updates player.reducedMotion, persists, and reapplies on reload', async () => {
+      await page.evaluate(() => document.getElementById('pause-settings-btn').click());
+      const controlsTabBtn = await page.$('.settings-tab-btn[data-tab="controls"]');
+      await controlsTabBtn.evaluate((el) => el.click());
+
+      const before = await page.evaluate(() => window.__minevoxel.player.reducedMotion);
+      if (before !== false) throw new Error(`expected the default reducedMotion to be false, got ${before}`);
+
+      await page.evaluate(() => {
+        const cb = document.getElementById('reduced-motion-toggle');
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const live = await page.evaluate(() => ({
+        player: window.__minevoxel.player.reducedMotion,
+        settingsValue: window.__minevoxel.settings.controls.reducedMotion,
+      }));
+      if (!live.player) throw new Error('checking the reduced-motion toggle did not set player.reducedMotion');
+      if (!live.settingsValue) throw new Error('checking the reduced-motion toggle did not update settings.controls.reducedMotion');
+
+      const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('minevoxel_settings_v1')).controls.reducedMotion);
+      if (persisted !== true) throw new Error(`expected the persisted settings record to carry reducedMotion=true, got ${persisted}`);
+
+      const worldId = await page.evaluate(() => window.__minevoxel.currentWorldId);
+      await page.reload();
+      await page.waitForFunction(() => !!window.__minevoxel, { timeout: 15000 });
+      const afterResume = await page.evaluate(async (worldId) => {
+        const worldSave = await import('/src/persistence/worldSave.js');
+        const rec = await worldSave.getWorld(worldId);
+        await window.__minevoxel.startGame(rec, { isNew: false });
+        return window.__minevoxel.player.reducedMotion;
+      }, worldId);
+      if (afterResume !== true) throw new Error(`expected player.reducedMotion to still be true after a fresh reload + resume, got ${afterResume}`);
+    });
+
     await step('no console/page errors accumulated across the whole run', async () => {
       assertNoErrors(errors, 'test:a11y');
     });

@@ -183,6 +183,35 @@ export default async function run(baseUrl) {
       if (result.afterDecay !== 0) throw new Error(`shake did not fully decay to 0 within 1s, left at ${result.afterDecay}`);
     });
 
+    await step('reducedMotion suppresses damage camera-shake and sprint FOV widening', async () => {
+      const result = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        const p = M.player;
+        p.reducedMotion = true;
+
+        p.gameMode = 'survival';
+        p.health = p.maxHealth;
+        p._shakeTimeLeft = 0;
+        p.takeDamage(2, null);
+        const shakeAfterDamage = p._shakeTimeLeft;
+
+        p.onGround = true;
+        p.sneaking = false;
+        p.sprinting = true;
+        const startFov = p.camera.fov;
+        for (let i = 0; i < 60; i++) p._updateFov(1 / 60);
+        const sprintFov = p.camera.fov;
+
+        p.reducedMotion = false; // restore for any later test relying on the default
+        p.sprinting = false;
+        return { shakeAfterDamage, startFov, sprintFov };
+      });
+      if (result.shakeAfterDamage !== 0) throw new Error(`expected reducedMotion to suppress the damage camera-shake entirely, got _shakeTimeLeft=${result.shakeAfterDamage}`);
+      if (Math.abs(result.sprintFov - result.startFov) > 0.01) {
+        throw new Error(`expected reducedMotion to suppress the sprint FOV widen (stay at ${result.startFov}), got ${result.sprintFov}`);
+      }
+    });
+
     assertNoErrors(errors, 'test:feel');
     console.log('[test:feel] PASS');
   } finally {

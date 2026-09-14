@@ -73,6 +73,7 @@ const GRAPHICS_APPLIERS = {
   // directly), so it needs a real push.
   fogDensity: () => {},
   particleDensity: (v, ctx) => (ctx.particles.densityMultiplier = v / 100),
+  guiScale: (v) => document.documentElement.style.setProperty('--hud-scale', v / 100),
 };
 
 const PERFORMANCE_APPLIERS = {
@@ -93,6 +94,7 @@ const CONTROLS_APPLIERS = {
   startFullscreen: () => {}, // read at the "click to play" gesture itself (main.js), nothing to push live
   fullscreenHoldMs: (v, ctx) => (ctx.fullscreenController.holdDurationMs = v),
   escapeTapOpensPause: (v, ctx) => (ctx.fullscreenController.tapOpensPause = v),
+  reducedMotion: (v, ctx) => (ctx.player.reducedMotion = v),
 };
 
 const AUDIO_APPLIERS = {
@@ -377,6 +379,7 @@ export class MenuController {
     this._wireGraphicsChoice('sky-quality-choice', 'skyQuality');
     this._wireGraphicsSlider('fog-density-slider', 'fog-density-val', 'fogDensity', (v) => `${v}%`);
     this._wireGraphicsSlider('particle-density-slider', 'particle-density-val', 'particleDensity', (v) => `${v}%`);
+    this._wireGraphicsSlider('gui-scale-slider', 'gui-scale-val', 'guiScale', (v) => `${v}%`);
     this._wireGraphicsSlider('camera-bob-slider', 'camera-bob-val', 'cameraBobStrength', (v) => `${v}%`);
     this._wireGraphicsSlider('hand-bob-slider', 'hand-bob-val', 'viewBobStrength', (v) => `${v}%`);
     this._wireGraphicsCheckbox('viewmodel-toggle', 'viewmodelEnabled');
@@ -426,6 +429,8 @@ export class MenuController {
     document.getElementById('fog-density-val').textContent = `${g.fogDensity}%`;
     document.getElementById('particle-density-slider').value = g.particleDensity;
     document.getElementById('particle-density-val').textContent = `${g.particleDensity}%`;
+    document.getElementById('gui-scale-slider').value = g.guiScale;
+    document.getElementById('gui-scale-val').textContent = `${g.guiScale}%`;
     document.getElementById('camera-bob-slider').value = g.cameraBobStrength;
     document.getElementById('camera-bob-val').textContent = `${g.cameraBobStrength}%`;
     document.getElementById('hand-bob-slider').value = g.viewBobStrength;
@@ -495,6 +500,7 @@ export class MenuController {
     this._wireControlsCheckbox('invert-scroll-toggle', 'invertScroll');
     this._wireControlsCheckbox('start-fullscreen-toggle', 'startFullscreen');
     this._wireControlsCheckbox('escape-tap-pause-toggle', 'escapeTapOpensPause');
+    this._wireControlsCheckbox('reduced-motion-toggle', 'reducedMotion');
 
     const holdEl = document.getElementById('fullscreen-hold-duration-choice');
     setChoiceSelected(holdEl, this.settings.controls.fullscreenHoldMs);
@@ -636,6 +642,7 @@ export class MenuController {
       document.getElementById('invert-scroll-toggle').checked = this.settings.controls.invertScroll;
       document.getElementById('start-fullscreen-toggle').checked = this.settings.controls.startFullscreen;
       document.getElementById('escape-tap-pause-toggle').checked = this.settings.controls.escapeTapOpensPause;
+      document.getElementById('reduced-motion-toggle').checked = this.settings.controls.reducedMotion;
       setChoiceSelected(document.getElementById('fullscreen-hold-duration-choice'), this.settings.controls.fullscreenHoldMs);
     } else if (tab === 'audio') {
       this.settings.audio = structuredClone(DEFAULT_AUDIO);

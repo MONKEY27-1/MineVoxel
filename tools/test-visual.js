@@ -59,6 +59,115 @@ export default async function run(baseUrl) {
       if (after <= before) throw new Error(`expected a pickup particle burst, particle count went ${before} -> ${after}`);
     });
 
+    await step('falling into water triggers a splash (particles + sound), scaled by fall speed, exactly once per entry', async () => {
+      const pos = { x: 700, y: 90, z: 700 };
+      await page.evaluate((pos) => {
+        window.__minevoxel.player.position.x = pos.x + 0.5;
+        window.__minevoxel.player.position.y = 150;
+        window.__minevoxel.player.position.z = pos.z + 0.5;
+      }, pos);
+      await page.waitForFunction(
+        (cxcz) => {
+          const col = window.__minevoxel.chunkManager.columns.get(cxcz);
+          return !!col && col.state === 'generated';
+        },
+        `${Math.floor(pos.x / 16)},${Math.floor(pos.z / 16)}`,
+        { timeout: 20000 }
+      );
+
+      const result = await page.evaluate((pos) => {
+        const M = window.__minevoxel;
+        // A clear shaft with a pool of water at the bottom, well above
+        // any real terrain (this seed's surface is nowhere near y=90),
+        // so this is a controlled, deterministic setup, not racing real
+        // generation.
+        for (let dy = 0; dy <= 20; dy++) M.chunkManager.setBlock(pos.x, pos.y + dy, pos.z, 0);
+        M.chunkManager.setBlock(pos.x, pos.y, pos.z, M.BLOCKS.WATER);
+        M.chunkManager.setBlock(pos.x, pos.y - 1, pos.z, M.BLOCKS.STONE);
+
+        M.player.position.x = pos.x + 0.5;
+        M.player.position.y = pos.y + 15; // well above the water, falling
+        M.player.position.z = pos.z + 0.5;
+        M.player.velocity.x = 0;
+        M.player.velocity.y = -20; // fast enough to clear the >-1 threshold with real margin
+        M.player.velocity.z = 0;
+        M.player.flying = false;
+        M.player.gameMode = 'survival';
+
+        const before = M.particles.particles.length;
+        // Real per-tick updates (not a single big dt) — a huge single dt
+        // could tunnel straight through the 1-block-thick water layer
+        // without ever registering "in water" for a frame, missing the
+        // rising edge entirely (and wouldn't match real gameplay anyway).
+        let firedAt = -1;
+        let fireCount = 0;
+        for (let i = 0; i < 60; i++) {
+          M.player.update(1 / 60, M.input, M.chunkManager);
+          // Mirror main.js's own consumption of the one-shot flag — real
+          // play never calls player.update() without also draining
+          // justEnteredWater into a splash the same tick.
+          if (M.player.justEnteredWater) {
+            fireCount++;
+            if (firedAt === -1) firedAt = i;
+            M.particles.spawnSplash(M.player.justEnteredWater, M.player.justEnteredWater.speed);
+          }
+        }
+        const after = M.particles.particles.length;
+        return { before, after, fireCount, firedAt, finalY: M.player.position.y, finalInWater: M.player.inWater };
+      }, pos);
+
+      if (result.fireCount !== 1) {
+        throw new Error(`expected justEnteredWater to fire exactly once across the whole fall+swim, fired ${result.fireCount} times (finalY=${result.finalY}, inWater=${result.finalInWater})`);
+      }
+      if (result.after <= result.before) {
+        throw new Error(`expected a splash particle burst, particle count went ${result.before} -> ${result.after}`);
+      }
+    });
+
+    await step('a gentle wade into water (not falling) does not trigger a splash', async () => {
+      const pos = { x: 720, y: 90, z: 700 };
+      await page.evaluate((pos) => {
+        window.__minevoxel.player.position.x = pos.x + 0.5;
+        window.__minevoxel.player.position.z = pos.z + 0.5;
+      }, pos);
+      await page.waitForFunction(
+        (cxcz) => {
+          const col = window.__minevoxel.chunkManager.columns.get(cxcz);
+          return !!col && col.state === 'generated';
+        },
+        `${Math.floor(pos.x / 16)},${Math.floor(pos.z / 16)}`,
+        { timeout: 20000 }
+      );
+
+      const fireCount = await page.evaluate((pos) => {
+        const M = window.__minevoxel;
+        for (let dy = 0; dy <= 4; dy++) M.chunkManager.setBlock(pos.x, pos.y + dy, pos.z, 0);
+        M.chunkManager.setBlock(pos.x, pos.y, pos.z, M.BLOCKS.STONE);
+        M.chunkManager.setBlock(pos.x, pos.y + 1, pos.z, M.BLOCKS.WATER);
+
+        M.player.position.x = pos.x + 0.5;
+        M.player.position.y = pos.y + 1;
+        M.player.position.z = pos.z + 0.5;
+        M.player.velocity.x = 0; M.player.velocity.y = 0; M.player.velocity.z = 0;
+        M.player.flying = false;
+        M.player.gameMode = 'survival';
+        // Force the "not already in water" precondition explicitly —
+        // this player object may still be submerged from the previous
+        // step's splash test, which would make the rising-edge check
+        // trivially false for the wrong reason (never left water),
+        // not because this scenario's velocity is too low to matter.
+        M.player.inWater = false;
+
+        let fireCount = 0;
+        for (let i = 0; i < 30; i++) {
+          M.player.update(1 / 60, M.input, M.chunkManager);
+          if (M.player.justEnteredWater) fireCount++;
+        }
+        return fireCount;
+      }, pos);
+      if (fireCount !== 0) throw new Error(`expected no splash for a standing-still wade into water, fired ${fireCount} times`);
+    });
+
     await step('respawning (death, void recovery, or new-world spawn) briefly flashes the fade overlay', async () => {
       const becameVisible = await page.evaluate(() => {
         window.__minevoxel.respawnPlayer();

@@ -193,6 +193,10 @@
           <input id="particle-density-slider" type="range" min="0" max="200" step="25" value="100" />
         </div>
         <div class="settings-row">
+          <label>GUI scale <span id="gui-scale-val" class="settings-val">100%</span></label>
+          <input id="gui-scale-slider" type="range" min="50" max="200" step="10" value="100" />
+        </div>
+        <div class="settings-row">
           <label>Camera bob strength <span id="camera-bob-val" class="settings-val">60%</span></label>
           <input id="camera-bob-slider" type="range" min="0" max="100" step="10" value="60" />
         </div>
@@ -301,6 +305,10 @@
         <div class="settings-row settings-checkbox-row">
           <label for="escape-tap-pause-toggle">Tapping Esc opens the pause menu</label>
           <input id="escape-tap-pause-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="reduced-motion-toggle">Reduced motion (disables damage camera-shake and sprint FOV widening)</label>
+          <input id="reduced-motion-toggle" type="checkbox" />
         </div>
         <div class="settings-row">
           <label>Keybinds</label>

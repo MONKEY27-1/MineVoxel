@@ -85,6 +85,7 @@ export class Player {
     this.inWater = false; // any part of the body
     this.headInWater = false; // eye height specifically — drives breath + underwater fog
     this.swimSprinting = false;
+    this.justEnteredWater = null; // one-shot {x,y,z,speed} on the exact velocity-based water-entry edge — main.js reads it to trigger a splash-particle burst
 
     this.health = 20;
     this.maxHealth = 20;
@@ -165,6 +166,12 @@ export class Player {
     // opts into the old step-assist behavior (now a real jump impulse
     // when it triggers, not a position teleport — see _updateGround).
     this.autoJumpEnabled = false;
+
+    // Accessibility (settings/controls) — reduces/removes motion-based
+    // feedback (damage camera shake, sprint FOV widening) rather than
+    // requiring the player to hand-tune strength sliders down to
+    // approximate it; see _triggerDamageShake/_updateFov.
+    this.reducedMotion = false;
   }
 
   get selectedItem() {
@@ -208,8 +215,9 @@ export class Player {
     this.xp += amount;
   }
 
-  /** A brief camera-shake impulse — called from every damage source (mob hits, fall damage, drowning), not just takeDamage(), so it's a consistent "you got hurt" cue regardless of cause. */
+  /** A brief camera-shake impulse — called from every damage source (mob hits, fall damage, drowning), not just takeDamage(), so it's a consistent "you got hurt" cue regardless of cause. Skipped entirely under reducedMotion (settings/controls) — a vestibular-motion accessibility setting, not just another strength slider to tune. */
   _triggerDamageShake() {
+    if (this.reducedMotion) return;
     this._shakeTimeLeft = TUNING.DAMAGE_SHAKE_DURATION;
   }
 
@@ -384,11 +392,28 @@ export class Player {
   }
 
   _updateWaterState(chunkManager) {
+    const wasInWater = this.inWater;
     this.inWater = aabbOverlapsBlock(chunkManager, this.position, this.size, isWater);
     const eyeY = this.position.y + this.eyeHeight;
     const eyeBlock = chunkManager.getBlock(Math.floor(this.position.x), Math.floor(eyeY), Math.floor(this.position.z));
     this.headInWater = isWater(eyeBlock);
     if (!this.inWater) this.swimSprinting = false;
+
+    // Splash-particle trigger (polish pass — this needed genuinely new
+    // trigger logic, not just wiring an existing event hook, which is
+    // exactly why it was left undone in the original pass): a real
+    // velocity-based water-entry edge, not just "currently in water" —
+    // fires exactly once per entry (wasInWater false -> true), scaled by
+    // fall speed so a gentle wade doesn't splash as hard as a cliff dive.
+    this.justEnteredWater = null;
+    if (this.inWater && !wasInWater && this.velocity.y < -1) {
+      this.justEnteredWater = {
+        x: this.position.x,
+        y: this.position.y + this.size.height * 0.5,
+        z: this.position.z,
+        speed: Math.min(12, Math.abs(this.velocity.y)),
+      };
+    }
   }
 
   _moveVector(input, includePitch) {
@@ -670,9 +695,9 @@ export class Player {
     }
   }
 
-  /** Widens the FOV a little while sprinting — the classic "moving fast" cue — eased rather than snapped so it doesn't feel like a jump-cut. */
+  /** Widens the FOV a little while sprinting — the classic "moving fast" cue — eased rather than snapped so it doesn't feel like a jump-cut. Skipped under reducedMotion: a shifting FOV is exactly the kind of motion cue that setting exists to remove. */
   _updateFov(dt) {
-    const target = this._baseFov + (this.sprinting && !this.sneaking ? TUNING.SPRINT_FOV_BOOST : 0);
+    const target = this._baseFov + (this.sprinting && !this.sneaking && !this.reducedMotion ? TUNING.SPRINT_FOV_BOOST : 0);
     const lerpFactor = Math.min(1, TUNING.FOV_LERP_SPEED * dt);
     this._currentFov += (target - this._currentFov) * lerpFactor;
     if (Math.abs(this.camera.fov - this._currentFov) > 0.01) {

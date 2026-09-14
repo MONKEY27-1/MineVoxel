@@ -110,3 +110,14 @@ export function playPlayerHurt() {
 export function playExplosion() {
   playProfile('blocks', { freq: 55, noise: 0.75, decay: 0.6 }, { volume: 1, pitchVariance: 0.1 });
 }
+
+// Polish pass: water-entry splash. The 'water' MATERIAL_PROFILE already
+// exists (used for footsteps/block sounds in water) but nothing played
+// it for the moment of *entering* water specifically — `speed` (the
+// player's clamped fall speed at entry) scales volume and decay length
+// the same way the splash-particle burst scales its own count/spread.
+export function playSplash(speed = 4) {
+  const t = Math.min(1, speed / 12);
+  const profile = MATERIAL_PROFILES.water;
+  playProfile('blocks', { ...profile, decay: profile.decay * (1 + t) }, { volume: 0.4 + t * 0.5, pitchVariance: 0.15 });
+}
