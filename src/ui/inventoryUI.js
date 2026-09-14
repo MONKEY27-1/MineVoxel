@@ -1,4 +1,4 @@
-import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockItem, NON_BLOCK_ITEM_LIST, ITEMS, POTION_EFFECTS } from '../items/items.js';
+import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockItem, NON_BLOCK_ITEM_LIST, ITEMS, POTION_EFFECTS, ARMOR_SLOTS } from '../items/items.js';
 import { mergeOrSwap, splitStack } from '../items/inventory.js';
 import { findMatchingRecipe, consumeCraftingGrid } from '../items/crafting.js';
 import { SMELTING_RECIPES, FUEL_ITEMS, BREW_RECIPES, BREW_FUEL_ITEM } from '../items/recipes.js';
@@ -25,6 +25,13 @@ function range(a, b) {
   return out;
 }
 
+/** Which of the 4 armor slots (`ARMOR_SLOTS` order) this item belongs in, or -1 if it isn't armor at all. */
+function _armorSlotIndexFor(itemId) {
+  const item = getNonBlockItem(itemId);
+  if (item?.kind !== 'armor') return -1;
+  return ARMOR_SLOTS.indexOf(item.slot);
+}
+
 /**
  * One DOM-based screen for everything phase 6 needs a UI for: the player's
  * own inventory (+2x2 crafting), a crafting bench (3x3), a furnace, and a
@@ -33,10 +40,16 @@ function range(a, b) {
  * picks a mode.
  */
 export class InventoryUI {
-  constructor({ atlasUV, playerInventory, spawnDrop }) {
+  constructor({ atlasUV, playerInventory, spawnDrop, player }) {
     this.atlasUV = atlasUV;
     this.playerInventory = playerInventory;
     this.spawnDrop = spawnDrop;
+    // Kept as a live `player` reference, not a captured `player.armor`
+    // array — worldSave's load path does `player.armor = restoredArray`
+    // (a reassignment, not an in-place mutation), so a captured array
+    // reference would go stale after any save/reload. Always read
+    // `this.player.armor` fresh instead.
+    this.player = player;
     this.mode = null;
     this.context = null;
     this.cursor = null;
@@ -72,6 +85,7 @@ export class InventoryUI {
         <div id="inv-secondary"></div>
         <div id="inv-crafting"></div>
         <div id="inv-title">Inventory</div>
+        <div id="inv-armor"></div>
         <div id="inv-main"></div>
         <div id="inv-hotbar"></div>
       </div>
@@ -82,6 +96,7 @@ export class InventoryUI {
     this.secondaryEl = this.root.querySelector('#inv-secondary');
     this.craftingEl = this.root.querySelector('#inv-crafting');
     this.titleEl = this.root.querySelector('#inv-title');
+    this.armorEl = this.root.querySelector('#inv-armor');
     this.mainEl = this.root.querySelector('#inv-main');
     this.hotbarEl = this.root.querySelector('#inv-hotbar');
     this.cursorEl = this.root.querySelector('#inv-cursor');
@@ -168,6 +183,7 @@ export class InventoryUI {
 
   _invForGroup(group) {
     if (group === 'player') return this.playerInventory;
+    if (group === 'armor') return { slots: this.player.armor };
     if (group === 'crafting') return this.context.craftingGrid;
     if (group === 'secondary') {
       if (this.mode === 'furnace') return this.context.furnace;
@@ -271,6 +287,29 @@ export class InventoryUI {
       return;
     }
 
+    if (group === 'armor') {
+      // Unequip: shift-clicking a worn piece sends it back to the
+      // player's own inventory (armor's maxStack is 1, so no partial-
+      // leftover case to worry about the way a stackable item would).
+      const leftover = this.playerInventory.addItem(slot.itemId, slot.count, slot.durability);
+      inv.slots[idx] = leftover > 0 ? { ...slot, count: leftover } : null;
+      return;
+    }
+
+    if (group === 'player') {
+      // Equip: shift-clicking an armor piece anywhere in the player's
+      // own inventory sends it to its matching body slot, same shortcut
+      // vanilla's inventory screen offers, available from every mode
+      // (armor is always rendered — see render()) not just the plain
+      // inventory screen.
+      const armorSlot = _armorSlotIndexFor(slot.itemId);
+      if (armorSlot !== -1 && !this.player.armor[armorSlot]) {
+        this.player.armor[armorSlot] = slot;
+        inv.slots[idx] = null;
+        return;
+      }
+    }
+
     // group === 'player'
     if (this.mode === 'chest') {
       const leftover = this.context.secondary.addItem(slot.itemId, slot.count, slot.durability);
@@ -349,6 +388,10 @@ export class InventoryUI {
     }
 
     const slot = inv.slots[idx];
+    // Armor slots refuse a mismatched item outright — a held item can
+    // always be picked back up (this only fires with something already
+    // on the cursor), same as vanilla's per-slot armor restriction.
+    if (group === 'armor' && this.cursor && _armorSlotIndexFor(this.cursor.itemId) !== idx) return;
     if (button === 2) {
       if (!this.cursor) {
         const taken = splitStack(inv, idx);
@@ -572,6 +615,7 @@ export class InventoryUI {
 
   render() {
     if (!this.isOpen) return;
+    this._renderGroup(this.armorEl, 'armor', range(0, 4));
     this._renderGroup(this.mainEl, 'player', range(9, 36));
     this._renderGroup(this.hotbarEl, 'player', range(0, 9));
 

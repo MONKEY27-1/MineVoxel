@@ -82,28 +82,46 @@ export class MobManager {
     this.justKilled = null; // { mobTypeId } | null
     this.justBartered = null; // { mobTypeId, itemId, count } | null
     this._playerBarterCooldown = 0;
+    // One global mob list shared across both dimensions (see mob.js's
+    // own note on why) — tracks whichever dimension update() was most
+    // recently called with, so spawn() can default a new mob's
+    // dimensionId correctly without every call site needing to pass it.
+    this._activeDimensionId = 'overworld';
   }
 
-  spawn(typeId, position) {
-    const mob = new Mob(typeId, position);
+  spawn(typeId, position, opts) {
+    const mob = new Mob(typeId, position, { dimensionId: this._activeDimensionId, ...opts });
     this.scene.add(mob.mesh);
     this.mobs.push(mob);
     return mob;
   }
 
-  update(dt, player, chunkManager, dayNight, dimension) {
+  update(dt, player, chunkManager, dayNight, dimension, projectiles) {
     this.justKilled = null;
+    this._activeDimensionId = dimension.id;
     this._playerAttackCooldown = Math.max(0, this._playerAttackCooldown - dt);
     this._playerBarterCooldown = Math.max(0, this._playerBarterCooldown - dt);
 
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
+      // A mob that isn't in the currently active dimension (left behind
+      // when the player traveled through a gate — see main.js's
+      // travelToDimension) is paused entirely: no AI/physics tick
+      // against terrain that isn't its own, no despawn-by-distance check
+      // (meaningless comparing positions across two different dimensions'
+      // coordinate spaces), and hidden from the shared scene so it
+      // doesn't render as a motionless mob sitting in the wrong world.
+      if (mob.dimensionId !== dimension.id) {
+        mob.mesh.visible = false;
+        continue;
+      }
+      mob.mesh.visible = true;
       if (mob.dead) {
         this._onDeath(mob, player);
         this.mobs.splice(i, 1);
         continue;
       }
-      mob.update(dt, chunkManager, player);
+      mob.update(dt, chunkManager, player, projectiles);
 
       const dist = Math.hypot(
         mob.position.x - player.position.x,
@@ -168,6 +186,27 @@ export class MobManager {
       10,
       3
     );
+
+    // Magma Slug (phase 4 gap): splits into 2 smaller copies of itself on
+    // death, matching the overworld slime's own vanilla behavior (this
+    // game has no overworld slime to copy the pattern from, so it's
+    // built here first). Each generation halves size/health; below a
+    // floor scale it just dies for good, same as vanilla's smallest
+    // slime size never splitting further.
+    if (mob.def.splitsOnDeath && mob.sizeScale > 0.3) {
+      const childScale = mob.sizeScale * 0.5;
+      for (let i = 0; i < 2; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const child = this.spawn(
+          mob.typeId,
+          { x: mob.position.x + Math.cos(angle) * 0.4, y: mob.position.y, z: mob.position.z + Math.sin(angle) * 0.4 },
+          { sizeScale: childScale }
+        );
+        child.velocity.x = Math.cos(angle) * 2.5;
+        child.velocity.z = Math.sin(angle) * 2.5;
+        child.velocity.y = 3;
+      }
+    }
   }
 
   /**
@@ -288,7 +327,11 @@ export class MobManager {
     let closest = null;
     let closestDist = Infinity;
     for (const mob of this.mobs) {
-      if (mob.dead) continue;
+      // Left-behind-in-another-dimension mobs are hidden and paused
+      // (see update()) but still sit in this.mobs — without this check
+      // the player could "attack" one that happens to share local
+      // coordinates with something in the active dimension.
+      if (mob.dead || mob.dimensionId !== this._activeDimensionId) continue;
       const cx = mob.position.x;
       const cy = mob.position.y + mob.size.height / 2;
       const cz = mob.position.z;
@@ -369,7 +412,7 @@ export class MobManager {
    */
   aggroNearby(typeId, position, radius, duration = 20) {
     for (const mob of this.mobs) {
-      if (mob.typeId !== typeId || mob.dead) continue;
+      if (mob.typeId !== typeId || mob.dead || mob.dimensionId !== this._activeDimensionId) continue;
       const dist = Math.hypot(mob.position.x - position.x, mob.position.y - position.y, mob.position.z - position.z);
       if (dist <= radius) mob._forcedAggroTimer = duration;
     }

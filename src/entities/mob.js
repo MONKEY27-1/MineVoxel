@@ -177,17 +177,23 @@ const BUILDERS = { biped: buildBiped, quadruped: buildQuadruped, bird: buildBird
 let nextMobId = 1;
 
 export class Mob {
-  constructor(typeId, position) {
+  constructor(typeId, position, { sizeScale, dimensionId = 'overworld' } = {}) {
     this.id = nextMobId++;
     this.typeId = typeId;
     this.def = MOB_TYPES[typeId];
     this.position = { ...position };
     this.velocity = { x: 0, y: 0, z: 0 };
     this.yaw = Math.random() * Math.PI * 2;
-    this.health = this.def.maxHealth;
     this.onGround = false;
     this.dead = false;
     this.despawning = false; // true during the post-death "lying on its side" animation, before actual removal
+    // Which Dimension this mob actually belongs to — mobManager.js is
+    // still one global list shared across both dimensions (a bigger
+    // per-dimension-manager rewrite was out of scope for this pass), so
+    // this is what lets it pause/hide a mob that isn't in the currently
+    // active dimension instead of ticking its physics against the wrong
+    // dimension's terrain the instant the player travels away.
+    this.dimensionId = dimensionId;
 
     // Baby versions: real Minecraft scales the whole animal down and
     // gives it a proportionally larger head — approximated here as a
@@ -195,6 +201,16 @@ export class Mob {
     // still reads as "baby," not just "smaller adult."
     this.baby = this.def.category === 'passive' && Math.random() < (this.def.babyChance ?? 0.1);
     this.isRareVariant = Math.random() < RARE_VARIANT_CHANCE;
+
+    // Magma Slug's split-on-death (see mobManager.js's _onDeath): each
+    // generation halves both size and max health, same shape the
+    // overworld would use for a slime if it split — reuses the same
+    // mesh/hitbox scale mechanism `baby` already established rather than
+    // inventing a second one, just driven by an explicit constructor
+    // option (passed by mobManager.spawn) instead of a random roll.
+    this.sizeScale = sizeScale ?? (this.baby ? BABY_SCALE : 1);
+    this.health = Math.max(1, Math.round(this.def.maxHealth * this.sizeScale));
+    this.maxHealth = this.health;
 
     this.aiState = 'idle'; // idle | chase | attack | flee (hostile only — passive mobs just wander)
     this._moveDir = { x: 0, z: 0 };
@@ -220,15 +236,19 @@ export class Mob {
     this.swingPairs = built.swingPairs;
     this.mesh.position.set(position.x, position.y, position.z);
     this.mesh.rotation.y = this.yaw;
-    if (this.baby) {
-      this.mesh.scale.setScalar(BABY_SCALE);
-      if (this.head) this.head.scale.setScalar(1.35);
+    if (this.sizeScale !== 1) {
+      this.mesh.scale.setScalar(this.sizeScale);
+      // The proportionally-larger head only reads right at "baby" scale
+      // specifically (real Minecraft's baby-animal look) — a split Magma
+      // Slug shrinking generation to generation should look like a
+      // smaller whole slug, not a big-headed one.
+      if (this.baby && this.head) this.head.scale.setScalar(1.35);
     }
   }
 
   get size() {
-    if (!this.baby) return this.def.size;
-    return { width: this.def.size.width * BABY_SCALE, height: this.def.size.height * BABY_SCALE };
+    if (this.sizeScale === 1) return this.def.size;
+    return { width: this.def.size.width * this.sizeScale, height: this.def.size.height * this.sizeScale };
   }
 
   takeDamage(amount, knockbackDir) {
@@ -250,7 +270,7 @@ export class Mob {
     return this.despawning && this._deathT >= 1;
   }
 
-  update(dt, chunkManager, player) {
+  update(dt, chunkManager, player, projectiles) {
     if (this.despawning) {
       this._deathT = Math.min(1, this._deathT + dt / 0.6);
       // Rotate onto its side as it despawns, then let physics keep it
@@ -272,13 +292,13 @@ export class Mob {
     this._attackCooldownTimer = Math.max(0, this._attackCooldownTimer - dt);
     this._hurtFlash = Math.max(0, this._hurtFlash - dt);
 
-    this._updateAI(dt, player, chunkManager);
+    this._updateAI(dt, player, chunkManager, projectiles);
     this._updatePhysics(dt, chunkManager);
     this._updateAnimation(dt, player);
     this._syncMesh();
   }
 
-  _updateAI(dt, player, chunkManager) {
+  _updateAI(dt, player, chunkManager, projectiles) {
     const def = this.def;
     const dx = player.position.x - this.position.x;
     const dz = player.position.z - this.position.z;
@@ -330,7 +350,15 @@ export class Mob {
       this._moveDir = { x: 0, z: 0 };
       if (this._attackCooldownTimer <= 0 && distToPlayer > 0.001) {
         this._attackCooldownTimer = def.attackCooldown;
-        player.takeDamage(def.attackDamage, { x: (dx / distToPlayer) * 4, y: 3, z: (dz / distToPlayer) * 4 });
+        if (def.rangedAttack && projectiles) {
+          this._fireRangedAttack(def.rangedAttack, dx, dz, distToPlayer, player, projectiles);
+        } else {
+          player.takeDamage(def.attackDamage, { x: (dx / distToPlayer) * 4, y: 3, z: (dz / distToPlayer) * 4 });
+        }
+        // Ashbone's lingering decay — a real damage-over-time on top of
+        // the flat hit, not simplified away like the rest of the roster's
+        // signature attacks (this one didn't need a projectile system).
+        if (def.decayDamage) player.addDecay(def.decayDamage, def.decayDuration ?? 4);
       }
     } else {
       this._wanderTimer -= dt;
@@ -343,6 +371,43 @@ export class Mob {
           this._moveDir = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
         }
       }
+    }
+  }
+
+  /**
+   * Cinder Wraith's fire-volley / Hollow Drifter's explosive lob — the
+   * two roster members whose signature attack the spec asks for a real
+   * projectile for (see mobTypes.js's `rangedAttack` config on each).
+   * `count` shots fan out with `spread` radians between them around the
+   * straight line to the player; `gravity` arcs the shot instead of a
+   * flat fireball-style straight line.
+   */
+  _fireRangedAttack(cfg, dx, dz, distToPlayer, player, projectiles) {
+    const headY = this.position.y + this.size.height * 0.8;
+    const targetY = player.position.y + 0.9; // roughly chest height
+    const baseAngle = Math.atan2(dz, dx);
+    const count = cfg.count ?? 1;
+    for (let i = 0; i < count; i++) {
+      const offset = count > 1 ? (i - (count - 1) / 2) * (cfg.spread ?? 0.15) : 0;
+      const angle = baseAngle + offset;
+      const vx = Math.cos(angle) * cfg.speed;
+      const vz = Math.sin(angle) * cfg.speed;
+      // A flat-ish vy aimed at the player's chest over the estimated
+      // travel time — good enough for "reads as aimed," not a real
+      // ballistic solver.
+      const travelTime = Math.max(0.2, distToPlayer / cfg.speed);
+      const vy = (targetY - headY) / travelTime + (cfg.gravity ? 4.5 * travelTime : 0);
+      projectiles.spawn({
+        position: { x: this.position.x, y: headY, z: this.position.z },
+        velocity: { x: vx, y: vy, z: vz },
+        color: cfg.color,
+        radius: cfg.radius ?? 0.2,
+        gravity: !!cfg.gravity,
+        owner: 'mob',
+        damage: cfg.damage,
+        knockback: cfg.knockback ?? 3,
+        dimensionId: this.dimensionId,
+      });
     }
   }
 

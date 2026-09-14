@@ -322,6 +322,14 @@ export const BLOCKS = {
     drops: null,
     blastResistance: Infinity,
   }),
+  // A lit TNT's flash frame — main.js's fuse timer alternates the real
+  // world block between this and TNT every fraction of a second while
+  // armed (a block-swap, not a shader/animation, since terrain is
+  // greedy-meshed batched geometry with no per-instance animation hook).
+  // Never a real drop — you can't obtain "mid-flash TNT" as an item any
+  // more than you could in vanilla (primed TNT there is an entity, not a
+  // minable block, so there's nothing to actually drop).
+  TNT_LIT: define({ name: 'tnt_lit', texture: { top: 'tnt_top_lit', side: 'tnt_side_lit' }, hardness: 0, drops: null, blastResistance: 0 }),
 };
 
 export function getBlock(id) {

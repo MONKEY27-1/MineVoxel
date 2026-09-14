@@ -57,7 +57,7 @@ import * as THREE from 'three';
 // first, "basic" shadow pass (see main.js's shadow setup for the caveat
 // this was flagged to the user before building).
 export function createAtlasMaterial(atlasTexture, opts = {}) {
-  const { sway, waterTint, sunShadow, ...materialOpts } = opts;
+  const { sway, waterTint, sunShadow, portalSwirl, ...materialOpts } = opts;
   const material = new THREE.MeshBasicMaterial({
     map: atlasTexture,
     vertexColors: true,
@@ -82,6 +82,14 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
       shader.uniforms.waterAlpha = { value: 1.0 };
       shader.uniforms.waterTintStrength = { value: 0.0 };
       shader.uniforms.waterTintColor = { value: new THREE.Color(0x2f6fa8) };
+    }
+    if (portalSwirl) {
+      // Cinder Gate's interior surface (Phase 1 logged this as a gap: a
+      // static procedural texture with no shader animation). Same
+      // "detect this one atlas tile, animate it" technique waterTint
+      // already uses, just distorting the *sampling* UV (a swirl/vortex)
+      // instead of tinting the already-sampled color.
+      shader.uniforms.portalRect = { value: new THREE.Vector4(-1, -1, -1, -1) };
     }
     if (sunShadow) {
       shader.uniforms.uShadowMap = { value: null };
@@ -130,6 +138,7 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
             ? 'uniform vec4 waterRect;\nuniform float waterAlpha;\nuniform float waterTintStrength;\nuniform vec3 waterTintColor;'
             : ''
         }
+        ${portalSwirl ? 'uniform vec4 portalRect;' : ''}
         ${
           sunShadow
             ? `
@@ -164,6 +173,20 @@ export function createAtlasMaterial(atlasTexture, opts = {}) {
         `
         #ifdef USE_MAP
         vec2 mvTiled = fract( vMapUv );
+        ${
+          portalSwirl
+            ? `
+        if ( abs(vAtlasRect.x - portalRect.x) < 0.0005 && abs(vAtlasRect.y - portalRect.y) < 0.0005 ) {
+          vec2 mvCenter = vec2(0.5);
+          vec2 mvOff = mvTiled - mvCenter;
+          float mvAngle = uTime * 0.6 + length(mvOff) * 6.0;
+          float mvS = sin(mvAngle);
+          float mvC = cos(mvAngle);
+          mvTiled = fract( mvCenter + vec2(mvOff.x * mvC - mvOff.y * mvS, mvOff.x * mvS + mvOff.y * mvC) * 0.9 );
+        }
+        `
+            : ''
+        }
         vec2 mvAtlasUv = mix( vAtlasRect.xy, vAtlasRect.zw, mvTiled );
         vec4 mvTexel = texture2D( map, mvAtlasUv );
         diffuseColor *= mvTexel;
@@ -239,4 +262,11 @@ export function setWaterTint(material, { rect, alpha, tintStrength, tintColor })
   if (alpha !== undefined) shader.uniforms.waterAlpha.value = alpha;
   if (tintStrength !== undefined) shader.uniforms.waterTintStrength.value = tintStrength;
   if (tintColor !== undefined) shader.uniforms.waterTintColor.value.set(tintColor);
+}
+
+/** `rect` is the {u0,v0,u1,v1} atlasUV entry for the Cinder Gate's cinder_portal tile — see `portalSwirl` above. */
+export function setPortalSwirl(material, { rect }) {
+  const shader = material.userData.shader;
+  if (!shader || !shader.uniforms.portalRect) return;
+  if (rect) shader.uniforms.portalRect.value.set(rect.u0, rect.v0, rect.u1, rect.v1);
 }

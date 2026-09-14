@@ -178,10 +178,13 @@ export const MOB_TYPES = {
     maxHealth: 20,
     walkSpeed: 2.4,
     attackDamage: 5,
-    attackRange: 8, // ranged in spirit — melee-range substitute for the real fire-volley attack (not yet built)
+    attackRange: 8,
     attackCooldown: 1.4,
     aggroRange: 20,
     particleColor: 0xf2a83a,
+    // The telegraphed 3-shot fire volley per spec — a real projectile.js
+    // shot now instead of the earlier flat-melee-at-range stand-in.
+    rangedAttack: { color: 0xf2a83a, speed: 16, damage: 4, knockback: 3, count: 3, spread: 0.18, radius: 0.18 },
     drops: [{ itemId: ITEMS.CINDER_ROD.id, min: 0, max: 1, chance: 0.5, lootingBoost: true }],
   }),
   hollow_drifter: hostile({
@@ -196,6 +199,13 @@ export const MOB_TYPES = {
     attackCooldown: 2.0,
     aggroRange: 24,
     particleColor: 0xb9c9c9,
+    // A slow, lobbed explosive shot per spec — real projectile.js
+    // physics (gravity: true arcs it) instead of the earlier flat-
+    // melee-at-range stand-in. "Deflectable" is still not implemented —
+    // that needs the player's own attack to detect and reflect a
+    // specific in-flight projectile, a distinct feature from having
+    // projectiles exist at all.
+    rangedAttack: { color: 0x3a3a3a, speed: 7, damage: 6, knockback: 5, count: 1, gravity: true, radius: 0.35 },
     drops: [{ itemId: ITEMS.DRIFTER_TEAR.id, min: 0, max: 1, chance: 0.6, lootingBoost: true }],
   }),
   magma_slug: hostile({
@@ -215,6 +225,10 @@ export const MOB_TYPES = {
     // Slug" per spec. Not a guaranteed drop, so it's a real (if short)
     // hunt rather than a certainty the first time one is killed.
     drops: [{ itemId: ITEMS.MAGMA_CREAM.id, min: 1, max: 1, chance: 0.5, lootingBoost: true }],
+    // Splits into 2 half-sized copies on death (mobManager.js's
+    // _onDeath), matching the overworld slime's own vanilla behavior —
+    // built here first since this game has no overworld slime to copy.
+    splitsOnDeath: true,
   }),
   ashbone: hostile({
     name: 'ashbone',
@@ -228,6 +242,11 @@ export const MOB_TYPES = {
     attackCooldown: 1.0,
     aggroRange: 16,
     particleColor: 0xd8d3c0,
+    // A lingering decay tick applied on hit (mob.js's _updateAI attack
+    // branch) rather than one big up-front number — "lingering decay
+    // damage-over-time" per spec.
+    decayDamage: 1,
+    decayDuration: 4,
     drops: [
       { itemId: ITEMS.BONE.id, min: 0, max: 2, chance: 0.8, lootingBoost: true },
       // Roughly 2.5% base per spec — "a real goal, not a grind" for the

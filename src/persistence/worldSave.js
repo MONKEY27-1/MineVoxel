@@ -174,8 +174,23 @@ export async function saveGame(worldId, { chunkManagers, player, dayNight, mobMa
     heldCursorItem: inventoryUI?.cursor ?? null,
   });
 
-  const mobs = mobManager.mobs.filter((m) => !m.despawning).map((m) => ({ typeId: m.typeId, x: m.position.x, y: m.position.y, z: m.position.z, health: m.health, yaw: m.yaw }));
-  const drops = itemDrops.drops.map((d) => ({ itemId: d.itemId, count: d.count, durability: d.durability, x: d.mesh.position.x, y: d.physicsY, z: d.mesh.position.z }));
+  // dimensionId: added alongside making mobManager/itemDrops
+  // dimension-aware (entities now travel through gates) — every entity
+  // already saved before this had implicitly always belonged to
+  // whichever dimension was active, so there's no real migration to do
+  // for existing saves, just a field that starts existing.
+  const mobs = mobManager.mobs
+    .filter((m) => !m.despawning)
+    .map((m) => ({ typeId: m.typeId, x: m.position.x, y: m.position.y, z: m.position.z, health: m.health, yaw: m.yaw, dimensionId: m.dimensionId }));
+  const drops = itemDrops.drops.map((d) => ({
+    itemId: d.itemId,
+    count: d.count,
+    durability: d.durability,
+    x: d.mesh.position.x,
+    y: d.physicsY,
+    z: d.mesh.position.z,
+    dimensionId: d.dimensionId,
+  }));
   await dbPut(STORES.entitySnapshots, { worldId, mobs, drops });
 
   const record = await dbGet(STORES.worlds, worldId);

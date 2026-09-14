@@ -36,16 +36,19 @@ export class ItemDropManager {
     // had no distance culling of any kind before this (see mobManager.js's
     // matching field for the same reasoning/history).
     this.despawnDist = 96;
+    // Same one-global-list-shared-across-dimensions shape mobManager.js
+    // has, and the same fix — see this class's spawn()/update().
+    this._activeDimensionId = 'overworld';
   }
 
-  spawn(position, itemId, count, durability) {
+  spawn(position, itemId, count, durability, dimensionId = this._activeDimensionId) {
     // Durability-bearing items (tools, maxStack 1) never merge — there's
     // no sensible "count: 2" for two tools with two different remaining
     // durabilities, so any item carrying metadata always gets its own
     // entity instead of folding into a same-itemId stack nearby.
     if (durability === undefined) {
       for (const d of this.drops) {
-        if (d.itemId === itemId && d.durability === undefined && d.mesh.position.distanceTo(position) < MERGE_RADIUS) {
+        if (d.itemId === itemId && d.durability === undefined && d.dimensionId === dimensionId && d.mesh.position.distanceTo(position) < MERGE_RADIUS) {
           d.count += count;
           return;
         }
@@ -58,6 +61,7 @@ export class ItemDropManager {
       itemId,
       count,
       durability,
+      dimensionId,
       mesh,
       physicsY: position.y,
       vy: 2 + Math.random(),
@@ -67,9 +71,19 @@ export class ItemDropManager {
     });
   }
 
-  update(dt, playerFeetPos, chunkManager, onPickup) {
+  update(dt, playerFeetPos, chunkManager, onPickup, dimension) {
+    this._activeDimensionId = dimension?.id ?? this._activeDimensionId;
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
+
+      // Left behind in a dimension the player isn't currently in (see
+      // mobManager.js's identical fix) — paused and hidden rather than
+      // ticking physics against the wrong dimension's terrain.
+      if (d.dimensionId !== this._activeDimensionId) {
+        d.mesh.visible = false;
+        continue;
+      }
+      d.mesh.visible = true;
 
       const dxp = d.mesh.position.x - playerFeetPos.x;
       const dzp = d.mesh.position.z - playerFeetPos.z;

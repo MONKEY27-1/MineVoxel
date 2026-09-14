@@ -266,6 +266,12 @@ html, body {
   display: none;
 }
 
+#inv-armor {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+}
+
 .chest-grid {
   display: grid;
   grid-template-columns: repeat(9, 40px);

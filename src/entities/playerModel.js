@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getItemModel } from './heldItemModel.js';
+import { getNonBlockItem } from '../items/items.js';
 
 // The player's own third-person body (and first-person right arm — see
 // viewModel.js) — a simple flat-colored blocky humanoid, in the same
@@ -12,6 +13,15 @@ import { getItemModel } from './heldItemModel.js';
 const SKIN_COLOR = 0xe0ac69;
 const SHIRT_COLOR = 0x3b6ea5;
 const PANTS_COLOR = 0x37474f;
+const BOOT_COLOR = 0x22262b;
+
+// Phase 7's armor system had no visual representation at all before this
+// — equipping a piece only changed stats/Ashkin-neutrality. No per-armor
+// mesh/texture exists (this project has no atlas-mapped player skin), so
+// each equipped piece recolors the body part it covers instead — the
+// same tier colors atlas.js's ARMOR_ICON_COLOR already uses for item
+// icons, so a held gold helmet and a worn one read as the same "gold".
+const ARMOR_TIER_COLOR = { gold: 0xf2d543, iron: 0xd8d3c8, voidsteel: 0x3a3550 };
 
 function part(w, h, d, color) {
   const geo = new THREE.BoxGeometry(w, h, d);
@@ -49,9 +59,9 @@ export class PlayerModel {
 
     this.rightArmPivot = new THREE.Group();
     this.rightArmPivot.position.set(-0.375, shoulderY, 0);
-    const rightArm = part(armSize, this.torsoHeight, armSize, SKIN_COLOR);
-    rightArm.position.y = -this.torsoHeight / 2;
-    this.rightArmPivot.add(rightArm);
+    this.rightArm = part(armSize, this.torsoHeight, armSize, SKIN_COLOR);
+    this.rightArm.position.y = -this.torsoHeight / 2;
+    this.rightArmPivot.add(this.rightArm);
     this.rightHand = new THREE.Group(); // attachment point for a held item, at the wrist
     this.rightHand.position.y = -this.torsoHeight;
     this.rightArmPivot.add(this.rightHand);
@@ -59,23 +69,30 @@ export class PlayerModel {
 
     this.leftArmPivot = new THREE.Group();
     this.leftArmPivot.position.set(0.375, shoulderY, 0);
-    const leftArm = part(armSize, this.torsoHeight, armSize, SKIN_COLOR);
-    leftArm.position.y = -this.torsoHeight / 2;
-    this.leftArmPivot.add(leftArm);
+    this.leftArm = part(armSize, this.torsoHeight, armSize, SKIN_COLOR);
+    this.leftArm.position.y = -this.torsoHeight / 2;
+    this.leftArmPivot.add(this.leftArm);
     this.group.add(this.leftArmPivot);
 
+    const bootHeight = 0.18;
     this.rightLegPivot = new THREE.Group();
     this.rightLegPivot.position.set(-0.13, this.legHeight, 0);
-    const rightLeg = part(legSize, this.legHeight, legSize, PANTS_COLOR);
-    rightLeg.position.y = -this.legHeight / 2;
-    this.rightLegPivot.add(rightLeg);
+    this.rightLeg = part(legSize, this.legHeight, legSize, PANTS_COLOR);
+    this.rightLeg.position.y = -this.legHeight / 2;
+    this.rightLegPivot.add(this.rightLeg);
+    this.rightBoot = part(legSize + 0.02, bootHeight, legSize + 0.02, PANTS_COLOR);
+    this.rightBoot.position.y = -this.legHeight + bootHeight / 2;
+    this.rightLegPivot.add(this.rightBoot);
     this.group.add(this.rightLegPivot);
 
     this.leftLegPivot = new THREE.Group();
     this.leftLegPivot.position.set(0.13, this.legHeight, 0);
-    const leftLeg = part(legSize, this.legHeight, legSize, PANTS_COLOR);
-    leftLeg.position.y = -this.legHeight / 2;
-    this.leftLegPivot.add(leftLeg);
+    this.leftLeg = part(legSize, this.legHeight, legSize, PANTS_COLOR);
+    this.leftLeg.position.y = -this.legHeight / 2;
+    this.leftLegPivot.add(this.leftLeg);
+    this.leftBoot = part(legSize + 0.02, bootHeight, legSize + 0.02, PANTS_COLOR);
+    this.leftBoot.position.y = -this.legHeight + bootHeight / 2;
+    this.leftLegPivot.add(this.leftBoot);
     this.group.add(this.leftLegPivot);
 
     // [pivot, sign] — opposite arm/leg pairs swing oppositely, same
@@ -114,6 +131,37 @@ export class PlayerModel {
       this._currentItemMesh.frustumCulled = false;
       this.rightHand.add(this._currentItemMesh);
     }
+  }
+
+  /**
+   * `armor` is `player.armor` — a 4-slot [helmet, chest, legs, boots]
+   * array of `{itemId, durability}|null`. Recolors the body part each
+   * slot covers instead of adding new geometry (helmet -> head, chest ->
+   * torso + both arms matching vanilla's shoulder coverage, legs -> both
+   * leg boxes, boots -> the small foot caps). Cheap enough to call every
+   * frame; only touches material.color when it actually differs.
+   */
+  setArmor(armor) {
+    const colorFor = (slot, fallback) => {
+      const piece = armor?.[slot];
+      if (!piece) return fallback;
+      const item = getNonBlockItem(piece.itemId);
+      return ARMOR_TIER_COLOR[item?.material?.name] ?? fallback;
+    };
+    const apply = (mesh, hex) => {
+      if (mesh.material.color.getHex() !== hex) mesh.material.color.setHex(hex);
+    };
+    const chestColor = colorFor(1, null);
+    apply(this.head, colorFor(0, SKIN_COLOR));
+    apply(this.torso, chestColor ?? SHIRT_COLOR);
+    apply(this.rightArm, chestColor ?? SKIN_COLOR);
+    apply(this.leftArm, chestColor ?? SKIN_COLOR);
+    const legColor = colorFor(2, PANTS_COLOR);
+    apply(this.rightLeg, legColor);
+    apply(this.leftLeg, legColor);
+    const bootColor = colorFor(3, BOOT_COLOR);
+    apply(this.rightBoot, bootColor);
+    apply(this.leftBoot, bootColor);
   }
 
   /** `yaw`/`pitch` orient the body/head; body always faces `yaw`, head alone tilts with `pitch`. */

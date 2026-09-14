@@ -664,6 +664,25 @@ painters.tnt_side = (ctx, ox, oy) => {
   ctx.font = '6px monospace';
   ctx.fillText('TNT', ox + 1, oy + 9);
 };
+// Phase 7 follow-up: TNT's armed-fuse flash frame — main.js alternates
+// the real block between TNT and this every fraction of a second while
+// lit (see TNT_LIT in blocks.js). Same layout as tnt_top/tnt_side, just
+// blown out toward white so the swap actually reads as a flash.
+painters.tnt_top_lit = (ctx, ox, oy) => {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  ctx.fillStyle = '#ffe9b8';
+  ctx.fillRect(ox + 4, oy + 4, 8, 8);
+};
+painters.tnt_side_lit = (ctx, ox, oy) => {
+  ctx.fillStyle = '#fff6e6';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(ox, oy + 5, TILE, 6);
+  ctx.fillStyle = '#c23a2e';
+  ctx.font = '6px monospace';
+  ctx.fillText('TNT', ox + 1, oy + 9);
+};
 painters.stone_bricks = (ctx, ox, oy) => {
   speckle(ctx, ox, oy, '#8a8a8a', ['#7d7d7d', '#959595'], 0.3, 505);
   ctx.strokeStyle = '#5c5c5c';

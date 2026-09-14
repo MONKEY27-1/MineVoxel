@@ -34,6 +34,7 @@ import { FallingBlockManager, checkFall } from './entities/fallingBlock.js';
 import { FluidSimulator } from './world/fluids.js';
 import { XPOrbManager } from './entities/xpOrb.js';
 import { MobManager } from './entities/mobManager.js';
+import { ProjectileManager } from './entities/projectile.js';
 import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
@@ -66,6 +67,8 @@ const THIRD_PERSON_DISTANCE = 4.5; // blocks — clamped shorter by raycastVoxel
 const TNT_FUSE_SECONDS = 4;
 const TNT_EXPLOSION_RADIUS = 4;
 const TNT_EXPLOSION_POWER = 7;
+const TNT_FLASH_INTERVAL = 0.25; // vanilla's ~4Hz white flicker while primed — see BLOCKS.TNT_LIT
+const GATE_ENTITY_CARRY_RADIUS = 8; // mobs/drops within this of the player when they travel come along too — see travelToDimension
 
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
@@ -330,6 +333,7 @@ function main() {
   const debugOverlay = new DebugOverlay(debugEl);
   const hud = new Hud(atlasUV);
   const mobManager = new MobManager(renderer.scene, { particles, itemDrops, xpOrbs });
+  const projectiles = new ProjectileManager(renderer.scene, particles);
 
   // --- Revision-pass section 8: clouds, sky, sun/shadow light --------
   const clouds = new Clouds(renderer.scene, WORLD_SEED);
@@ -502,6 +506,12 @@ function main() {
     fadeOverlayEl.style.transition = '';
     fadeOverlayEl.classList.add('visible');
     try {
+      // Captured before player.position is overwritten below — the
+      // point nearby mobs/drops get carried FROM (see the entity-travel
+      // block right after the player actually lands).
+      const departX = player.position.x;
+      const departY = player.position.y;
+      const departZ = player.position.z;
       const scale = fromDimension === overworld ? 1 / OVERWORLD_TO_CINDERDEEP_SCALE : OVERWORLD_TO_CINDERDEEP_SCALE;
       const targetX = player.position.x * scale;
       const targetZ = player.position.z * scale;
@@ -562,6 +572,38 @@ function main() {
       player.velocity.y = 0;
       player.velocity.z = 0;
       travelCooldown = 3;
+
+      // Entities travel too (phase 1's spec, deferred until Phase 4 mobs
+      // actually existed to test it against): anything within
+      // GATE_ENTITY_CARRY_RADIUS of the player's departure point comes
+      // along, landing scattered near the same spot the player did. Mobs/
+      // drops further away are simply left behind in their own dimension
+      // — mobManager.js/itemDrop.js pause and hide anything whose
+      // dimensionId no longer matches the active dimension, rather than
+      // ticking their physics against terrain that isn't theirs.
+      for (const mob of mobManager.mobs) {
+        if (mob.dimensionId !== fromDimension.id || mob.dead || mob.despawning) continue;
+        const dist = Math.hypot(mob.position.x - departX, mob.position.y - departY, mob.position.z - departZ);
+        if (dist > GATE_ENTITY_CARRY_RADIUS) continue;
+        mob.dimensionId = toDimension.id;
+        mob.position.x = standX + (Math.random() - 0.5) * 2;
+        mob.position.y = standY + 1;
+        mob.position.z = standZ + (Math.random() - 0.5) * 2;
+        mob.velocity.x = 0;
+        mob.velocity.y = 0;
+        mob.velocity.z = 0;
+      }
+      for (const drop of itemDrops.drops) {
+        if (drop.dimensionId !== fromDimension.id) continue;
+        const dist = Math.hypot(drop.mesh.position.x - departX, drop.physicsY - departY, drop.mesh.position.z - departZ);
+        if (dist > GATE_ENTITY_CARRY_RADIUS) continue;
+        drop.dimensionId = toDimension.id;
+        drop.mesh.position.x = standX + (Math.random() - 0.5) * 2;
+        drop.physicsY = standY + 1;
+        drop.mesh.position.z = standZ + (Math.random() - 0.5) * 2;
+        drop.resting = false;
+        drop.vy = 2;
+      }
     } finally {
       setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
       isTraveling = false;
@@ -674,12 +716,19 @@ function main() {
         respawnPlayer();
       }
       for (const m of entities.mobs) {
-        const mob = mobManager.spawn(m.typeId, { x: m.x, y: m.y, z: m.z });
+        // Pre-existing saves have no dimensionId at all (entities were
+        // one un-dimensioned list) — 'overworld' is a reasonable default
+        // for a save from before this pass, not necessarily perfectly
+        // accurate for one captured while in the Cinderdeep, but matches
+        // every other additive-field migration in this codebase (a
+        // silent best-effort default, not a hard requirement for a
+        // mechanic that didn't exist yet).
+        const mob = mobManager.spawn(m.typeId, { x: m.x, y: m.y, z: m.z }, { dimensionId: m.dimensionId ?? 'overworld' });
         mob.health = m.health;
         mob.yaw = m.yaw;
       }
       for (const d of entities.drops) {
-        itemDrops.spawn({ x: d.x, y: d.y, z: d.z }, d.itemId, d.count, d.durability);
+        itemDrops.spawn({ x: d.x, y: d.y, z: d.z }, d.itemId, d.count, d.durability, d.dimensionId ?? 'overworld');
       }
     }
 
@@ -730,7 +779,7 @@ function main() {
     itemDrops.spawn({ x: eye.x + look.x * 0.6, y: eye.y + look.y * 0.6, z: eye.z + look.z * 0.6 }, itemId, count, durability);
   }
 
-  const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer });
+  const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer, player });
 
   function toggleInventory() {
     if (inventoryUI.isOpen) {
@@ -946,7 +995,7 @@ function main() {
             // Phase 7 (Voidsteel): the only way to expose Voidiron Ore in
             // survival — see world/explosion.js. A short fuse (matches
             // vanilla's ~4s), ticked in the fixed-step loop below.
-            tntFuses.push({ x: bx, y: by, z: bz, timer: TNT_FUSE_SECONDS });
+            tntFuses.push({ x: bx, y: by, z: bz, timer: TNT_FUSE_SECONDS, flashTimer: TNT_FLASH_INTERVAL, lit: false });
             playBlockPlace(BLOCKS.TNT);
             if (player.gameMode !== 'creative') {
               player.selectedItem.durability -= 1;
@@ -1001,7 +1050,7 @@ function main() {
         interaction.target = null;
       }
 
-      itemDrops.update(FIXED_DT, player.position, chunkManager, (itemId, count, durability) => player.inventory.addItem(itemId, count, durability));
+      itemDrops.update(FIXED_DT, player.position, chunkManager, (itemId, count, durability) => player.inventory.addItem(itemId, count, durability), activeDimension);
       fallingBlocks.update(FIXED_DT, chunkManager, (blockId, x, y, z) => {
         chunkManager.setBlock(x, y, z, blockId);
         fluids.notify(x, y, z);
@@ -1017,10 +1066,25 @@ function main() {
       // every other per-frame entity list here.
       for (let i = tntFuses.length - 1; i >= 0; i--) {
         const fuse = tntFuses[i];
+        const currentBlock = chunkManager.getBlock(fuse.x, fuse.y, fuse.z);
+        if (currentBlock !== BLOCKS.TNT && currentBlock !== BLOCKS.TNT_LIT) {
+          tntFuses.splice(i, 1); // mined out from under its own fuse
+          continue;
+        }
+
+        // Vanilla's alternating white flicker while primed — a block
+        // swap, not a shader animation, since terrain is greedy-meshed
+        // batched geometry with no per-instance visual state to animate.
+        fuse.flashTimer -= FIXED_DT;
+        if (fuse.flashTimer <= 0) {
+          fuse.flashTimer = TNT_FLASH_INTERVAL;
+          fuse.lit = !fuse.lit;
+          chunkManager.setBlock(fuse.x, fuse.y, fuse.z, fuse.lit ? BLOCKS.TNT_LIT : BLOCKS.TNT);
+        }
+
         fuse.timer -= FIXED_DT;
         if (fuse.timer > 0) continue;
         tntFuses.splice(i, 1);
-        if (chunkManager.getBlock(fuse.x, fuse.y, fuse.z) !== BLOCKS.TNT) continue; // mined out from under its own fuse
         chunkManager.setBlock(fuse.x, fuse.y, fuse.z, BLOCKS.AIR);
         const destroyed = explode(chunkManager, fuse.x + 0.5, fuse.y + 0.5, fuse.z + 0.5, {
           radius: TNT_EXPLOSION_RADIUS,
@@ -1036,8 +1100,8 @@ function main() {
         // TNT is genuinely dangerous, not just a mining tool — a
         // distance-scaled hit within a couple blocks past the clearing
         // radius, same falloff spirit as explode()'s own block damage.
-        const dmgDist = Math.hypot(player.position.x - (fuse.x + 0.5), player.position.y - (fuse.y + 0.5), player.position.z - (fuse.z + 0.5));
         const dangerRadius = TNT_EXPLOSION_RADIUS + 2;
+        const dmgDist = Math.hypot(player.position.x - (fuse.x + 0.5), player.position.y - (fuse.y + 0.5), player.position.z - (fuse.z + 0.5));
         if (dmgDist < dangerRadius) {
           const dmg = Math.round((1 - dmgDist / dangerRadius) * 10);
           if (dmg > 0) {
@@ -1049,8 +1113,21 @@ function main() {
             });
           }
         }
+        // Mobs take the same distance-scaled hit — explosions previously
+        // only ever damaged the player, which made TNT a risk-free way
+        // to clear mobs guarding whatever it's mining out.
+        for (const mob of mobManager.mobs) {
+          if (mob.dead || mob.despawning || mob.dimensionId !== activeDimension.id) continue;
+          const mDist = Math.hypot(mob.position.x - (fuse.x + 0.5), mob.position.y - (fuse.y + 0.5), mob.position.z - (fuse.z + 0.5));
+          if (mDist >= dangerRadius) continue;
+          const mDmg = Math.round((1 - mDist / dangerRadius) * 10);
+          if (mDmg <= 0) continue;
+          const mkb = mDist > 0.01 ? 1 / mDist : 0;
+          mob.takeDamage(mDmg, { x: (mob.position.x - fuse.x) * mkb, z: (mob.position.z - fuse.z) * mkb });
+        }
       }
-      mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension);
+      mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension, projectiles);
+      projectiles.update(FIXED_DT, chunkManager, player, mobManager, activeDimension);
       if (mobManager.justKilled) playMobDeath();
       if (player.justHurt) {
         playPlayerHurt();
@@ -1269,6 +1346,7 @@ function main() {
 
     const heldItemId = player.selectedItem && !inventoryUI.isOpen ? player.selectedItem.itemId : null;
     playerModel.setItem(heldItemId);
+    playerModel.setArmor(player.armor);
     if (player.cameraMode === 'first') {
       viewModel.setItem(heldItemId);
       viewModel.update(dt, Math.hypot(player.velocity.x, player.velocity.z));
@@ -1338,6 +1416,7 @@ function main() {
       BLOCKS,
       TUNING,
       mobManager,
+      projectiles,
       respawnPlayer,
       menuController,
       startGame,

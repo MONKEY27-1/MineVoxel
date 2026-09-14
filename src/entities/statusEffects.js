@@ -15,6 +15,12 @@ export const EFFECT_TYPES = {
   slow_falling: { name: 'Slow Falling', color: 0xd9c6a5, duration: 90 },
   regeneration: { name: 'Regeneration', color: 0xc85fc0, duration: 45 },
   fire_resistance: { name: 'Fire Resistance', color: 0xe8621f, duration: 180 },
+  // Ashbone's lingering attack (mob.js) applies this directly with its
+  // own short duration rather than the default 180s — a combat DoT, not
+  // a brewed potion effect, though it shares the same timer/HUD-chip
+  // machinery since "a timed thing ticking down" is exactly what this
+  // class already does.
+  decay: { name: 'Decay', color: 0x5a4d3a, duration: 4 },
 };
 
 export class StatusEffectManager {

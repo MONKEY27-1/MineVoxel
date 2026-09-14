@@ -10,6 +10,7 @@ const VOIDSTEEL_KNOCKBACK_RESISTANCE = 0.7; // phase 7: "slight knockback resist
 const FIRE_DAMAGE_INTERVAL = 0.5; // seconds between lava/fire contact ticks — matches vanilla's roughly-twice-a-second burn tick
 const FIRE_DAMAGE_PER_TICK = 2;
 const REGEN_INTERVAL = 2.5; // seconds per heal pulse
+const DECAY_INTERVAL = 1; // Ashbone's lingering DoT — one tick per second for as long as the 'decay' effect is active
 const SPEED_EFFECT_MULTIPLIER = 1.2;
 const SLOW_FALLING_MAX_SPEED = 1.2; // blocks/sec downward, matches the gentle vanilla drift
 
@@ -140,6 +141,8 @@ export class Player {
     this.effects = new StatusEffectManager();
     this._fireDamageTimer = 0;
     this._regenTimer = 0;
+    this._decayTimer = 0;
+    this._decayDamagePerTick = 1; // set by whatever inflicted it (mob.js's Ashbone attack) — see addDecay()
 
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 1000);
     this._baseFov = 75; // matches the camera's construction above
@@ -209,7 +212,8 @@ export class Player {
   /** Mob-attack damage — gated the same way fall damage/drowning already are. */
   takeDamage(amount, knockback) {
     if (this.gameMode !== 'survival') return;
-    this.health = Math.max(0, this.health - amount);
+    const reduction = Math.min(0.8, this._totalArmorDefense() * 0.04); // each defense point ~4%, capped at 80% like vanilla's toughness ceiling
+    this.health = Math.max(0, this.health - amount * (1 - reduction));
     this.justHurt = true; // one-shot flag — main.js reads+clears it to trigger the hurt sound (phase 10)
     this._triggerDamageShake();
     if (knockback) {
@@ -218,6 +222,11 @@ export class Player {
       this.velocity.y += knockback.y * resist;
       this.velocity.z += knockback.z * resist;
     }
+  }
+
+  /** Sum of every equipped armor piece's `defense` stat — see items.js's ARMOR_MATERIAL. Fall damage and drowning bypass takeDamage() entirely (pre-existing, unrelated to armor) so neither benefits from this yet. */
+  _totalArmorDefense() {
+    return this.armor.reduce((sum, piece) => (piece ? sum + (getNonBlockItem(piece.itemId)?.defense ?? 0) : sum), 0);
   }
 
   /** Any Voidsteel armor piece equipped — phase 7's knockback resistance. */
@@ -266,6 +275,18 @@ export class Player {
       this._regenTimer = REGEN_INTERVAL;
       this.health = Math.min(this.maxHealth, this.health + 1);
     }
+
+    this._decayTimer = Math.max(0, this._decayTimer - dt);
+    if (this._decayTimer <= 0 && this.effects.has('decay')) {
+      this._decayTimer = DECAY_INTERVAL;
+      this.takeDamage(this._decayDamagePerTick, null);
+    }
+  }
+
+  /** Ashbone's lingering-decay attack (mob.js) — refreshes the timer and damage-per-tick rather than stacking multiple independent decay ticks. */
+  addDecay(damagePerTick, duration) {
+    this._decayDamagePerTick = damagePerTick;
+    this.effects.add('decay', duration);
   }
 
   /** Respects `sneakMode`: 'hold' reads the key live, 'toggle' flips a persisted flag on each press. */

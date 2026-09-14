@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ChunkColumn, columnKey } from './chunkColumn.js';
 import { Section, SECTION_SIZE, sectionIndex } from './section.js';
-import { createAtlasMaterial, setDayFactor, setMaterialTime, setSwayStrength, setWaterTint, setShadowUniforms, setAmbientFloor } from '../mesh/atlasMaterial.js';
+import { createAtlasMaterial, setDayFactor, setMaterialTime, setSwayStrength, setWaterTint, setPortalSwirl, setShadowUniforms, setAmbientFloor } from '../mesh/atlasMaterial.js';
 import { BLOCKS, getBlock } from './blocks.js';
 import { recomputeColumnLight } from './lighting.js';
 import { FULLY_OPEN_CONNECTIVITY } from '../mesh/connectivity.js';
@@ -121,6 +121,7 @@ export class ChunkManager {
         depthWrite: false,
         side: THREE.DoubleSide,
         waterTint: true,
+        portalSwirl: true,
       }),
       cross: createAtlasMaterial(atlasTexture, {
         side: THREE.DoubleSide,
@@ -131,6 +132,8 @@ export class ChunkManager {
     };
     const waterRect = atlasUV.get('water');
     if (waterRect) setWaterTint(this.materials.transparent, { rect: waterRect, alpha: 0.75, tintStrength: 0, tintColor: 0x2f6fa8 });
+    const portalRect = atlasUV.get('cinder_portal');
+    if (portalRect) setPortalSwirl(this.materials.transparent, { rect: portalRect });
 
     const genWorkerCount = options.genWorkers ?? 3;
     const meshWorkerCount = options.meshWorkers ?? 2;
