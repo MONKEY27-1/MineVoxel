@@ -21,11 +21,11 @@ export function createCinderdeep() {
     hasDayNightCycle: false,
     hasWeather: false,
     hasClouds: false,
-    ambientIntensity: 0.35,
+    ambientIntensity: 0.55,
     sunIntensity: 0,
     gravity: 32,
     spawnTables: { passive: [], hostile: [] }, // populated in phase 4
-    ambientFloorLevel: 0.14, // dim red glow so caves aren't pitch black — see dimension.js's note
+    ambientFloorLevel: 0.24, // dim red glow so caves aren't pitch black — see dimension.js's note. Brightened per user feedback (was 0.14).
     ambientFloorColor: 0x662016,
     lavaSpreadMultiplier: 3,
     evaporatesWater: true,

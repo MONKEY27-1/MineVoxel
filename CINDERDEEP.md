@@ -518,6 +518,51 @@ Fixed in `cinderdeepGenerator.js`/`cinderdeepBiomes.js`, in two parts:
 
 **Why nothing caught the original ~6% bug for the whole time it existed**: every existing test either places blocks manually (bypassing natural generation entirely) or checks structure/mob/item behavior, not raw terrain shape. Added `tools/test-cinderdeep-terrain.js` (`npm run test:cinderdeep-terrain`) — a plain Node script (no browser needed, `createCinderdeepGenerator` has zero THREE/DOM dependency) that measures real generated block data per biome and asserts a healthy 10-75% open range, plus confirms Basalt Fractures has both open standing room and solid terrain (not one or the other), and bedrock still bounds every column top and bottom. Writing this test caught a second, unrelated bug in the test itself first: a naive fake `setBlock` that only tallies cells it's actually called for silently drops every "left as air by omission" cell (`generateColumn`'s own documented optimization — real chunk sections start pre-zeroed to AIR, so it skips a redundant `setBlock(AIR)` call), which made an early version of this test wrongly report ~10% open against the *already-fixed* generator. Fixed by pre-filling every cell as AIR before running `generateColumn`, matching what a real `Section` actually does.
 
+## Post-launch tuning: brighter, more glowstone, bigger lava pools
+
+User feedback after the Nether-terrain fix above. Tuned in
+`cinderdeepDimension.js`, `cinderdeepBiomes.js`, and
+`cinderdeepGenerator.js`:
+
+- **Brighter**: `ambientIntensity` 0.35→0.55, `ambientFloorLevel`
+  0.14→0.24 (the dim red floor-tint shader uniform — see
+  atlasMaterial.js's `uAmbientFloor`).
+- **More glowstone**: Cinder Wastes' `glowstoneChance` raised 0.01→0.05;
+  Mourning Flats/Bloodcap Grove/Azurecap Hollow (0.04-0.05) and Basalt
+  Fractures now have a chance at all — previously only Cinder Wastes had
+  any glowstone configured, so the other 4 biomes generated zero
+  regardless of setting.
+- **Bigger lava pools**: `LAVA_SEA_Y` 31→42 — every open cell at or
+  below this fills with lava dimension-wide, so raising it directly
+  grows every pool/sea.
+
+**Found and fixed while wiring glowstone into Basalt Fractures**: the
+floor-vs-wall material check only ever looked *below* a solid cell for
+open space (`belowOpen`) — correct for identifying a cave *ceiling*
+(solid with open cavern underneath — the existing "hang glowstone from
+the underside" comment two lines down correctly called this a ceiling),
+but the comment directly above it mislabeled the exact same check as
+detecting a "floor surface," and the code applied `biome.floor` there.
+For Basalt Fractures' new heightmap terrain (isOpenDelta: solid below a
+surface, open above — never open-then-solid-then-open in one column),
+that check never fires on the actual walkable ground at all, so the
+delta's surface was rendering entirely in `wall` material (blackstone)
+with the `floor` material (basalt) never appearing. Re-checking, this
+turned out to be a **pre-existing bug in Mourning Flats too**, dating to
+before this terrain-shape work — a 3D cave blob has real floor
+transitions (solid-with-open-*above*) at ordinary frequency, and the
+missing check meant Soul Sand never actually appeared on Mourning
+Flats' floor (it was rendering on cave *ceilings* instead, essentially
+invisible without looking straight up), while the ground you actually
+walk on rendered as plain Cinderstone. Fixed by also checking
+`aboveOpen` (solid-with-open-above = true floor) and treating either
+direction as floor-worthy; glowstone placement branches on which
+direction triggered (hangs from a ceiling underside via `belowOpen`, or
+embeds as a shallow surface deposit via `aboveOpen` for heightmap
+terrain with no ceiling to speak of). Verified directly: Mourning Flats
+and Basalt Fractures both now generate real, present-in-meaningful-
+quantity Soul Sand and Basalt respectively (previously near-absent).
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil

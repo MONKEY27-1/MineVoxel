@@ -32,7 +32,7 @@ import { placeBlueprintInChunk } from './structures/placement.js';
 // fly/walk through, not almost solid rock). Recalibrated by sampling the
 // real noise fields directly rather than guessing.
 const WORLD_TOP = 127; // ceiling bedrock sits here; floor bedrock sits at y=0
-const LAVA_SEA_Y = 31;
+const LAVA_SEA_Y = 42; // raised from 31 per user feedback ("bigger lava pools") — every open cell at/below this fills with lava
 
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
@@ -238,17 +238,25 @@ export function createCinderdeepGenerator(seed) {
           // A block whose neighbor directly below is open cavern (or lava)
           // is a "floor" surface — give it the biome's floor material
           // (soul sand fields, basalt shores) instead of the bulk wall
-          // material, `floorDepth` blocks deep.
+          // material, `floorDepth` blocks deep. A block whose neighbor
+          // directly ABOVE is open matters too for Basalt Fractures'
+          // heightmap terrain shape (isOpenDelta): open sits above a
+          // monotonic solid surface there, never below-then-solid-then-
+          // open, so belowOpen alone would never fire and the walkable
+          // ground would wrongly render as `wall` (blackstone) instead of
+          // `floor` (basalt) every time.
           const belowOpen = isOpen(wx, wy - 1, wz, biome);
-          if (belowOpen) {
+          const aboveOpen = isOpen(wx, wy + 1, wz, biome);
+          if (belowOpen || aboveOpen) {
             setBlock(lx, wy, lz, biome.floor);
           } else {
             // Still close enough under a floor surface to count as fill —
-            // check a few blocks up for an open cell to decide floor vs wall.
+            // check a few blocks either side for an open cell to decide
+            // floor vs wall.
             let nearFloor = false;
             const depth = biome.floorDepth ?? 1;
             for (let d = 1; d <= depth; d++) {
-              if (isOpen(wx, wy - d, wz, biome)) {
+              if (isOpen(wx, wy - d, wz, biome) || isOpen(wx, wy + d, wz, biome)) {
                 nearFloor = true;
                 break;
               }
@@ -256,13 +264,21 @@ export function createCinderdeepGenerator(seed) {
             setBlock(lx, wy, lz, nearFloor ? biome.floor : biome.wall);
           }
 
-          // Hanging glowstone clusters on the underside of a ceiling
-          // (a solid cell with open cavern directly below AND above it is
-          // NOT a ceiling — a ceiling is solid-with-open-below only, which
-          // belowOpen already captured above; gate on the biome's own
-          // chance so this doesn't carpet every single overhang).
-          if (belowOpen && biome.glowstoneChance && rnd() < biome.glowstoneChance) {
-            setBlock(lx, wy - 1, lz, BLOCKS.GLOWSTONE);
+          if (biome.glowstoneChance && rnd() < biome.glowstoneChance) {
+            if (belowOpen) {
+              // Hanging glowstone cluster on the underside of a ceiling
+              // (a solid cell with open cavern directly below AND above
+              // it is NOT a ceiling — a ceiling is solid-with-open-below
+              // only, which belowOpen already captures).
+              setBlock(lx, wy - 1, lz, BLOCKS.GLOWSTONE);
+            } else if (aboveOpen) {
+              // A shallow glow deposit right at a heightmap surface
+              // (Basalt Fractures) — there's no "ceiling underside" to
+              // hang anything from there, just ground poking up into
+              // open air, so this embeds directly into the walkable
+              // surface block instead.
+              setBlock(lx, wy, lz, BLOCKS.GLOWSTONE);
+            }
           }
         }
 

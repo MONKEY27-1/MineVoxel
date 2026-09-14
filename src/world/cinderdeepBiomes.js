@@ -22,7 +22,7 @@ export const CINDERDEEP_BIOMES = {
     particleRate: 0.4,
     ambientBed: 'cinder_wastes',
     fireChance: 0.002,
-    glowstoneChance: 0.01,
+    glowstoneChance: 0.05,
   },
   MOURNING_FLATS: {
     id: 'mourning_flats',
@@ -38,6 +38,7 @@ export const CINDERDEEP_BIOMES = {
     ambientBed: 'mourning_flats',
     fossilChance: 0.0006,
     slownessFloor: true,
+    glowstoneChance: 0.04,
     // A relatively flat, walkable low valley (real Soul Sand Valley's
     // silhouette) instead of the default 3D cave carve — see
     // cinderdeepGenerator.js's isOpenValley.
@@ -56,6 +57,7 @@ export const CINDERDEEP_BIOMES = {
     ambientBed: 'bloodcap_grove',
     fungusGrove: 'bloodcap',
     tuskbeastSpawns: true,
+    glowstoneChance: 0.04,
     // A relatively flat forest floor (real Crimson Forest's silhouette),
     // not the default 3D cave carve.
     flatValley: true,
@@ -73,6 +75,7 @@ export const CINDERDEEP_BIOMES = {
     ambientBed: 'azurecap_hollow',
     fungusGrove: 'azurecap',
     noHostiles: true,
+    glowstoneChance: 0.05,
     // A relatively flat forest floor (real Warped Forest's silhouette),
     // not the default 3D cave carve.
     flatValley: true,
