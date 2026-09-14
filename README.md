@@ -39,6 +39,7 @@ npm run smoke        # boots a world, walks/flies/breaks/places/opens every UI p
 npm run perf         # samples frame time/draw calls/triangles/heap on a fixed route, writes perf-baseline.json
 npm run soak         # 10-minute continuous flight, heap sampled every 15s — catches leaks a short run wouldn't
 npm run test:gen     # 5 fixed seeds, hashes generated block data — catches unintended worldgen changes
+npm run test:atlas-hash  # hashes the built texture atlas pixel-for-pixel — catches a silently-corrupted texture (see tools/atlas-hash.json)
 npm run test:save    # save/load round trip, deep-equal on blocks/containers/player state
 npm run test:dup     # item duplication/destruction audit (drag/drop, crafting, death, container-break edge cases)
 npm run test:save-fuzz  # corrupted-save graceful-failure + schema-migration checks
