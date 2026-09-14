@@ -78,6 +78,11 @@ export class Player {
     this.pitch = 0;
 
     this.gameMode = 'creative';
+    // Command-system support (see commands/selectors.js's name=/tag=
+    // filters and the /tag command) — general-purpose, not tied to any
+    // one command.
+    this.customName = null;
+    this.tags = new Set();
     this.flying = true;
     this.onGround = false;
     this.sneaking = false;

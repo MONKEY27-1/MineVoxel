@@ -83,6 +83,16 @@ export function removeContainerAt(x, y, z) {
   pendingLoot.delete(k);
 }
 
+/** Every not-yet-opened structure loot chest, with its table id — command-system support (`/locate structure`, which can only find chests that still carry their table id; once opened, `pendingLoot`'s entry for it is gone, same limitation the loot-rolling design itself already has). */
+export function allPendingLootChests() {
+  const out = [];
+  for (const [k, p] of pendingLoot) {
+    const [x, y, z] = k.split(',').map(Number);
+    out.push({ x, y, z, tableId: p.tableId });
+  }
+  return out;
+}
+
 export function allFurnaces() {
   return furnaces.values();
 }

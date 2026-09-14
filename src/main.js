@@ -666,6 +666,8 @@ function main() {
         itemDrops,
         inventoryUI,
         dimensionId: activeDimension.id,
+        spawnX,
+        spawnZ,
       });
       await saveGateRegistry(currentWorldId, gateRegistry);
     } finally {

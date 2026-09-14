@@ -148,7 +148,7 @@ export async function duplicateWorld(worldId, newName) {
  * autosave tick or an explicit Save-and-Quit) rather than from inside
  * the render loop itself, so this never stalls a frame.
  */
-export async function saveGame(worldId, { chunkManagers, player, dayNight, mobManager, itemDrops, inventoryUI, dimensionId }) {
+export async function saveGame(worldId, { chunkManagers, player, dayNight, mobManager, itemDrops, inventoryUI, dimensionId, spawnX, spawnZ }) {
   // Every dimension that's ever had a ChunkManager built this session
   // (see main.js's ensureDimensionChunkManager) gets its dirty columns
   // saved, not just whichever one the player happens to be standing in
@@ -212,6 +212,14 @@ export async function saveGame(worldId, { chunkManagers, player, dayNight, mobMa
   const record = await dbGet(STORES.worlds, worldId);
   if (record) {
     record.lastPlayedAt = Date.now();
+    // spawnX/spawnZ only ever changed in-memory (see main.js's `let
+    // spawnX/spawnZ`) — /setworldspawn writes them there, and this is the
+    // one place that write actually reaches disk, so it survives a
+    // reload instead of reverting to the world-creation spawn point.
+    // Callers that don't pass these (e.g. no command system wired up yet)
+    // leave the record's existing values untouched.
+    if (spawnX !== undefined) record.spawnX = spawnX;
+    if (spawnZ !== undefined) record.spawnZ = spawnZ;
     await dbPut(STORES.worlds, record);
   }
 }

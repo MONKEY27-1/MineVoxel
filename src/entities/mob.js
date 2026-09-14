@@ -194,6 +194,14 @@ export class Mob {
     // active dimension instead of ticking its physics against the wrong
     // dimension's terrain the instant the player travels away.
     this.dimensionId = dimensionId;
+    // Command-system support (see commands/selectors.js's name=/tag=
+    // filters and the /tag command) — general-purpose entity metadata,
+    // not tied to any one command; anything else could read/set these
+    // too. customName defaults to null (falls back to typeId for
+    // display) rather than the empty string, so "does this entity have a
+    // real custom name" stays a simple truthiness check.
+    this.customName = null;
+    this.tags = new Set();
 
     // Baby versions: real Minecraft scales the whole animal down and
     // gives it a proportionally larger head — approximated here as a
