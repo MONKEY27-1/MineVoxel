@@ -46,6 +46,7 @@ npm run test:edge    # world-boundary/void/rapid-edit edge cases
 npm run test:feel    # movement/jump mechanics + the debug tuning panel
 npm run test:visual  # particle/fade-overlay event coverage
 npm run test:audio   # mute-on-blur, hurt-sound coverage
+npm run test:a11y    # settings-panel/modal focus trapping, inventory-grid keyboard operability, GUI-scale/reduced-motion settings
 
 # The Cinderdeep (dimension 2) — see below
 npm run test:mobs             # Cinderdeep mob spawning, Ashkin gold-neutrality/bartering/aggro, dimension-scoped natural spawning
@@ -57,6 +58,9 @@ npm run test:voidsteel        # the full Voidsteel chain: explosion sparing the 
 npm run test:gate-linking     # the 8:1 overworld<->Cinderdeep coordinate scale, and that a nearby second trip reuses an existing gate instead of minting a duplicate
 npm run test:flint-and-steel  # a REAL right-click (dispatched MouseEvent, not a state shortcut) actually ignites a gate frame and lights TNT — see the mouse-button bug note below
 npm run test:cinderdeep-terrain  # per-biome open/solid terrain ratio stays healthy (guards against the ~6%-open terrain-generation bug described below)
+npm run test:entity-gate-travel  # mobs/item drops within carry radius travel through a gate with the player; a mob left behind pauses/hides instead of breaking
+npm run test:projectiles      # ranged mob attacks fire real projectiles (arc, hit detection, dimension-scoped pause) instead of an instant flat hit
+npm run test:riding           # tame/saddle/mount/steer/dismount an Emberstrider via real right-clicks; doesn't survive a gate trip or death
 ```
 
 Every script drives `tools/devserver.js` (a plain no-cache static file
@@ -87,8 +91,10 @@ All bindings are rebindable in Settings → Controls except where noted.
 | `F11` / the in-game Fullscreen button | Fullscreen (hold `Esc` to exit — see Browser support below) |
 | `F6` *(debug builds only, `?debug=1`)* | Live movement/jump tuning panel — see `POLISH.md` |
 
-`F2`, `F5`, and the debug-only `F6` are not currently rebindable (they're
-handled outside the `input.bindings` table everything else goes through).
+Only the debug-only `F6` is hardcoded/not rebindable — it's a dev tool
+gated behind `?debug=1`, not a player-facing keybind. `F2` and `F5` are
+real `input.bindings` entries (`screenshot`/`cycleCamera`) like
+everything else in the table.
 
 ## Status
 
