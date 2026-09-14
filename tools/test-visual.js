@@ -252,6 +252,60 @@ export default async function run(baseUrl) {
       if (countInSky !== 0) throw new Error(`expected no cave-drip particle in open sky, found ${countInSky}`);
     });
 
+    await step('ambient-biome motes spawn in the Cinderdeep (colored per biome), not in the overworld', async () => {
+      const M_before = await page.evaluate(() => window.__minevoxel.activeDimension.id);
+      if (M_before !== 'overworld') throw new Error(`setup failed: expected to still be in the overworld, was ${M_before}`);
+
+      // Negative control first, while still in the overworld: forcing
+      // the timer must not spawn anything here at all.
+      await page.evaluate(() => {
+        window.__minevoxel.particles.particles.length = 0;
+        window.__minevoxel.ambientMoteTimer = 0.001;
+      });
+      await page.waitForTimeout(200);
+      const countOverworld = await page.evaluate(() => window.__minevoxel.particles.particles.length);
+      if (countOverworld !== 0) throw new Error(`expected no ambient mote in the overworld, found ${countOverworld}`);
+
+      await page.evaluate(async () => {
+        const M = window.__minevoxel;
+        await M.travelToDimension(M.overworld, M.cinderdeep);
+      });
+      await page.waitForFunction(() => window.__minevoxel.activeDimension.id === 'cinderdeep', { timeout: 20000 });
+      await waitForChunks(page, 10, 20000);
+
+      const result = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        const p = M.player.position;
+        const biome = M.cinderdeepClimate.biomeAt(Math.floor(p.x), Math.floor(p.z));
+        M.particles.particles.length = 0;
+        M.ambientMoteTimer = 0.001;
+        return { biomeId: biome.id };
+      });
+
+      await page.waitForTimeout(200);
+      // Do the real work (filtering, reading THREE.js material color)
+      // inside the page — a live Mesh/Material doesn't survive
+      // page.evaluate's serialization boundary back out to Node, only
+      // plain data does.
+      const moteCheck = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        // Known BIOME_MOTE_COLOR values (it's a plain module constant in
+        // main.js, not live state worth exposing on the debug hook) —
+        // confirms the spawned mote's color came from the real per-biome
+        // map, not some unrelated particle type slipping through the
+        // gravity/maxLife filter below.
+        const knownColors = new Set([0xe8781e, 0x8a8580, 0xc62b46, 0x2ba3b8, 0x4a494c]);
+        const motes = M.particles.particles.filter((p) => p.gravity === false && p.maxLife > 2);
+        return { count: motes.length, colorIsKnown: motes.length > 0 && knownColors.has(motes[0].material.color.getHex()) };
+      });
+      if (moteCheck.count === 0) {
+        throw new Error(`expected an ambient mote to spawn in the Cinderdeep (biome=${result.biomeId}), found none`);
+      }
+      if (!moteCheck.colorIsKnown) {
+        throw new Error(`ambient mote's color is not one of the known BIOME_MOTE_COLOR values (biome=${result.biomeId})`);
+      }
+    });
+
     await step('respawning (death, void recovery, or new-world spawn) briefly flashes the fade overlay', async () => {
       const becameVisible = await page.evaluate(() => {
         window.__minevoxel.respawnPlayer();

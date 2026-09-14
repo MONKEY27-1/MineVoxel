@@ -71,6 +71,21 @@ const TNT_EXPLOSION_POWER = 7;
 const TNT_FLASH_INTERVAL = 0.25; // vanilla's ~4Hz white flicker while primed — see BLOCKS.TNT_LIT
 const GATE_ENTITY_CARRY_RADIUS = 8; // mobs/drops within this of the player when they travel come along too — see travelToDimension
 
+// Polish pass: ambient-biome motes — distinct per Cinderdeep biome
+// (cinderdeepBiomes.js's own `.id` values), matching each biome's
+// established color identity elsewhere (Bloodcap's reds, Azurecap's
+// blues, the ash/soot palette everywhere else). The overworld isn't
+// included — it has no equivalently-themed "atmospheric haze" concept
+// asked for here, and its own weather/particle needs are a separate,
+// unscoped item (see POLISH.md).
+const BIOME_MOTE_COLOR = {
+  cinder_wastes: 0xe8781e, // embers, matches lava/magma's orange
+  mourning_flats: 0x8a8580, // grey ash, matches soul sand's muted tone
+  bloodcap_grove: 0xc62b46, // red spores, matches Bloodcap fungus
+  azurecap_hollow: 0x2ba3b8, // blue spores, matches Azurecap fungus
+  basalt_fractures: 0x4a494c, // dark ash, matches basalt
+};
+
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
   // dimension-transfer seam (section 0 of the spec) and the sky-light
@@ -507,6 +522,12 @@ function main() {
   let portalStandTime = 0;
   let nightVisionWasActive = false; // phase 6: tracks the transition edge so the ambient-floor override applies/restores exactly once, not every tick
   let effectParticleTimer = 0;
+  // Polish pass: ambient-biome motes (spore/ember/ash) — a per-render-
+  // frame timer (real dt, not FIXED_DT — purely decorative, no physics
+  // determinism needed) rather than living alongside dripTimer in the
+  // fixed-tick loop, since biomeName is already computed for free right
+  // here for the fog-tint atmosphere block below.
+  let ambientMoteTimer = 2 + Math.random() * 3;
   let tntFuses = []; // phase 7: [{x,y,z,timer}] — lit TNT waiting to detonate, see explosion.js
 
   /**
@@ -1341,6 +1362,20 @@ function main() {
       biomeFogDensity = biome.fogDensity;
     }
 
+    if (activeDimension !== overworld) {
+      ambientMoteTimer -= dt;
+      if (ambientMoteTimer <= 0) {
+        ambientMoteTimer = 2 + Math.random() * 3;
+        const color = BIOME_MOTE_COLOR[biomeName];
+        if (color !== undefined) {
+          particles.spawnAmbientMote(
+            { x: rx + (Math.random() - 0.5) * 8, y: ry + 1 + Math.random() * 2, z: rz + (Math.random() - 0.5) * 8 },
+            color
+          );
+        }
+      }
+    }
+
     if (activeDimension.hasDayNightCycle) dayNight.update(dt);
     dayNight.getTint(dayTint);
 
@@ -1498,6 +1533,8 @@ function main() {
       respawnPlayer,
       get dripTimer() { return dripTimer; },
       set dripTimer(v) { dripTimer = v; },
+      get ambientMoteTimer() { return ambientMoteTimer; },
+      set ambientMoteTimer(v) { ambientMoteTimer = v; },
       menuController,
       startGame,
       persistNow,

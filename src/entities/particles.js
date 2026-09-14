@@ -76,6 +76,18 @@ export class ParticleSystem {
     this.particles.push({ mesh, velocity: new THREE.Vector3(0, -1.2, 0), life: 0, maxLife: 1.2, material });
   }
 
+  /** A slow-drifting ambient mote (spore/ember/ash) — polish pass. Unlike every other particle here, this doesn't fall: real dust/spore motes hang and drift rather than dropping, so gravity is switched off for its whole (several-second) life rather than just relying on a short lifetime to mask it the way spawnDrip's brief fall does. */
+  spawnAmbientMote(position, color) {
+    if (this.particles.length > MAX_PARTICLES) return;
+    if (Math.random() >= this.densityMultiplier) return; // a single-particle "burst" can't scale by count, so density instead scales the odds of it spawning at all
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true });
+    const mesh = new THREE.Mesh(this.geometry, material);
+    mesh.position.set(position.x, position.y, position.z);
+    this.scene.add(mesh);
+    const velocity = new THREE.Vector3((Math.random() - 0.5) * 0.15, 0.15 + Math.random() * 0.15, (Math.random() - 0.5) * 0.15);
+    this.particles.push({ mesh, velocity, life: 0, maxLife: 3 + Math.random() * 2, material, gravity: false });
+  }
+
   _spawn(position, color, count, speed, { flat = false } = {}) {
     if (this.particles.length > MAX_PARTICLES) return;
     const scaledCount = Math.round(count * this.densityMultiplier);
@@ -110,7 +122,7 @@ export class ParticleSystem {
         this.particles.splice(i, 1);
         continue;
       }
-      p.velocity.y -= 9.8 * dt;
+      if (p.gravity !== false) p.velocity.y -= 9.8 * dt;
       p.mesh.position.addScaledVector(p.velocity, dt);
       p.material.opacity = 1 - p.life / p.maxLife;
     }
