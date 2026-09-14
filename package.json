@@ -28,7 +28,8 @@
     "test:riding": "node tools/run-with-server.js tools/test-riding.js",
     "test:feel": "node tools/run-with-server.js tools/test-feel.js",
     "test:visual": "node tools/run-with-server.js tools/test-visual.js",
-    "test:audio": "node tools/run-with-server.js tools/test-audio.js"
+    "test:audio": "node tools/run-with-server.js tools/test-audio.js",
+    "test:a11y": "node tools/run-with-server.js tools/test-a11y.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

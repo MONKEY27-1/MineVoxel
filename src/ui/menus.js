@@ -1,7 +1,7 @@
 import { playUIClick } from '../audio/synth.js';
 import { applyMipmapping } from '../mesh/atlas.js';
 import { listWorlds, createWorld, renameWorld, deleteWorld, duplicateWorld } from '../persistence/worldSave.js';
-import { showConfirm, showPrompt } from './modal.js';
+import { showConfirm, showPrompt, trapFocus } from './modal.js';
 import { GRAPHICS_PRESETS, DEFAULT_GRAPHICS, DEFAULT_PERFORMANCE, DEFAULT_CONTROLS, DEFAULT_AUDIO, detectPreset, saveSettings as persistSettings } from '../settings/settings.js';
 
 // Phase 9: start screen (seed + game mode), and a settings panel reachable
@@ -172,6 +172,7 @@ export class MenuController {
 
     this.selectedMode = 'survival';
     this._rebindingAction = null;
+    this._settingsUntrap = null;
     this._masterVolume = settings.audio.master / 100;
     this._footstepVolume = settings.audio.footstep / 100;
     this._blockVolume = settings.audio.block / 100;
@@ -679,23 +680,49 @@ export class MenuController {
       this.audioEngine.ensureStarted();
       this.applyAudioSettings();
       playUIClick();
-      this.settingsPanelEl.classList.remove('hidden');
+      this._openSettingsPanel();
     });
     this.pauseSettingsBtnEl.addEventListener('click', (e) => {
       e.stopPropagation(); // don't also trigger pointer-lock-overlay's own click-to-lock handler
       this.audioEngine.ensureStarted();
       this.applyAudioSettings();
       playUIClick();
-      this.settingsPanelEl.classList.remove('hidden');
+      this._openSettingsPanel();
     });
     this.settingsBackBtnEl.addEventListener('click', (e) => {
       e.stopPropagation();
       playUIClick();
-      this.settingsPanelEl.classList.add('hidden');
+      this._closeSettingsPanel();
     });
     this.settingsPanelEl.addEventListener('click', (e) => {
-      if (e.target === this.settingsPanelEl) this.settingsPanelEl.classList.add('hidden');
+      if (e.target === this.settingsPanelEl) this._closeSettingsPanel();
     });
+  }
+
+  // Polish-pass tier-9 fix: Tab used to escape the settings panel
+  // straight to the browser's own chrome (confirmed absent, not just a
+  // gap here) — trapFocus keeps it cycling inside the panel, and Escape
+  // now closes it too (it previously did nothing at all while this panel
+  // was open, since main.js's own Escape handling only ever looks at
+  // inventoryUI).
+  _openSettingsPanel() {
+    this.settingsPanelEl.classList.remove('hidden');
+    this._settingsUntrap = trapFocus(this.settingsPanelEl, {
+      // Mid-rebind, Escape (like any other key) is meant to become the
+      // new binding — _startRebind's own window/capture listener still
+      // sees it either way, but without this guard the panel would also
+      // vanish out from under the "Press a key…" prompt at the same time.
+      onEscape: () => {
+        if (this._rebindingAction) return;
+        this._closeSettingsPanel();
+      },
+    });
+  }
+
+  _closeSettingsPanel() {
+    this.settingsPanelEl.classList.add('hidden');
+    this._settingsUntrap?.();
+    this._settingsUntrap = null;
   }
 
   _buildKeybindRows() {

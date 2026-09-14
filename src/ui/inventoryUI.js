@@ -25,6 +25,45 @@ function range(a, b) {
   return out;
 }
 
+const ARROW_DIR = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+
+/**
+ * Geometric 2D spatial navigation, not a per-group row/column table — the
+ * grids here (hotbar, 3-row main inventory, 1-row armor, 2x2/3x3
+ * crafting, furnace/brewing's irregular layouts, an N-item chest) are too
+ * varied to hardcode column counts for, and this generic approach also
+ * lets an arrow press naturally cross from one group into an adjacent
+ * one (hotbar <-> main, main <-> crafting) the way a real grid layout
+ * would suggest, without those groups needing to know about each other.
+ * Picks the closest candidate whose center lies in the pressed direction,
+ * weighting lateral (off-axis) offset heavily so it prefers a neighbor
+ * that's actually in line over a diagonal one that's merely closer.
+ */
+function nearestSlotInDirection(fromEl, candidates, dx, dy) {
+  const fromRect = fromEl.getBoundingClientRect();
+  const fx = fromRect.left + fromRect.width / 2;
+  const fy = fromRect.top + fromRect.height / 2;
+  let best = null;
+  let bestScore = Infinity;
+  for (const el of candidates) {
+    if (el === fromEl) continue;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const vx = cx - fx;
+    const vy = cy - fy;
+    const along = vx * dx + vy * dy; // distance along the pressed direction
+    if (along <= 0.5) continue; // must actually be in that direction, not behind or exactly on top of the origin
+    const lateral = Math.abs(vx * dy) + Math.abs(vy * dx); // off-axis offset (perpendicular to the press)
+    const score = along + lateral * 4;
+    if (score < bestScore) {
+      bestScore = score;
+      best = el;
+    }
+  }
+  return best;
+}
+
 /** Which of the 4 armor slots (`ARMOR_SLOTS` order) this item belongs in, or -1 if it isn't armor at all. */
 function _armorSlotIndexFor(itemId) {
   const item = getNonBlockItem(itemId);
@@ -119,12 +158,51 @@ export class InventoryUI {
       this._finishDrag(e);
     });
     window.addEventListener('keydown', (e) => {
-      if (!this.isOpen || !this._hoveredSlot) return;
+      if (!this.isOpen) return;
+      // Q-to-drop works off keyboard focus too, not just mouse hover —
+      // falls back to _hoveredSlot so nothing changes for mouse users.
+      const target = this._hoveredSlot ?? this._slotRefFromElement(document.activeElement);
+      if (!target) return;
       if (e.code === 'KeyQ') {
         e.preventDefault();
-        this._dropFromSlot(this._hoveredSlot.group, this._hoveredSlot.idx, e.ctrlKey);
+        this._dropFromSlot(target.group, target.idx, e.ctrlKey);
       }
     });
+
+    // Delegated (one listener, not one per slot — slots are torn down
+    // and rebuilt wholesale on every render()) Enter/Space activation and
+    // arrow-key movement for every real inventory slot.
+    this.root.addEventListener('keydown', (e) => {
+      const ref = this._slotRefFromElement(e.target);
+      if (!ref) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        // _handleClick, not _onSlotMouseDown — the latter's drag-start/
+        // double-click-timing detection exists for a mouse's separate
+        // press-and-release events, which a single discrete key press
+        // doesn't have; _onSlotMouseDown with a held cursor would just
+        // start a drag that nothing ever finishes (no keyboard "mouseup"
+        // to call _finishDrag), silently swallowing the placement.
+        // _handleClick is the same atomic pick-up/place/swap logic a
+        // real click ultimately bottoms out in either way.
+        if (ref.group === 'creativePick') this._pickCreativeItem(ref.idx);
+        else this._handleClick(ref.group, ref.idx, 0, e.shiftKey);
+        return;
+      }
+      const dir = ARROW_DIR[e.key];
+      if (!dir) return;
+      e.preventDefault();
+      const candidates = this.root.querySelectorAll('.inv-slot[data-group]');
+      const next = nearestSlotInDirection(e.target, candidates, dir[0], dir[1]);
+      next?.focus();
+      next?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  }
+
+  /** {group, idx} for a real inventory slot element (idx numeric — for the creative-palette's item picker, that's an itemId, not a slot index), or null. */
+  _slotRefFromElement(el) {
+    if (!el?.dataset?.group) return null;
+    return { group: el.dataset.group, idx: Number(el.dataset.idx) };
   }
 
   open(mode, context = {}, title = 'Inventory', containerPos = null) {
@@ -433,6 +511,21 @@ export class InventoryUI {
   _buildSlotEl(group, idx, slotData) {
     const el = document.createElement('div');
     el.className = 'inv-slot';
+    // Polish-pass tier-9 fix: every slot used to be a plain unfocusable
+    // <div> — not in the Tab order, no Enter/Space activation, no
+    // arrow-key movement — confirmed the single largest keyboard/
+    // accessibility gap in the game. tabIndex + role + the dataset pair
+    // (read back by the delegated keydown handler in _buildDom and by
+    // render()'s own focus-restore) are what make that possible; the
+    // right-click-equivalent split-stack action stays mouse-only (Enter/
+    // Space covers the primary pick-up/place/shift-move actions, which is
+    // the vast majority of real inventory use) — a deliberate scope cut,
+    // not an oversight.
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.dataset.group = group;
+    el.dataset.idx = idx;
+    el.setAttribute('aria-label', slotData ? `${itemDisplayName(slotData.itemId)} x${slotData.count}` : 'Empty slot');
     if (slotData) this._fillSlotVisual(el, slotData);
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -618,6 +711,16 @@ export class InventoryUI {
 
   render() {
     if (!this.isOpen) return;
+    // Every slot group below is torn down and rebuilt wholesale — capture
+    // which slot (if any) currently holds keyboard focus so it can be
+    // restored to its equivalent after the rebuild, same reasoning as the
+    // search-input focus/selection capture just below for the same
+    // underlying problem (a fresh DOM node isn't focused by default,
+    // silently breaking continuous keyboard-only play the moment
+    // anything changes — a picked-up item, a furnace tick, anything that
+    // calls render() again).
+    const focusedSlotRef = this._slotRefFromElement(document.activeElement);
+
     this._renderGroup(this.armorEl, 'armor', range(0, 4));
     this._renderGroup(this.mainEl, 'player', range(9, 36));
     this._renderGroup(this.hotbarEl, 'player', range(0, 9));
@@ -674,6 +777,11 @@ export class InventoryUI {
         if (q && !name.includes(q)) continue;
         const el = document.createElement('div');
         el.className = 'inv-slot';
+        el.tabIndex = 0;
+        el.setAttribute('role', 'button');
+        el.dataset.group = 'creativePick';
+        el.dataset.idx = itemId;
+        el.setAttribute('aria-label', name);
         this._fillSlotVisual(el, { itemId, count: 1 });
         el.addEventListener('mousedown', (e) => {
           e.preventDefault();
@@ -712,6 +820,15 @@ export class InventoryUI {
         e.stopPropagation();
         scrollBy(-88);
       });
+      // A real <button>'s native Enter/Space activation fires a 'click',
+      // not 'mousedown' — these two buttons were keyboard-focusable but
+      // silently inert on Enter/Space until now. event.detail is 0 for a
+      // keyboard-triggered click (vs >=1 for a real mouse click), which
+      // is what keeps this from double-scrolling on an actual mouse
+      // click (that already gets its own mousedown handler above).
+      upBtn.addEventListener('click', (e) => {
+        if (e.detail === 0) scrollBy(-88);
+      });
       const downBtn = document.createElement('button');
       downBtn.className = 'creative-scroll-btn';
       downBtn.textContent = '▼';
@@ -719,6 +836,9 @@ export class InventoryUI {
         e.preventDefault();
         e.stopPropagation();
         scrollBy(88);
+      });
+      downBtn.addEventListener('click', (e) => {
+        if (e.detail === 0) scrollBy(88);
       });
 
       gridWrap.append(upBtn, grid, downBtn);
@@ -835,6 +955,12 @@ export class InventoryUI {
       this._fillSlotVisual(this.cursorEl, this.cursor);
     } else {
       this.cursorEl.classList.add('hidden');
+    }
+
+    if (focusedSlotRef) {
+      this.root
+        .querySelector(`.inv-slot[data-group="${focusedSlotRef.group}"][data-idx="${focusedSlotRef.idx}"]`)
+        ?.focus();
     }
   }
 }
