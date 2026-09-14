@@ -221,6 +221,100 @@ export default async function run(baseUrl) {
       if (afterResume !== true) throw new Error(`expected player.reducedMotion to still be true after a fresh reload + resume, got ${afterResume}`);
     });
 
+    await step('colorblind-mode checkbox swaps the durability bar palette, persists, and reapplies on reload', async () => {
+      // A damaged tool in hotbar slot 0 gives the durability bar something to actually render.
+      const before = await page.evaluate(async () => {
+        const M = window.__minevoxel;
+        const { ITEMS } = await import('/src/items/items.js');
+        M.player.selectedHotbar = 0;
+        M.player.inventory.slots[0] = { itemId: ITEMS.IRON_PICKAXE.id, count: 1, durability: 10 };
+        return { hudColorblind: M.hud.colorblindMode, settingsValue: M.settings.controls.colorblindMode };
+      });
+      if (before.hudColorblind !== false) throw new Error(`expected the default colorblindMode to be false, got ${before.hudColorblind}`);
+
+      await page.waitForTimeout(200); // hud.update() runs on the next real tick, not synchronously with the inventory edit above
+      const fillColorBefore = await page.evaluate(() => document.querySelector('.hotbar-slot .inv-durability div')?.style.background);
+      // Default palette's high/mid/low are green/yellow/red — this pickaxe's durability is deliberately low enough to hit 'low' (red).
+      if (!fillColorBefore || !fillColorBefore.includes('217, 74, 74')) { // #d94a4a
+        throw new Error(`expected the default (non-colorblind) low-durability fill to be red (#d94a4a), got "${fillColorBefore}"`);
+      }
+
+      await page.evaluate(() => {
+        const cb = document.getElementById('colorblind-mode-toggle');
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const fillColorAfter = await page.evaluate(() => document.querySelector('.hotbar-slot .inv-durability div')?.style.background);
+      if (!fillColorAfter || !fillColorAfter.includes('58, 42, 26')) { // #3a2a1a
+        throw new Error(`expected the colorblind-safe low-durability fill to be the dark near-black (#3a2a1a), got "${fillColorAfter}"`);
+      }
+
+      const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('minevoxel_settings_v1')).controls.colorblindMode);
+      if (persisted !== true) throw new Error(`expected the persisted settings record to carry colorblindMode=true, got ${persisted}`);
+
+      const worldId = await page.evaluate(() => window.__minevoxel.currentWorldId);
+      await page.reload();
+      await page.waitForFunction(() => !!window.__minevoxel, { timeout: 15000 });
+      const afterResume = await page.evaluate(async (worldId) => {
+        const worldSave = await import('/src/persistence/worldSave.js');
+        const rec = await worldSave.getWorld(worldId);
+        await window.__minevoxel.startGame(rec, { isNew: false });
+        return window.__minevoxel.hud.colorblindMode;
+      }, worldId);
+      if (afterResume !== true) throw new Error(`expected hud.colorblindMode to still be true after a fresh reload + resume, got ${afterResume}`);
+    });
+
+    await step('sound captions are off by default, appear once enabled, persist, and reapply on reload', async () => {
+      const beforeEnable = await page.evaluate(async () => {
+        const M = window.__minevoxel;
+        const synth = await import('/src/audio/synth.js');
+        synth.playMobHit();
+        return document.querySelectorAll('#caption-log .caption-line').length;
+      });
+      if (beforeEnable !== 0) throw new Error(`expected no caption to appear while captions are off, found ${beforeEnable}`);
+
+      await page.evaluate(() => {
+        const cb = document.getElementById('captions-toggle');
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      const afterEnable = await page.evaluate(async () => {
+        const synth = await import('/src/audio/synth.js');
+        synth.playMobHit();
+        return [...document.querySelectorAll('#caption-log .caption-line')].map((el) => el.textContent);
+      });
+      if (!afterEnable.includes('Mob hit')) throw new Error(`expected a "Mob hit" caption once captions are enabled, got: ${JSON.stringify(afterEnable)}`);
+
+      // Footsteps are deliberately not captioned (fires every ~0.3-0.5s
+      // while moving — captioning it would flood the log).
+      const footstepCheck = await page.evaluate(async () => {
+        const before = document.querySelectorAll('#caption-log .caption-line').length;
+        const synth = await import('/src/audio/synth.js');
+        synth.playFootstep(window.__minevoxel.BLOCKS.STONE);
+        const after = document.querySelectorAll('#caption-log .caption-line').length;
+        return { before, after };
+      });
+      if (footstepCheck.after !== footstepCheck.before) {
+        throw new Error(`expected playFootstep() to add no caption, count went ${footstepCheck.before} -> ${footstepCheck.after}`);
+      }
+
+      const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('minevoxel_settings_v1')).controls.captionsEnabled);
+      if (persisted !== true) throw new Error(`expected the persisted settings record to carry captionsEnabled=true, got ${persisted}`);
+
+      const worldId = await page.evaluate(() => window.__minevoxel.currentWorldId);
+      await page.reload();
+      await page.waitForFunction(() => !!window.__minevoxel, { timeout: 15000 });
+      const afterResume = await page.evaluate(async (worldId) => {
+        const worldSave = await import('/src/persistence/worldSave.js');
+        const rec = await worldSave.getWorld(worldId);
+        await window.__minevoxel.startGame(rec, { isNew: false });
+        const synth = await import('/src/audio/synth.js');
+        synth.playMobHit();
+        return [...document.querySelectorAll('#caption-log .caption-line')].map((el) => el.textContent);
+      }, worldId);
+      if (!afterResume.includes('Mob hit')) throw new Error(`expected captionsEnabled to still be on after a fresh reload + resume, got: ${JSON.stringify(afterResume)}`);
+    });
+
     await step('no console/page errors accumulated across the whole run', async () => {
       assertNoErrors(errors, 'test:a11y');
     });

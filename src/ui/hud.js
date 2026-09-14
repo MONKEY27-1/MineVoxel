@@ -4,9 +4,25 @@ import { EFFECT_TYPES } from '../entities/statusEffects.js';
 
 const HOTBAR_ICON_SIZE = 36;
 
+// Durability-bar thresholds, two palettes. The default green/yellow/red
+// ramp conveys "good/warning/critical" through hue alone — exactly the
+// red-green axis most colorblind viewers (the large majority of color-
+// vision deficiency is on this axis) can't reliably distinguish, with no
+// other signal (shape, text, position) backing it up. The colorblind
+// alternative swaps to blue/orange/near-black: blue-yellow discrimination
+// is preserved in red-green CVD, and the critical state also drops in
+// luminance (not just hue), so it reads as "worse" even in full
+// grayscale. This is the Okabe-Ito colorblind-safe palette's blue/orange
+// pair, not a personal color choice.
+const DURABILITY_COLORS = {
+  normal: { high: '#5fbf4a', mid: '#e0c23a', low: '#d94a4a' },
+  colorblindSafe: { high: '#0072b2', mid: '#e69f00', low: '#3a2a1a' },
+};
+
 export class Hud {
   constructor(atlasUV) {
     this.atlasUV = atlasUV;
+    this.colorblindMode = false;
     this.vitalsEl = document.getElementById('vitals');
     this.healthFillEl = document.getElementById('health-fill');
     this.breathFillEl = document.getElementById('breath-fill');
@@ -79,7 +95,8 @@ export class Hud {
             const fill = document.createElement('div');
             const pct = Math.max(0, slot.durability / def.maxDurability);
             fill.style.width = `${pct * 100}%`;
-            fill.style.background = pct > 0.5 ? '#5fbf4a' : pct > 0.2 ? '#e0c23a' : '#d94a4a';
+            const colors = this.colorblindMode ? DURABILITY_COLORS.colorblindSafe : DURABILITY_COLORS.normal;
+            fill.style.background = pct > 0.5 ? colors.high : pct > 0.2 ? colors.mid : colors.low;
             bar.appendChild(fill);
             el.appendChild(bar);
           }

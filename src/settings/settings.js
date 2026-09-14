@@ -66,6 +66,20 @@ export const DEFAULT_CONTROLS = {
   // in the game with no separate strength slider of their own to tune
   // down to zero already.
   reducedMotion: false,
+  // Polish-pass tier-9 fix, scoped: swaps the item-durability bar's
+  // green/yellow/red ramp (hue-only, no other signal) for a blue/orange/
+  // near-black one (hud.js's DURABILITY_COLORS) — blue-yellow contrast
+  // survives red-green color-vision deficiency, and the critical state
+  // also drops in luminance so it still reads as "worse" in grayscale.
+  // Not a full palette redesign (that needs a human's visual judgment,
+  // which this can't substitute for) — just the one place color alone
+  // carries meaning with nothing else backing it up.
+  colorblindMode: false,
+  // Polish-pass tier-9 fix: the last of the "colorblind/reduced-motion/
+  // subtitle" trio, and the one that genuinely needed a new captioning
+  // system (not a wiring fix) — see ui/captions.js and synth.js's
+  // per-sound showCaption() calls.
+  captionsEnabled: false,
 };
 
 export const DEFAULT_AUDIO = {

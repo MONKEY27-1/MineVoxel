@@ -2,6 +2,7 @@ import { playUIClick } from '../audio/synth.js';
 import { applyMipmapping } from '../mesh/atlas.js';
 import { listWorlds, createWorld, renameWorld, deleteWorld, duplicateWorld } from '../persistence/worldSave.js';
 import { showConfirm, showPrompt, trapFocus } from './modal.js';
+import { setCaptionsEnabled } from './captions.js';
 import { GRAPHICS_PRESETS, DEFAULT_GRAPHICS, DEFAULT_PERFORMANCE, DEFAULT_CONTROLS, DEFAULT_AUDIO, detectPreset, saveSettings as persistSettings } from '../settings/settings.js';
 
 // Phase 9: start screen (seed + game mode), and a settings panel reachable
@@ -95,6 +96,8 @@ const CONTROLS_APPLIERS = {
   fullscreenHoldMs: (v, ctx) => (ctx.fullscreenController.holdDurationMs = v),
   escapeTapOpensPause: (v, ctx) => (ctx.fullscreenController.tapOpensPause = v),
   reducedMotion: (v, ctx) => (ctx.player.reducedMotion = v),
+  colorblindMode: (v, ctx) => (ctx.hud.colorblindMode = v),
+  captionsEnabled: (v) => setCaptionsEnabled(v),
 };
 
 const AUDIO_APPLIERS = {
@@ -127,6 +130,7 @@ export class MenuController {
     chunkManager,
     player,
     viewModel,
+    hud,
     mobManager,
     itemDrops,
     clouds,
@@ -144,6 +148,7 @@ export class MenuController {
     this.chunkManager = chunkManager;
     this.player = player;
     this.viewModel = viewModel;
+    this.hud = hud;
     this.mobManager = mobManager;
     this.itemDrops = itemDrops;
     this.clouds = clouds;
@@ -501,6 +506,8 @@ export class MenuController {
     this._wireControlsCheckbox('start-fullscreen-toggle', 'startFullscreen');
     this._wireControlsCheckbox('escape-tap-pause-toggle', 'escapeTapOpensPause');
     this._wireControlsCheckbox('reduced-motion-toggle', 'reducedMotion');
+    this._wireControlsCheckbox('colorblind-mode-toggle', 'colorblindMode');
+    this._wireControlsCheckbox('captions-toggle', 'captionsEnabled');
 
     const holdEl = document.getElementById('fullscreen-hold-duration-choice');
     setChoiceSelected(holdEl, this.settings.controls.fullscreenHoldMs);
@@ -643,6 +650,8 @@ export class MenuController {
       document.getElementById('start-fullscreen-toggle').checked = this.settings.controls.startFullscreen;
       document.getElementById('escape-tap-pause-toggle').checked = this.settings.controls.escapeTapOpensPause;
       document.getElementById('reduced-motion-toggle').checked = this.settings.controls.reducedMotion;
+      document.getElementById('colorblind-mode-toggle').checked = this.settings.controls.colorblindMode;
+      document.getElementById('captions-toggle').checked = this.settings.controls.captionsEnabled;
       setChoiceSelected(document.getElementById('fullscreen-hold-duration-choice'), this.settings.controls.fullscreenHoldMs);
     } else if (tab === 'audio') {
       this.settings.audio = structuredClone(DEFAULT_AUDIO);

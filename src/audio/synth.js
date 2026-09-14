@@ -1,5 +1,10 @@
 import { audioEngine } from './audio.js';
 import { getBlock } from '../world/blocks.js';
+import { showCaption } from '../ui/captions.js';
+
+function blockLabel(blockId) {
+  return getBlock(blockId).name.replace(/_/g, ' ');
+}
 
 // Per-material timbre: base oscillator frequency + a noise-burst mix,
 // picked to read as "grass/soft", "stone/hard click", "wood/hollow",
@@ -70,16 +75,22 @@ function playProfile(category, profile, { volume = 1, pitchVariance = 0.15 } = {
 export function playFootstep(blockId) {
   const profile = MATERIAL_PROFILES[materialFor(blockId)] ?? MATERIAL_PROFILES.default;
   playProfile('footsteps', profile, { volume: 0.35 });
+  // Deliberately not captioned — footsteps fire every ~0.3-0.5s while
+  // moving, constant and not informationally meaningful (unlike a break/
+  // place/hit/explosion, which tells you something actually happened);
+  // captioning it would flood the log and defeat the point of captions.
 }
 
 export function playBlockBreak(blockId) {
   const profile = MATERIAL_PROFILES[materialFor(blockId)] ?? MATERIAL_PROFILES.default;
   playProfile('blocks', { ...profile, decay: profile.decay * 1.6 }, { volume: 0.8, pitchVariance: 0.2 });
+  showCaption(`Block broken (${blockLabel(blockId)})`);
 }
 
 export function playBlockPlace(blockId) {
   const profile = MATERIAL_PROFILES[materialFor(blockId)] ?? MATERIAL_PROFILES.default;
   playProfile('blocks', { ...profile, decay: profile.decay * 0.8 }, { volume: 0.6, pitchVariance: 0.1 });
+  showCaption(`Block placed (${blockLabel(blockId)})`);
 }
 
 // --- Phase 10 polish: UI feedback + mob/player combat sounds ------------
@@ -89,18 +100,24 @@ export function playBlockPlace(blockId) {
 
 export function playUIClick() {
   playProfile('ui', { freq: 900, noise: 0.12, decay: 0.045 }, { volume: 0.45, pitchVariance: 0.04 });
+  // Not captioned — visually self-evident (the button you just clicked
+  // is right there), same reasoning vanilla accessibility guidance gives
+  // for skipping UI-click captions specifically.
 }
 
 export function playMobHit() {
   playProfile('mobs', { freq: 180, noise: 0.6, decay: 0.1 }, { volume: 0.5, pitchVariance: 0.2 });
+  showCaption('Mob hit');
 }
 
 export function playMobDeath() {
   playProfile('mobs', { freq: 90, noise: 0.7, decay: 0.35 }, { volume: 0.6, pitchVariance: 0.15 });
+  showCaption('Mob died');
 }
 
 export function playPlayerHurt() {
   playProfile('mobs', { freq: 140, noise: 0.5, decay: 0.18 }, { volume: 0.55, pitchVariance: 0.1 });
+  showCaption('You took damage');
 }
 
 // Phase 7 (Voidsteel): TNT's detonation — a low boom plus a long noise
@@ -109,6 +126,7 @@ export function playPlayerHurt() {
 // profile to read as an explosion rather than a block break.
 export function playExplosion() {
   playProfile('blocks', { freq: 55, noise: 0.75, decay: 0.6 }, { volume: 1, pitchVariance: 0.1 });
+  showCaption('Explosion');
 }
 
 // Polish pass: water-entry splash. The 'water' MATERIAL_PROFILE already
@@ -120,4 +138,5 @@ export function playSplash(speed = 4) {
   const t = Math.min(1, speed / 12);
   const profile = MATERIAL_PROFILES.water;
   playProfile('blocks', { ...profile, decay: profile.decay * (1 + t) }, { volume: 0.4 + t * 0.5, pitchVariance: 0.15 });
+  showCaption('Splash');
 }

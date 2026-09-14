@@ -48,6 +48,7 @@ import { explode } from './world/explosion.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { TuningPanel } from './ui/tuningPanel.js';
 import { Hud } from './ui/hud.js';
+import { setCaptionsEnabled } from './ui/captions.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
@@ -439,6 +440,8 @@ function main() {
   document.documentElement.style.setProperty('--hud-scale', settings.graphics.guiScale / 100);
   player.sensitivityScale = settings.controls.sensitivity;
   player.reducedMotion = settings.controls.reducedMotion;
+  hud.colorblindMode = settings.controls.colorblindMode;
+  setCaptionsEnabled(settings.controls.captionsEnabled);
   player.autoJumpEnabled = settings.controls.autoJump;
   player.doubleTapSprintEnabled = settings.controls.doubleTapSprint;
   player.sneakMode = settings.controls.sneakMode;
@@ -756,6 +759,7 @@ function main() {
     chunkManager,
     player,
     viewModel,
+    hud,
     mobManager,
     itemDrops,
     clouds,
@@ -1455,6 +1459,7 @@ function main() {
       fluids,
       xpOrbs,
       particles,
+      hud,
       inventoryUI,
       toggleInventory,
       openContainer,
