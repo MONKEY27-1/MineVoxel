@@ -21,11 +21,17 @@ export function createCinderdeep() {
     hasDayNightCycle: false,
     hasWeather: false,
     hasClouds: false,
+    // Unused dead config — no THREE.AmbientLight/HemisphereLight exists
+    // anywhere in this codebase to apply it to (verified by search while
+    // chasing a "make it brighter" request: raising this alone did
+    // nothing visible). Left in place since Dimension's constructor
+    // still accepts it and the overworld sets it too; `ambientFloorLevel`
+    // below is the actual functional brightness lever.
     ambientIntensity: 0.55,
     sunIntensity: 0,
     gravity: 32,
     spawnTables: { passive: [], hostile: [] }, // populated in phase 4
-    ambientFloorLevel: 0.24, // dim red glow so caves aren't pitch black — see dimension.js's note. Brightened per user feedback (was 0.14).
+    ambientFloorLevel: 0.34, // dim red glow so caves aren't pitch black — see dimension.js's note. Brightened twice per user feedback (0.14 -> 0.24 -> 0.34).
     ambientFloorColor: 0x662016,
     lavaSpreadMultiplier: 3,
     evaporatesWater: true,

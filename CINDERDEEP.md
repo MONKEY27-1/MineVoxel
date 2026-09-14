@@ -563,6 +563,32 @@ terrain with no ceiling to speak of). Verified directly: Mourning Flats
 and Basalt Fractures both now generate real, present-in-meaningful-
 quantity Soul Sand and Basalt respectively (previously near-absent).
 
+## Post-launch tuning, round 2: glowstone brighter, dimension brighter again
+
+Further user feedback. Two changes:
+
+- **Glowstone itself brighter**: `lightEmission` 14→15 (blocks.js) — the
+  actual maximum on this game's 0-15 light scale (Shroomlight/Beacon
+  already use 15; glowstone was one step short of it). This also
+  propagates one step further before decaying to 0, so lit areas around
+  glowstone are slightly larger, not just the block itself.
+- **The dimension overall brighter, again**: `ambientFloorLevel`
+  0.24→0.34 (cinderdeepDimension.js) — the third bump this pass (was
+  0.14 originally).
+
+**Found in passing while looking for a second brightness lever**:
+`ambientIntensity` (set on every Dimension, including the overworld) is
+dead config — grepped the whole renderer and there is no
+`THREE.AmbientLight`/`HemisphereLight` anywhere in this codebase for it
+to apply to. The custom per-vertex lighting model (see
+atlasMaterial.js's block/sky-light color channels) is the entire
+lighting system; `ambientFloorLevel`/`ambientFloorColor` (wired to the
+shader's real `uAmbientFloor` uniform) is the only functional
+dimension-wide brightness control. Left `ambientIntensity` in place
+(documented as dead rather than removed, since Dimension's constructor
+still accepts it and both dimensions set it) rather than expanding
+scope into building a real ambient-light multiplier nobody asked for.
+
 ## Deliberately not done
 
 - [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil

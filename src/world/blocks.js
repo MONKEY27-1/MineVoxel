@@ -179,7 +179,7 @@ export const BLOCKS = {
 
   // --- phase 5: player-placeable set (no crafting yet — a fixed quick
   // palette, see input.js's placeBlocks binding, stands in until phase 6) --
-  GLOWSTONE: define({ name: 'glowstone', texture: { all: 'glowstone' }, hardness: 0.3, lightEmission: 14 }),
+  GLOWSTONE: define({ name: 'glowstone', texture: { all: 'glowstone' }, hardness: 0.3, lightEmission: 15 }),
   GLASS: define({ name: 'glass', texture: { all: 'glass' }, hardness: 0.3, transparent: true }),
   COBBLESTONE: define({ name: 'cobblestone', texture: { all: 'cobblestone' }, hardness: 2, tool: 'pickaxe' }),
 
