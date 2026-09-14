@@ -167,6 +167,7 @@ export class MenuController {
     this.seedInputEl = document.getElementById('seed-input');
     this.worldNameInputEl = document.getElementById('world-name-input');
     this.modeChoiceEl = document.getElementById('mode-choice');
+    this.allowCommandsCheckboxEl = document.getElementById('allow-commands-checkbox');
     this.playBtnEl = document.getElementById('play-btn');
     this.startSettingsBtnEl = document.getElementById('start-settings-btn');
     this.pauseSettingsBtnEl = document.getElementById('pause-settings-btn');
@@ -185,6 +186,8 @@ export class MenuController {
     this._blockVolume = settings.audio.block / 100;
     this._mobVolume = settings.audio.mob / 100;
     this._uiVolume = settings.audio.ui / 100;
+
+    this.allowCommandsCheckboxEl.addEventListener('change', () => playUIClick());
 
     this._wireTabs();
     this._wireModeButtons();
@@ -298,6 +301,12 @@ export class MenuController {
         for (const b of this.modeChoiceEl.querySelectorAll('.mode-btn')) b.classList.remove('selected');
         btn.classList.add('selected');
         this.selectedMode = btn.dataset.mode;
+        // Matches worldSave.js's own default (on for creative, off for
+        // survival) — re-picking a mode resets the checkbox to that
+        // mode's default rather than leaving whatever the other mode had
+        // set, the same way vanilla's own "Allow Cheats" toggle follows
+        // game mode until the player explicitly overrides it.
+        this.allowCommandsCheckboxEl.checked = this.selectedMode === 'creative';
       });
     }
   }
@@ -678,7 +687,7 @@ export class MenuController {
       const raw = this.seedInputEl.value.trim();
       const seed = raw ? hashSeed(raw) : (Math.random() * 0xffffffff) >>> 0;
       const name = this.worldNameInputEl.value.trim();
-      const record = await createWorld({ name, seed, mode: this.selectedMode });
+      const record = await createWorld({ name, seed, mode: this.selectedMode, commandsEnabled: this.allowCommandsCheckboxEl.checked });
       this.startScreenEl.classList.add('hidden');
       this.pointerLockOverlayEl.classList.remove('hidden');
       this.onPlay(record, { isNew: true });

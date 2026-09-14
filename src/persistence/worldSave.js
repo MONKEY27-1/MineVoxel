@@ -85,7 +85,7 @@ export async function getWorld(worldId) {
   return record ? migrateAndPersist(record) : null;
 }
 
-export async function createWorld({ name, seed, mode }) {
+export async function createWorld({ name, seed, mode, commandsEnabled = mode === 'creative' }) {
   const now = Date.now();
   const spawn = pickSpawnPoint(seed);
   const record = {
@@ -95,7 +95,7 @@ export async function createWorld({ name, seed, mode }) {
     mode,
     spawnX: spawn.x,
     spawnZ: spawn.z,
-    commandsEnabled: mode === 'creative',
+    commandsEnabled,
     dimensionId: DEFAULT_DIMENSION_ID, // every world is created starting in the overworld — see playerState.dimensionId for "which dimension are they in *right now*"
     schemaVersion: SCHEMA_VERSION,
     createdAt: now,
