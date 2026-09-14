@@ -52,6 +52,7 @@ export class InventoryUI {
     this.player = player;
     this.mode = null;
     this.context = null;
+    this.containerPos = null;
     this.cursor = null;
     this._searchInputEl = null;
 
@@ -126,9 +127,10 @@ export class InventoryUI {
     });
   }
 
-  open(mode, context = {}, title = 'Inventory') {
+  open(mode, context = {}, title = 'Inventory', containerPos = null) {
     this.mode = mode;
     this.context = context;
+    this.containerPos = containerPos; // {x,y,z} of the world block this UI is showing, if any — lets main.js auto-close when that exact block is destroyed out from under it
     this.titleEl.textContent = title;
     this.root.classList.remove('hidden');
     // Best-effort — browsers require a user gesture for this, and it's
@@ -145,6 +147,7 @@ export class InventoryUI {
   close() {
     this.mode = null;
     this.context = null;
+    this.containerPos = null;
     this.root.classList.add('hidden');
     if (this.cursor) {
       const leftover = this.playerInventory.addItem(this.cursor.itemId, this.cursor.count, this.cursor.durability);

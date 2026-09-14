@@ -112,6 +112,10 @@ const AUDIO_APPLIERS = {
     ctx._mobVolume = v / 100;
     ctx.audioEngine.setCategoryVolume('mobs', ctx._mobVolume);
   },
+  ui: (v, ctx) => {
+    ctx._uiVolume = v / 100;
+    ctx.audioEngine.setCategoryVolume('ui', ctx._uiVolume);
+  },
 };
 
 export class MenuController {
@@ -172,6 +176,7 @@ export class MenuController {
     this._footstepVolume = settings.audio.footstep / 100;
     this._blockVolume = settings.audio.block / 100;
     this._mobVolume = settings.audio.mob / 100;
+    this._uiVolume = settings.audio.ui / 100;
 
     this._wireTabs();
     this._wireModeButtons();
@@ -439,6 +444,7 @@ export class MenuController {
     this._wireAudioSlider('footstep-vol-slider', 'footstep-vol-val', 'footstep');
     this._wireAudioSlider('block-vol-slider', 'block-vol-val', 'block');
     this._wireAudioSlider('mob-vol-slider', 'mob-vol-val', 'mob');
+    this._wireAudioSlider('ui-vol-slider', 'ui-vol-val', 'ui');
   }
 
   _wireAudioSlider(id, valId, key) {
@@ -463,6 +469,7 @@ export class MenuController {
     this.audioEngine.setCategoryVolume('footsteps', this._footstepVolume);
     this.audioEngine.setCategoryVolume('blocks', this._blockVolume);
     this.audioEngine.setCategoryVolume('mobs', this._mobVolume);
+    this.audioEngine.setCategoryVolume('ui', this._uiVolume);
   }
 
   // --- controls tab ----------------------------------------------------
@@ -640,6 +647,8 @@ export class MenuController {
       document.getElementById('block-vol-val').textContent = `${this.settings.audio.block}%`;
       document.getElementById('mob-vol-slider').value = this.settings.audio.mob;
       document.getElementById('mob-vol-val').textContent = `${this.settings.audio.mob}%`;
+      document.getElementById('ui-vol-slider').value = this.settings.audio.ui;
+      document.getElementById('ui-vol-val').textContent = `${this.settings.audio.ui}%`;
     }
     this._persist();
   }

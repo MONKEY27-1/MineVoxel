@@ -390,12 +390,17 @@ function main() {
     a.download = `minevoxel-${Date.now()}.png`;
     a.click();
   }
+  // Screenshot and camera-cycle are real rebindable actions (input.js's
+  // DEFAULT_BINDINGS.screenshot/cycleCamera) rather than hardcoded keys —
+  // see POLISH.md's tier-9 finding that F2/F5 used to bypass the rebind
+  // system entirely. The actual triggers live in the fixed-tick loop
+  // below via wasPressed(), same as every other one-shot toggle. This
+  // listener only keeps blocking the browser's own F5-refreshes-the-page
+  // default: input.js's generic bound-key preventDefault only fires while
+  // pointer-locked, but F5 refreshing the tab out from under a paused/
+  // menu-open player would be a real regression, not just a missed key.
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'F2') takeScreenshot(Number(settings.graphics.screenshotScale));
-    if (e.code === 'F5') {
-      e.preventDefault(); // pre-empt the browser's own page-refresh shortcut
-      player.cycleCameraMode();
-    }
+    if (e.code === input.bindings.cycleCamera) e.preventDefault();
     if (e.code === 'F6' && tuningPanel) tuningPanel.toggle();
   });
   // Mute-on-blur: switching tabs/minimizing shouldn't keep playing audio
@@ -802,20 +807,38 @@ function main() {
 
   function openContainer({ blockId, pos }) {
     const [x, y, z] = pos;
+    // Crafting table's grid is shared client-side state (benchCraftingGrid),
+    // not a positioned registry entry, so there's no world block for this
+    // particular UI to go stale against — no containerPos needed for it.
     if (blockId === BLOCKS.CRAFTING_TABLE) {
       inventoryUI.open('bench', { craftingGrid: benchCraftingGrid, gridW: 3, gridH: 3, benchAvailable: true }, 'Crafting Table');
     } else if (blockId === BLOCKS.FURNACE) {
-      inventoryUI.open('furnace', { furnace: getOrCreateFurnace(x, y, z) }, 'Furnace');
+      inventoryUI.open('furnace', { furnace: getOrCreateFurnace(x, y, z) }, 'Furnace', { x, y, z });
     } else if (blockId === BLOCKS.BREWING_STAND) {
-      inventoryUI.open('brewing', { brewingStand: getOrCreateBrewingStand(x, y, z) }, 'Brewing Stand');
+      inventoryUI.open('brewing', { brewingStand: getOrCreateBrewingStand(x, y, z) }, 'Brewing Stand', { x, y, z });
     } else if (blockId === BLOCKS.SMITHING_TABLE) {
-      inventoryUI.open('smithing', { smithingTable: getOrCreateSmithingTable(x, y, z) }, 'Smithing Table');
+      inventoryUI.open('smithing', { smithingTable: getOrCreateSmithingTable(x, y, z) }, 'Smithing Table', { x, y, z });
     } else if (blockId === BLOCKS.CHEST) {
-      inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Chest');
+      inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Chest', { x, y, z });
     } else {
       return;
     }
     exitLockForUI();
+  }
+
+  // Auto-closes the inventory screen if it's currently showing the exact
+  // world block that just got destroyed (mining or an explosion) instead
+  // of leaving it open on a now-empty chest/furnace object — a stale
+  // reference that's safe post-909b5bd/dc32b90 (nothing can duplicate
+  // through it) but reads as a bug to a player still staring at a screen
+  // for a block that no longer exists.
+  function closeContainerUIIfDestroyed(x, y, z) {
+    if (!inventoryUI.isOpen || !inventoryUI.containerPos) return;
+    const p = inventoryUI.containerPos;
+    if (p.x === x && p.y === y && p.z === z) {
+      inventoryUI.close();
+      overlayEl.classList.remove('hidden');
+    }
   }
 
   const prev = { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.yaw, pitch: player.pitch, eyeHeight: player.eyeHeight };
@@ -851,6 +874,8 @@ function main() {
       // the fixed step instead.
       if (input.wasPressed('debugOverlay')) debugOverlay.toggle();
       if (input.wasPressed('inventory')) toggleInventory();
+      if (input.wasPressed('screenshot')) takeScreenshot(Number(settings.graphics.screenshotScale));
+      if (input.wasPressed('cycleCamera')) player.cycleCameraMode();
       if (input.wasPressed('pause') && inventoryUI.isOpen) {
         inventoryUI.close();
         overlayEl.classList.remove('hidden');
@@ -900,7 +925,7 @@ function main() {
       }
 
       if (!inventoryUI.isOpen) {
-        interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player));
+        interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player), mobManager.getLiveMobs());
         mobManager.tryPlayerAttack(player, input);
         mobManager.tryPlayerBarter(player, input);
         mobManager.tryPlayerInteractMob(player, input);
@@ -932,6 +957,7 @@ function main() {
           const bz = Math.floor(interaction.justBroke.position.z);
           checkFall(chunkManager, fallingBlocks, bx, by + 1, bz);
           fluids.notify(bx, by, bz);
+          closeContainerUIIfDestroyed(bx, by, bz);
           // Breaking a frame block (obsidian) collapses the whole portal
           // — matches nether portals: the interior can't exist without
           // its frame. No-op unless CINDER_PORTAL is actually adjacent.
@@ -1096,6 +1122,12 @@ function main() {
         for (const d of destroyed) {
           fluids.notify(d.x, d.y, d.z);
           checkFall(chunkManager, fallingBlocks, d.x, d.y + 1, d.z);
+          if (d.containerDrops) {
+            for (const slot of d.containerDrops) {
+              itemDrops.spawn({ x: d.x + 0.5, y: d.y + 0.5, z: d.z + 0.5 }, slot.itemId, slot.count, slot.durability);
+            }
+          }
+          closeContainerUIIfDestroyed(d.x, d.y, d.z);
         }
         particles.spawnBurst({ x: fuse.x + 0.5, y: fuse.y + 0.5, z: fuse.z + 0.5 }, 0xff9933, 24, 6);
         playExplosion();
@@ -1415,6 +1447,8 @@ function main() {
       inventoryUI,
       toggleInventory,
       openContainer,
+      closeContainerUIIfDestroyed,
+      explode,
       getBlock,
       BLOCKS,
       TUNING,

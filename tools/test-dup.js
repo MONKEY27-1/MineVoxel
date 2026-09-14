@@ -346,6 +346,115 @@ export default async function run(baseUrl) {
       }
     });
 
+    await step('breaking the exact chest a UI is open on auto-closes it', async () => {
+      await page.evaluate(() => {
+        const M = window.__minevoxel;
+        M.player.gameMode = 'creative';
+        M.player.position.x = 340.5; M.player.position.y = 150; M.player.position.z = 340.5;
+        M.player.pitch = -Math.PI / 2; M.player.yaw = 0;
+        M.player.velocity.x = 0; M.player.velocity.y = 0; M.player.velocity.z = 0;
+      });
+      await page.waitForFunction(() => {
+        const col = window.__minevoxel.chunkManager.columns.get('21,21');
+        return !!col && col.state === 'generated';
+      }, { timeout: 20000 });
+
+      const result = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        for (let y = 96; y < 103; y++) M.chunkManager.setBlock(340, y, 340, 0);
+        M.chunkManager.setBlock(340, 99, 340, M.BLOCKS.CHEST);
+        M.player.position.y = 102;
+        M.player.velocity.y = 0;
+        // containerPos is the 4th open() arg — this is exactly what
+        // main.js's own openContainer() passes for a real chest/furnace/
+        // brewing-stand/smithing-table open, see src/main.js.
+        M.inventoryUI.open('chest', { secondary: M.player.inventory }, 'Chest', { x: 340, y: 99, z: 340 });
+
+        const orig = M.input.isMouseDown.bind(M.input);
+        M.input.isMouseDown = (btn) => (btn === 0 ? true : orig(btn));
+        M.interaction.update(1 / 60, M.player, M.input, M.chunkManager);
+        M.input.isMouseDown = orig;
+        const broke = M.interaction.justBroke ? { ...M.interaction.justBroke } : null;
+        return { broke, stillOpenRightAfterBreak: M.inventoryUI.isOpen };
+      });
+      if (!result.broke) throw new Error('setup failed: expected to break the chest');
+
+      // Mirror main.js's real post-break sequence (closeContainerUIIfDestroyed
+      // is called with the floored block position, same as the mining path).
+      await page.evaluate((broke) => {
+        const M = window.__minevoxel;
+        const bx = Math.floor(broke.position.x);
+        const by = Math.floor(broke.position.y);
+        const bz = Math.floor(broke.position.z);
+        M.closeContainerUIIfDestroyed(bx, by, bz);
+      }, result.broke);
+
+      const isOpenAfter = await page.evaluate(() => window.__minevoxel.inventoryUI.isOpen);
+      if (isOpenAfter) throw new Error('inventory UI stayed open after the exact block it was showing was destroyed');
+    });
+
+    await step('an explosion on a stocked chest drops its contents, clears the registry, and auto-closes an open UI on it', async () => {
+      await page.evaluate(() => {
+        const M = window.__minevoxel;
+        if (M.inventoryUI.isOpen) M.inventoryUI.close();
+        M.player.position.x = 360.5; M.player.position.y = 150; M.player.position.z = 360.5;
+        M.player.velocity.x = 0; M.player.velocity.y = 0; M.player.velocity.z = 0;
+      });
+      await page.waitForFunction(() => {
+        const col = window.__minevoxel.chunkManager.columns.get('22,22');
+        return !!col && col.state === 'generated';
+      }, { timeout: 20000 });
+
+      const result = await page.evaluate(async () => {
+        const M = window.__minevoxel;
+        for (let y = 96; y < 103; y++) M.chunkManager.setBlock(360, y, 360, 0);
+        M.chunkManager.setBlock(360, 99, 360, M.BLOCKS.CHEST);
+        const containers = await import('/src/items/containerRegistry.js');
+        const chest = containers.getOrCreateChest(360, 99, 360);
+        for (let i = 0; i < chest.slots.length; i++) chest.slots[i] = null;
+        chest.addItem(M.BLOCKS.GLOWSTONE, 6);
+        M.inventoryUI.open('chest', { secondary: chest }, 'Chest', { x: 360, y: 99, z: 360 });
+
+        // Snapshotted immediately before exploding, not assumed to be 0 —
+        // earlier steps in this same file stock other chests with
+        // glowstone too and never clean up their world-drop entities.
+        const glowstoneDropsBefore = M.itemDrops.drops.reduce((s, d) => s + (d.itemId === M.BLOCKS.GLOWSTONE ? d.count : 0), 0);
+
+        const destroyed = M.explode(M.chunkManager, 360.5, 99.5, 360.5, { radius: 2, power: 20 });
+        const containerHit = destroyed.find((d) => d.x === 360 && d.y === 99 && d.z === 360);
+        M.closeContainerUIIfDestroyed(360, 99, 360);
+
+        // Mirror main.js's own explosion-loop drop-spawning.
+        if (containerHit?.containerDrops) {
+          for (const slot of containerHit.containerDrops) {
+            M.itemDrops.spawn({ x: 360.5, y: 99.5, z: 360.5 }, slot.itemId, slot.count, slot.durability);
+          }
+        }
+
+        const glowstoneDropsAfter = M.itemDrops.drops.reduce((s, d) => s + (d.itemId === M.BLOCKS.GLOWSTONE ? d.count : 0), 0);
+        const freshChest = containers.getOrCreateChest(360, 99, 360); // a *new* chest built here right after should start empty, not inherit the exploded one's contents
+        return {
+          containerHit: containerHit ? { ...containerHit } : null,
+          isOpenAfter: M.inventoryUI.isOpen,
+          freshChestEmpty: freshChest.slots.every((s) => s === null),
+          blockNowAir: M.chunkManager.getBlock(360, 99, 360) === M.BLOCKS.AIR,
+          glowstoneDropsGained: glowstoneDropsAfter - glowstoneDropsBefore,
+        };
+      });
+
+      if (!result.blockNowAir) throw new Error('setup failed: explosion did not actually destroy the chest block (power too low for the test radius?)');
+      if (!result.containerHit || !result.containerHit.containerDrops || result.containerHit.containerDrops.length === 0) {
+        throw new Error(`expected explode() to report containerDrops for the stocked chest it destroyed, got: ${JSON.stringify(result.containerHit)}`);
+      }
+      if (result.glowstoneDropsGained !== 6) {
+        throw new Error(`expected the exploded chest's 6x glowstone to become item drops, gained ${result.glowstoneDropsGained}x`);
+      }
+      if (!result.freshChestEmpty) {
+        throw new Error("a chest rebuilt at the exploded chest's exact position inherited its old contents — removeContainerAt was not called for the explosion path");
+      }
+      if (result.isOpenAfter) throw new Error('inventory UI stayed open after an explosion destroyed the exact chest it was showing');
+    });
+
     assertNoErrors(errors, 'test:dup');
     console.log('[test:dup] PASS');
   } finally {

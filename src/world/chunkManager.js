@@ -620,6 +620,20 @@ export class ChunkManager {
   }
 
   /**
+   * True only for a fully generated column — getBlock() can't tell this
+   * apart from "loaded but legitimately all air" (both return
+   * BLOCKS.AIR), which is exactly the ambiguity that let a mob whose home
+   * chunk unloads mid-path free-fall: every terrain read under it quietly
+   * reported open air instead of "unknown," so gravity took over with no
+   * ground ever found (see mobManager.js's own use of this).
+   */
+  isColumnLoaded(wx, wz) {
+    const cx = Math.floor(wx / SECTION_SIZE);
+    const cz = Math.floor(wz / SECTION_SIZE);
+    return this.columns.get(columnKey(cx, cz))?.state === 'generated';
+  }
+
+  /**
    * Raw stored sky/block light (0-15 each), for phase 8's mob spawning.
    * Sky light itself is NOT dimmed by time of day (only the render shader
    * dims it live via `dayFactor` — see dayNightCycle.js) — callers that

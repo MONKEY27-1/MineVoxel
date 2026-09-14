@@ -128,6 +128,99 @@ export default async function run(baseUrl) {
       if (!result.ok) throw new Error(`placing a block at the player's own position crashed: ${result.error}`);
     });
 
+    await step('placing a block inside a mob\'s hitbox is blocked, same as it already is for the player\'s own', async () => {
+      const pos = { x: 500, y: 99, z: 500 }; // wall block the player targets
+      // Teleport toward the target column first — chunks stream in around
+      // the player's actual position, so waiting on this column before
+      // moving anyone near it would just time out (the far-off setBlock
+      // calls below are queued-and-dropped on an ungenerated column too).
+      await page.evaluate((pos) => {
+        window.__minevoxel.player.position.x = pos.x + 0.5;
+        window.__minevoxel.player.position.y = 150;
+        window.__minevoxel.player.position.z = pos.z + 4.5;
+      }, pos);
+      await page.waitForFunction((cxcz) => {
+        const col = window.__minevoxel.chunkManager.columns.get(cxcz);
+        return !!col && col.state === 'generated';
+      }, `${Math.floor(pos.x / 16)},${Math.floor(pos.z / 16)}`, { timeout: 20000 });
+
+      const setup = await page.evaluate((pos) => {
+        const M = window.__minevoxel;
+        for (let dx = -3; dx <= 3; dx++) {
+          for (let dz = -5; dz <= 5; dz++) {
+            for (let dy = 0; dy <= 6; dy++) M.chunkManager.setBlock(pos.x + dx, 96 + dy, pos.z + dz, 0);
+            M.chunkManager.setBlock(pos.x + dx, 98, pos.z + dz, M.BLOCKS.STONE); // floor
+          }
+        }
+        // A full-height column, not a single block, so the ray hits it
+        // regardless of exactly where eye height lands relative to
+        // position.y — a single 1-tall wall block at an assumed height
+        // was flaky here (real eyeHeight offset put the horizontal ray
+        // above/below it depending on rounding).
+        for (let dy = 0; dy <= 6; dy++) M.chunkManager.setBlock(pos.x, 96 + dy, pos.z, M.BLOCKS.STONE);
+
+        M.player.gameMode = 'creative';
+        M.player.position.x = pos.x + 0.5; M.player.position.y = 99; M.player.position.z = pos.z + 4.5;
+        M.player.velocity.x = 0; M.player.velocity.y = 0; M.player.velocity.z = 0;
+        M.player.yaw = 0; M.player.pitch = 0; // yaw=0 looks toward -Z, straight at the wall column
+        M.player.inventory.slots[M.player.selectedHotbar] = { itemId: M.BLOCKS.SANDSTONE, count: 64 };
+
+        // Ask the real raycast what it actually hits (don't assume the
+        // exact Y — eyeHeight isn't a round number) so the mob gets
+        // placed exactly where the game itself would want to place a
+        // block, not a guessed coordinate.
+        const target = M.raycastVoxel(M.chunkManager, M.player.eyePosition, M.player.lookDirection, 6);
+        if (!target) return { targetFound: false };
+        const [nx, ny, nz] = target.normal;
+        const [bx, by, bz] = target.blockPos;
+        const cell = { x: bx + nx, y: by + ny, z: bz + nz };
+
+        // The mob sits exactly in that cell — far enough from the
+        // player's own AABB (4+ blocks away in z) that only the new
+        // mob-overlap check, not the pre-existing player-overlap one,
+        // could be what blocks this.
+        const mob = M.mobManager.spawn('zombie', { x: cell.x + 0.5, y: cell.y, z: cell.z + 0.5 });
+        return { targetFound: true, mobId: mob.id, cell, blockBefore: M.chunkManager.getBlock(cell.x, cell.y, cell.z) };
+      }, pos);
+      if (!setup.targetFound) throw new Error('setup failed: raycast did not hit the wall column at all');
+      if (setup.blockBefore !== 0) throw new Error(`setup failed: expected the target placement cell to start as air, was blockId ${setup.blockBefore}`);
+      const cell = setup.cell;
+
+      const blocked = await page.evaluate((cell) => {
+        const M = window.__minevoxel;
+        const orig = M.input.isMouseDown.bind(M.input);
+        M.input.isMouseDown = (btn) => (btn === 2 ? true : orig(btn));
+        M.interaction.update(1 / 60, M.player, M.input, M.chunkManager, false, M.mobManager.getLiveMobs());
+        M.input.isMouseDown = orig;
+        return {
+          justPlaced: M.interaction.justPlaced,
+          blockAfter: M.chunkManager.getBlock(cell.x, cell.y, cell.z),
+          targetPos: M.interaction.target?.blockPos,
+        };
+      }, cell);
+      if (blocked.justPlaced !== null) throw new Error(`expected placement to be blocked by the mob's hitbox, but justPlaced=${JSON.stringify(blocked.justPlaced)}`);
+      if (blocked.blockAfter !== 0) throw new Error(`expected the cell to remain air with a mob in it, found blockId ${blocked.blockAfter} (target was ${JSON.stringify(blocked.targetPos)})`);
+
+      // Control: move the mob out of the way and confirm placement then
+      // succeeds — proves the earlier block was specifically the new
+      // mob-overlap check, not some unrelated setup mistake (wrong
+      // target, no held item, cooldown, etc.).
+      const after = await page.evaluate((cell) => {
+        const M = window.__minevoxel;
+        const mob = M.mobManager.mobs[M.mobManager.mobs.length - 1];
+        mob.position.x = cell.x + 30; mob.position.z = cell.z + 30;
+        M.interaction._placeCooldown = 0;
+        const orig = M.input.isMouseDown.bind(M.input);
+        M.input.isMouseDown = (btn) => (btn === 2 ? true : orig(btn));
+        M.interaction.update(1 / 60, M.player, M.input, M.chunkManager, false, M.mobManager.getLiveMobs());
+        M.input.isMouseDown = orig;
+        return { justPlaced: M.interaction.justPlaced, blockAfter: M.chunkManager.getBlock(cell.x, cell.y, cell.z) };
+      }, cell);
+      if (after.justPlaced === null || after.blockAfter !== (await page.evaluate(() => window.__minevoxel.BLOCKS.SANDSTONE))) {
+        throw new Error(`expected placement to succeed once the mob moved away, got: ${JSON.stringify(after)}`);
+      }
+    });
+
     assertNoErrors(errors, 'test:edge');
     console.log('[test:edge] PASS');
   } finally {

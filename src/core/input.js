@@ -32,6 +32,8 @@ export const DEFAULT_BINDINGS = {
   hotbar7: 'Digit7',
   hotbar8: 'Digit8',
   hotbar9: 'Digit9',
+  screenshot: 'F2',
+  cycleCamera: 'F5',
 };
 
 export class Input {

@@ -63,6 +63,7 @@ export const DEFAULT_AUDIO = {
   footstep: 100,
   block: 100,
   mob: 100,
+  ui: 100,
 };
 
 export const DEFAULT_SETTINGS = {

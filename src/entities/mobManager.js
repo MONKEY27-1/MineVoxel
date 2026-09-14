@@ -123,7 +123,33 @@ export class MobManager {
         this.mobs.splice(i, 1);
         continue;
       }
-      mob.update(dt, chunkManager, player, projectiles);
+      // A mob whose own column has streamed out (it wandered/was left
+      // near the edge of render distance, or entityRenderDistance is set
+      // higher than renderDistance*16 in the graphics settings — a real,
+      // reachable combination) must not tick AI/physics against it:
+      // chunkManager.getBlock() can't tell "unloaded" from "loaded and
+      // genuinely air," so every ground/collision check would silently
+      // see open air and the mob would free-fall under gravity through a
+      // floor that's actually still there, just not resident in memory.
+      // Freezing in place (not ticking, but not despawning either) until
+      // the column reloads or the mob drifts past despawnDist mirrors the
+      // exact same "pause a mob whose world isn't valid right now"
+      // pattern already used for a mob left behind in another dimension.
+      // A mob whose own column has streamed out (it wandered/was left
+      // near the edge of render distance, or entityRenderDistance is set
+      // higher than renderDistance*16 in the graphics settings — a real,
+      // reachable combination) must not tick AI/physics against it:
+      // chunkManager.getBlock() can't tell "unloaded" from "loaded and
+      // genuinely air," so every ground/collision check would silently
+      // see open air and the mob would free-fall under gravity through a
+      // floor that's actually still there, just not resident in memory.
+      // Freezing in place (not ticking, but not despawning either) until
+      // the column reloads or the mob drifts past despawnDist mirrors the
+      // exact same "pause a mob whose world isn't valid right now"
+      // pattern already used for a mob left behind in another dimension.
+      if (chunkManager.isColumnLoaded(mob.position.x, mob.position.z)) {
+        mob.update(dt, chunkManager, player, projectiles);
+      }
 
       const dist = Math.hypot(
         mob.position.x - player.position.x,
@@ -355,6 +381,11 @@ export class MobManager {
   /** Used by main.js to suppress block-breaking progress for a tick a mob is being fought. */
   hasAttackableMobInSight(player) {
     return this._findAttackTarget(player) !== null;
+  }
+
+  /** Mobs actually present right now: not dead, not mid-despawn animation, and in the currently active dimension (a left-behind-in-another-dimension mob is hidden/paused but still sits in this.mobs — see update()). Used by interaction.js's place-in-mob check. */
+  getLiveMobs() {
+    return this.mobs.filter((m) => !m.dead && !m.despawning && m.dimensionId === this._activeDimensionId);
   }
 
   tryPlayerAttack(player, input) {

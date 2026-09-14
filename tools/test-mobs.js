@@ -171,6 +171,47 @@ export default async function run(baseUrl) {
       }
     });
 
+    await step('a mob whose column unloads mid-path freezes instead of free-falling through phantom air', async () => {
+      // POLISH.md's own "reviewed only at a shallow level... no evidence
+      // of an actual bug found or ruled out" item — actually traced this
+      // time: chunkManager.getBlock() returns AIR for both "loaded and
+      // genuinely empty" and "not loaded at all," so a mob whose column
+      // streams out mid-wander used to see open ground everywhere,
+      // including straight down, and free-fall under gravity through
+      // terrain that's still really there, just not resident in memory.
+      const setup = await page.evaluate(() => {
+        const M = window.__minevoxel;
+        const p = M.player.position;
+        // Well clear of any other step's mobs/terrain edits and inside a
+        // column that's actually loaded right now (near the player).
+        const mob = M.mobManager.spawn('emberstrider', { x: Math.floor(p.x) + 0.5, y: Math.floor(p.y) + 20, z: Math.floor(p.z) + 0.5 });
+        mob.velocity.x = 0; mob.velocity.y = 0; mob.velocity.z = 0;
+        const cx = Math.floor(mob.position.x / 16);
+        const cz = Math.floor(mob.position.z / 16);
+        const key = `${cx},${cz}`;
+        const wasLoaded = M.chunkManager.isColumnLoaded(mob.position.x, mob.position.z);
+        // Simulate exactly what a real unload does to this map (see
+        // chunkManager.js's _unloadColumn) — the mob is deliberately left
+        // floating in open air with nothing under it for many blocks, so
+        // if this freeze doesn't work it free-falls immediately and hard.
+        M.chunkManager.columns.delete(key);
+        return { mobId: mob.id, yBefore: mob.position.y, wasLoaded, nowLoaded: M.chunkManager.isColumnLoaded(mob.position.x, mob.position.z) };
+      });
+      if (!setup.wasLoaded) throw new Error('setup failed: mob was not spawned in an actually-loaded column');
+      if (setup.nowLoaded) throw new Error('setup failed: simulated column delete did not register as unloaded');
+
+      await page.waitForTimeout(500); // several fixed ticks — plenty of time to fall if the freeze isn't working
+      const after = await page.evaluate((mobId) => {
+        const M = window.__minevoxel;
+        const mob = M.mobManager.mobs.find((m) => m.id === mobId);
+        return mob ? { y: mob.position.y, dead: mob.dead, despawned: false } : { despawned: true };
+      }, setup.mobId);
+      if (after.despawned) throw new Error('mob despawned unexpectedly during the freeze window');
+      if (Math.abs(after.y - setup.yBefore) > 0.01) {
+        throw new Error(`mob fell from y=${setup.yBefore} to y=${after.y} while its column was unloaded — it should have frozen in place instead`);
+      }
+    });
+
     await step('dimension-scoped natural spawning: overworld-only run never naturally spawns a Cinderdeep mob', async () => {
       await page.evaluate(async () => {
         const M = window.__minevoxel;

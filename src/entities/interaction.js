@@ -9,15 +9,27 @@ const PLACE_COOLDOWN = 0.2;
 // instead of placing whatever's in the player's hand.
 export const CONTAINER_BLOCKS = new Set([BLOCKS.CRAFTING_TABLE, BLOCKS.FURNACE, BLOCKS.CHEST, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE]);
 
+function cubeOverlapsAABB(cx, cy, cz, position, size) {
+  const halfW = size.width / 2;
+  const x0 = position.x - halfW;
+  const x1 = position.x + halfW;
+  const y0 = position.y;
+  const y1 = position.y + size.height;
+  const z0 = position.z - halfW;
+  const z1 = position.z + halfW;
+  return x1 > cx && x0 < cx + 1 && y1 > cy && y0 < cy + 1 && z1 > cz && z0 < cz + 1;
+}
+
 function cubeOverlapsPlayer(cx, cy, cz, player) {
-  const halfW = player.size.width / 2;
-  const px0 = player.position.x - halfW;
-  const px1 = player.position.x + halfW;
-  const py0 = player.position.y;
-  const py1 = player.position.y + player.size.height;
-  const pz0 = player.position.z - halfW;
-  const pz1 = player.position.z + halfW;
-  return px1 > cx && px0 < cx + 1 && py1 > cy && py0 < cy + 1 && pz1 > cz && pz0 < cz + 1;
+  return cubeOverlapsAABB(cx, cy, cz, player.position, player.size);
+}
+
+/** Mirrors cubeOverlapsPlayer for mobs — a block placed inside a mob's hitbox is a genre-convention gap (mobs have no suffocation damage here, so it's not a crash/data-loss issue, just "block clips through mob" looking wrong), fixed by reusing the exact same AABB check the player already gets. */
+function cubeOverlapsAnyMob(cx, cy, cz, mobs) {
+  for (const mob of mobs) {
+    if (cubeOverlapsAABB(cx, cy, cz, mob.position, mob.size)) return true;
+  }
+  return false;
 }
 
 /** Amanatides & Woo voxel DDA raycast. Passes through liquids and air. */
@@ -96,7 +108,7 @@ export class InteractionController {
     this.wantsOpenContainer = null; // { blockId, pos:[x,y,z] } | null
   }
 
-  update(dt, player, input, chunkManager, suppressBreak = false) {
+  update(dt, player, input, chunkManager, suppressBreak = false, mobs = []) {
     this.justBroke = null;
     this.justPlaced = null;
     this.wantsOpenContainer = null;
@@ -114,7 +126,7 @@ export class InteractionController {
     }
 
     this._updateBreaking(dt, player, input, chunkManager, suppressBreak);
-    this._updatePlacing(player, input, chunkManager);
+    this._updatePlacing(player, input, chunkManager, mobs);
   }
 
   _updateBreaking(dt, player, input, chunkManager, suppressBreak) {
@@ -182,7 +194,7 @@ export class InteractionController {
     }
   }
 
-  _updatePlacing(player, input, chunkManager) {
+  _updatePlacing(player, input, chunkManager, mobs) {
     if (!input.isMouseDown(2) || !this.target || this._placeCooldown > 0) return;
 
     if (CONTAINER_BLOCKS.has(this.target.blockId)) {
@@ -203,6 +215,7 @@ export class InteractionController {
     const existing = chunkManager.getBlock(px, py, pz);
     if (existing !== BLOCKS.AIR) return;
     if (cubeOverlapsPlayer(px, py, pz, player)) return;
+    if (cubeOverlapsAnyMob(px, py, pz, mobs)) return;
 
     chunkManager.setBlock(px, py, pz, held.itemId);
     this.justPlaced = { position: { x: px + 0.5, y: py + 0.5, z: pz + 0.5 }, blockId: held.itemId };
