@@ -25,6 +25,7 @@
     "test:cinderdeep-terrain": "node tools/test-cinderdeep-terrain.js",
     "test:entity-gate-travel": "node tools/run-with-server.js tools/test-entity-gate-travel.js",
     "test:projectiles": "node tools/run-with-server.js tools/test-projectiles.js",
+    "test:riding": "node tools/run-with-server.js tools/test-riding.js",
     "test:feel": "node tools/run-with-server.js tools/test-feel.js",
     "test:visual": "node tools/run-with-server.js tools/test-visual.js",
     "test:audio": "node tools/run-with-server.js tools/test-audio.js"

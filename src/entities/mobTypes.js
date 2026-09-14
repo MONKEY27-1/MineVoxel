@@ -261,9 +261,14 @@ export const MOB_TYPES = {
     size: { width: 1.6, height: 1.9 },
     maxHealth: 20,
     walkSpeed: 2.6,
+    rideSpeed: 5, // faster ridden than wandering on its own — the point of taming one
     babyChance: 0,
     particleColor: 0xf2c14d,
     drops: [],
+    // Tame with an Azurecap Lure, then equip a Saddle, then mount — see
+    // mobManager.js's tryPlayerInteractMob. Both `tamed`/`saddled` are
+    // per-instance state (set on the Mob itself, not this shared def).
+    rideable: true,
   }),
 };
 

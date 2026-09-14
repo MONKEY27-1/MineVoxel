@@ -134,6 +134,10 @@ export class Player {
     // {itemId, durability} or null, same shape as an inventory slot
     // minus `count` (armor doesn't stack).
     this.armor = [null, null, null, null];
+    // Emberstrider riding — no mount system existed before this. `riding`
+    // is a live Mob reference (not persisted; dismounted automatically
+    // on save/load and on gate travel, see main.js), null when on foot.
+    this.riding = null;
     // Phase 6 (alchemy): no status-effect system existed before this
     // pass — see statusEffects.js. `_fireDamageTimer`/`_regenTimer` pace
     // the two periodic effects that need their own tick independent of
@@ -236,6 +240,17 @@ export class Player {
 
   update(dt, input, chunkManager) {
     this._updateLook(input);
+
+    if (this.riding) {
+      this._updateRiding(dt, input);
+      this._updateStatusEffects(dt, chunkManager);
+      this._updateCameraBob(dt);
+      this._updateFov(dt);
+      this._updateDamageShake(dt);
+      this._syncCamera();
+      return;
+    }
+
     this._updateWaterState(chunkManager);
 
     if (this.gameMode === 'creative' && this._handleFlyToggle(input)) {
@@ -395,6 +410,57 @@ export class Player {
       return this.lookDirection;
     }
     return move;
+  }
+
+  /** Mounts a tamed+saddled Emberstrider — see mobManager.js's tryPlayerInteractMob, the actual right-click entry point. */
+  mount(mob) {
+    this.riding = mob;
+    mob.riddenBy = this;
+    this.flying = false;
+  }
+
+  /** Steps off; the mob keeps whatever position/velocity it had the instant this happens. */
+  dismount() {
+    if (this.riding) this.riding.riddenBy = null;
+    this.riding = null;
+  }
+
+  /**
+   * Steers the ridden mob from WASD (camera-relative, same _moveVector
+   * every other movement mode uses) instead of moving the player's own
+   * body — the mob's own _updatePhysics (mob.js) does the actual
+   * collision/gravity resolution; this only sets its desired direction
+   * and syncs the player's own position/camera to follow along.
+   */
+  _updateRiding(dt, input) {
+    const mob = this.riding;
+    if (!mob || mob.dead || mob.despawning) {
+      this.dismount();
+      return;
+    }
+    const move = this._moveVector(input, false);
+    if (move.lengthSq() > 0) {
+      mob.yaw = Math.atan2(-move.x, -move.z);
+      mob._moveDir = { x: move.x, z: move.z };
+    } else {
+      mob._moveDir = { x: 0, z: 0 };
+    }
+    // Sneak dismounts, same convention as every mount vanilla has ever
+    // shipped — a fresh key-down edge specifically (not _wantsSneak,
+    // which in 'toggle' sneakMode would flip a persisted flag that'd
+    // then wrongly leave the player sneaking the instant they're back
+    // on foot).
+    if (input.wasPressed('sneak')) {
+      this.dismount();
+      return;
+    }
+    this.position.x = mob.position.x;
+    this.position.y = mob.position.y + mob.size.height * 0.85;
+    this.position.z = mob.position.z;
+    this.velocity.x = 0;
+    this.velocity.y = 0;
+    this.velocity.z = 0;
+    this.onGround = mob.onGround;
   }
 
   _updateFly(dt, input, chunkManager) {

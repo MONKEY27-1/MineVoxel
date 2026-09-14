@@ -82,6 +82,7 @@ export class MobManager {
     this.justKilled = null; // { mobTypeId } | null
     this.justBartered = null; // { mobTypeId, itemId, count } | null
     this._playerBarterCooldown = 0;
+    this._playerInteractCooldown = 0;
     // One global mob list shared across both dimensions (see mob.js's
     // own note on why) — tracks whichever dimension update() was most
     // recently called with, so spawn() can default a new mob's
@@ -101,6 +102,7 @@ export class MobManager {
     this._activeDimensionId = dimension.id;
     this._playerAttackCooldown = Math.max(0, this._playerAttackCooldown - dt);
     this._playerBarterCooldown = Math.max(0, this._playerBarterCooldown - dt);
+    this._playerInteractCooldown = Math.max(0, this._playerInteractCooldown - dt);
 
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
@@ -401,6 +403,37 @@ export class MobManager {
       count
     );
     this.justBartered = { mobTypeId: target.typeId };
+  }
+
+  /**
+   * Emberstrider riding (spec: "saddle + Azurecap Lure rideable") — the
+   * only rideable mob, gated by `def.rideable`. Three right-clicks in
+   * sequence, each consuming the held item: an Azurecap Lure tames it,
+   * then a Saddle equips, then (any/no item held) mounts. `tamed`/
+   * `saddled` live on the Mob instance itself (mobTypes.js's own note on
+   * why), so this only ever progresses one step per click rather than
+   * skipping straight to mounted with the right combination of luck.
+   */
+  tryPlayerInteractMob(player, input) {
+    if (!input.wasMousePressed(2) || this._playerInteractCooldown > 0) return;
+    const target = this._findAttackTarget(player);
+    if (!target || !target.def.rideable || player.riding) return;
+
+    const held = player.selectedItem;
+    if (!target.tamed) {
+      if (held?.itemId !== ITEMS.AZURECAP_LURE.id) return;
+      target.tamed = true;
+    } else if (!target.saddled) {
+      if (held?.itemId !== ITEMS.SADDLE.id) return;
+      target.saddled = true;
+    } else {
+      player.mount(target);
+      this._playerInteractCooldown = ATTACK_COOLDOWN;
+      return;
+    }
+    held.count -= 1;
+    if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+    this._playerInteractCooldown = ATTACK_COOLDOWN;
   }
 
   /**

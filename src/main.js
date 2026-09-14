@@ -450,6 +450,7 @@ function main() {
   }
 
   function respawnPlayer() {
+    player.dismount(); // Emberstrider riding doesn't survive death/respawn
     // Dying always sends you back to the overworld spawn, regardless of
     // which dimension you died in — matches genre convention (a bed/
     // spawn point is always an overworld concept), and avoids the much
@@ -502,6 +503,7 @@ function main() {
    */
   async function travelToDimension(fromDimension, toDimension) {
     if (isTraveling) return;
+    player.dismount(); // riding an Emberstrider through a gate isn't supported — keeps entity-carry logic from also having to reason about a rider/mount pair
     isTraveling = true;
     fadeOverlayEl.style.transition = '';
     fadeOverlayEl.classList.add('visible');
@@ -901,6 +903,7 @@ function main() {
         interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player));
         mobManager.tryPlayerAttack(player, input);
         mobManager.tryPlayerBarter(player, input);
+        mobManager.tryPlayerInteractMob(player, input);
         if (mobManager.justHit) playMobHit();
         if (input.wasMousePressed(0)) viewModel.triggerSwing();
 

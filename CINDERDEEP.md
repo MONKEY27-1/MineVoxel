@@ -589,78 +589,84 @@ dimension-wide brightness control. Left `ambientIntensity` in place
 still accepts it and both dimensions set it) rather than expanding
 scope into building a real ambient-light multiplier nobody asked for.
 
-## Deliberately not done
+## Post-launch: closing out the deferred checklist
 
-- [ ] Structures (Emberhold, Ashkin Bastion x4, Ruined Gate, fossil
-      fields) are not wired into cinderdeepGenerator.js yet — that's
-      Phase 5. The generator's own comment marks the seam (same
-      chunk-local blueprint pattern the overworld's generator.js uses).
-- [ ] Entities (mobs, dropped items) do not yet travel through gates
-      with the player — only the player does. The spec asks for this in
-      Phase 1; deferred because it needs mobManager/itemDrops to exist
-      per-dimension too (they're currently single global managers tied
-      to whichever chunkManager is active, same shape problem the
-      ChunkManager itself had before this pass). Revisit once Phase 4
-      mobs exist to actually test it against.
-- [ ] Portal surface has no shader-based swirl/UV animation — it's a
-      static (if busy) procedural texture, relying on the required
-      particle emission for a sense of motion instead. atlasMaterial.js
-      already has the `uTime` uniform this would need; adding real UV
-      distortion is a small, scoped follow-up if time allows.
-- [ ] Armor is not rendered on the player model (playerModel.js) —
-      equipping a piece changes stats/Ashkin-neutrality only, not
-      appearance.
-- [ ] No armor equip/unequip UI exists — `player.armor` is a real,
-      saved/loaded field, but nothing in inventoryUI.js lets a player put
-      a piece into it yet. Testable today only via the debug hook
-      (`window.__minevoxel.player.armor[...] = {itemId, durability}`).
-      Needed before Ashkin neutrality or defense is reachable through
-      normal play.
-- [ ] Armor's `defense` stat is not applied anywhere — no damage-
-      reduction code reads `player.armor` for incoming hits yet, only
-      mob.js's Ashkin-neutrality check does. Equipping armor changes
-      nothing about survivability today.
-- [ ] Cinder Wraith / Hollow Drifter's signature attacks (telegraphed
-      3-shot fire volleys, a deflectable slow explosive projectile) are
-      simplified to a plain long-range melee-style hit — no projectile
-      entity system exists in this codebase to build the real thing on.
-- [ ] Magma Slug splitting-on-death (like the overworld slime) and
-      Ashbone's lingering decay damage-over-time are not implemented —
-      both mobs fight as a flat melee attacker today.
-- [ ] Emberstrider riding (saddle + Azurecap Lure) is not implemented —
-      no mount/riding system exists in this codebase at all; it exists
-      only as a passive, unrideable mob.
-- [ ] Mob entities do not travel through gates with the player (same gap
-      Phase 1 already logged) — now directly testable since Cinderdeep
-      mobs exist, but still not built.
+User asked for the whole list above to be worked through. Now done:
+
+- **Entities travel through gates** — mobs/dropped items within
+  `GATE_ENTITY_CARRY_RADIUS` of the player come along on a real trip;
+  ones further away are left behind, paused and hidden (see the earlier
+  "Close out most of the Cinderdeep's deferred checklist" entry above
+  for the full writeup, including a latent bug this incidentally fixed).
+- **Portal surface has a real shader-based swirl** now
+  (atlasMaterial.js's `portalSwirl` option, distorting the sampling UV
+  around the tile center using the existing `uTime` uniform).
+- **Armor**: rendered on the player model (each piece recolors the body
+  part it covers), a real equip/unequip UI (`#inv-armor`, shift-click
+  from any inventory screen), and its `defense` stat now reduces
+  incoming damage (capped at 80%, matching vanilla's toughness ceiling).
+- **Cinder Wraith / Hollow Drifter's signature attacks** are real
+  projectiles now (entities/projectile.js, new from this pass) — a
+  3-shot fire volley and a lobbed explosive shot respectively, with
+  actual travel time instead of an instant flat hit at range.
+  "Deflectable" (Hollow Drifter's shot specifically) is still not
+  implemented — a distinct feature from projectiles existing at all,
+  needing the player's own attack to detect and reflect a specific
+  in-flight projectile.
+- **Magma Slug splits into 2 half-sized copies on death**, matching the
+  overworld slime's behavior (built here first — no overworld slime to
+  copy from). **Ashbone's lingering decay** is a real damage-over-time
+  now (a new 'decay' status effect), not just a flat hit.
+- **Emberstrider riding** is implemented — tame with an Azurecap Lure,
+  saddle, mount (three separate right-clicks, each consuming the held
+  item), steer with WASD, dismount with sneak. Doesn't survive a gate
+  trip or death (auto-dismounted first) — riding across a dimension
+  boundary would need the entity-carry logic above to also reason about
+  a rider/mount pair, out of scope for this pass.
+- **Explosions (TNT) now damage nearby mobs too**, not just the player.
+- **TNT flashes white** while its fuse burns (`BLOCKS.TNT_LIT`,
+  alternated every 0.25s) — a block swap, not a shader animation, since
+  terrain is greedy-meshed batched geometry with no per-instance visual
+  state to animate.
+- **Fixed a stale doc line**: "structures not wired into
+  cinderdeepGenerator.js" was true when first written but Phase 5
+  shipped that work in a later commit; the checklist entry was never
+  removed until now.
+
+New tests for all of the above: `test:entity-gate-travel`,
+`test:projectiles`, `test:riding`. Everything is exercised against the
+real running game (real dispatched clicks/keys, not state shortcuts)
+except where noted otherwise.
+
+## Deliberately still not done
+
+- [ ] Splash and lingering potions (area-effect-cloud entities) are not
+      implemented. A real projectile system exists now (built for Cinder
+      Wraith/Hollow Drifter above) so a thrown potion *could* fly on it,
+      but "lingering" needs a whole second entity type (an area-effect
+      cloud that persists and reapplies its effect over time to whoever
+      walks through it) on top of that, and splash potions would need
+      their own craftable items (this game's potions only exist in a
+      drink-only form) — scoped out as more than this pass's remaining
+      budget could deliver *well*, rather than shipping a half version.
+      Only drunk potions work.
+- [ ] Duration/potency/inversion brewing modifiers (vanilla's Redstone/
+      Glowstone Dust/Fermented Spider Eye) are not implemented — this
+      game has no Redstone or Fermented Spider Eye item, and this
+      system has no "potency level" concept at all today (every effect
+      is a flat on/off, not Strength I vs II) — adding one would mean
+      touching every single effect's gameplay hook (fire immunity,
+      speed multiplier, defense bonus, etc.) to read a level, a
+      meaningfully bigger change than "add one new item." Every potion
+      brews at one fixed duration/potency.
+- [ ] Bastion "aggro-on-chest-open" and Emberhold's spawners rely on
+      wild/spawner-placed mobs, not a bespoke "boss guard" — there's no
+      unique named Bastion guardian, just the same Ashkin/Ashkin Warden/
+      Tuskbeast roster from Phase 4. The spec never actually asks for a
+      unique guardian beyond that roster.
 - [ ] Emberhold/Bastion interiors don't bore a connector tunnel to the
       cave network the way overworld dungeons/mineshafts do
       (boreConnectorTunnel) — unnecessary here since the Cinderdeep's
       cavern volume is already "large connected" by construction (Phase
       2), so every structure sits inside or adjacent to open space by
       default rather than needing to be dug out to.
-- [ ] Bastion "aggro-on-chest-open" and Emberhold's spawners rely on
-      wild/spawner-placed mobs, not a bespoke "boss guard" — there's no
-      unique named Bastion guardian, just the same Ashkin/Ashkin Warden/
-      Tuskbeast roster from Phase 4.
-- [ ] Splash and lingering potions (area-effect-cloud entities) are not
-      implemented — this codebase has no projectile/thrown-item system
-      at all (same gap already logged for Cinder Wraith/Hollow Drifter's
-      real attacks in Phase 4), so a throwable potion has nothing to
-      fly on. Only drunk potions work.
-- [ ] Duration/potency/inversion brewing modifiers (vanilla's Redstone/
-      Glowstone Dust/Fermented Spider Eye) are not implemented — this
-      game has no Redstone or Fermented Spider Eye item, and adding
-      Glowstone-only potency without the other two felt like half a
-      feature. Every potion brews at one fixed duration/potency.
-- [ ] Armor's `defense` stat still isn't applied to incoming damage (the
-      gap Phase 4 logged already) — Ashkin neutrality is the only thing
-      that reads `player.armor` for gameplay effect.
-- [ ] Explosions damage the player (distance-scaled) but not mobs —
-      mob.js has no `takeExplosionDamage`-style hook, and wiring one in
-      for a mechanic used only for mining Voidiron felt like scope creep
-      relative to what the spec actually asks for.
-- [ ] TNT doesn't visually flash/shake before detonating (vanilla's
-      alternating white flicker) — it just sits still for its 4-second
-      fuse, then disappears in the blast. A cosmetic gap, not a
-      functional one.

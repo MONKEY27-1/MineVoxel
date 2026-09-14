@@ -225,6 +225,15 @@ export class Mob {
     this._hurtFlash = 0;
     this._deathT = 0;
     this._breathPhase = Math.random() * Math.PI * 2;
+    // Emberstrider riding (mobTypes.js's `rideable`) — per-instance
+    // state, not shared def config, since a specific Emberstrider gets
+    // tamed/saddled/ridden, not the species as a whole. `riddenBy` being
+    // set is what makes update() skip the normal AI and steer from
+    // player-supplied input instead (see mobManager.js's
+    // tryPlayerInteractMob and player.js's _updateRiding).
+    this.tamed = false;
+    this.saddled = false;
+    this.riddenBy = null;
     this.walkCycle = 0;
 
     const sheet = getMobTextureSheet(typeId, this.isRareVariant ? 1 : 0);
@@ -292,7 +301,11 @@ export class Mob {
     this._attackCooldownTimer = Math.max(0, this._attackCooldownTimer - dt);
     this._hurtFlash = Math.max(0, this._hurtFlash - dt);
 
-    this._updateAI(dt, player, chunkManager, projectiles);
+    // Ridden: the player's own _updateRiding() already set _moveDir/yaw
+    // directly this same frame (player.update() runs before
+    // mobManager.update() — see main.js's tick order) — skip the normal
+    // AI entirely rather than have it immediately overwrite that steering.
+    if (!this.riddenBy) this._updateAI(dt, player, chunkManager, projectiles);
     this._updatePhysics(dt, chunkManager);
     this._updateAnimation(dt, player);
     this._syncMesh();
@@ -413,8 +426,11 @@ export class Mob {
 
   _updatePhysics(dt, chunkManager) {
     const size = this.size;
-    this.velocity.x = this._moveDir.x * this.def.walkSpeed;
-    this.velocity.z = this._moveDir.z * this.def.walkSpeed;
+    // Ridden Emberstriders move at their own rideSpeed (faster than
+    // wandering on their own — the whole point of taming one), not walkSpeed.
+    const speed = this.riddenBy ? this.def.rideSpeed ?? this.def.walkSpeed : this.def.walkSpeed;
+    this.velocity.x = this._moveDir.x * speed;
+    this.velocity.z = this._moveDir.z * speed;
     this.velocity.y -= GRAVITY * dt;
 
     // Revision-pass section 2: no gliding/teleporting up blocks for mobs
