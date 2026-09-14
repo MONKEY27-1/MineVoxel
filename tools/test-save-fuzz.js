@@ -186,6 +186,55 @@ export default async function run(baseUrl) {
       assertNoErrors(errors, 'test:save-fuzz (post-corruption interaction)');
     });
 
+    await step('an edit on a column that unloads before it finishes generating is not silently lost', async () => {
+      // A narrow but real edge case, found while investigating an
+      // unrelated flake in this same test file: setBlock() on a column
+      // that hasn't finished its *first* generation yet doesn't write
+      // into col.modifiedBlocks at all — it queues into
+      // chunkManager.pendingDiffsToApply for _onGenerated to replay once
+      // generation actually lands (see setBlock's own comment). If the
+      // player moves away far enough that the column unloads *before*
+      // that generation ever completes, _onGenerated's own guard
+      // (`if (!col) return; // unloaded before generation finished`)
+      // means the queued diff is never replayed into modifiedBlocks —
+      // it sat orphaned in pendingDiffsToApply, invisible to
+      // getDirtyColumns() (which only looks at currently-loaded
+      // columns), silently losing the edit from every future save.
+      // Reproduced directly (not raced against real worker timing,
+      // which is what made it hard to notice in the first place) by
+      // inserting a 'generating' column exactly like _requestGenerate()
+      // does, without waiting for a real worker round trip.
+      const pos = { x: 5000, y: 90, z: 5000 }; // far from anything else this file touches
+      const cx = Math.floor(pos.x / 16);
+      const cz = Math.floor(pos.z / 16);
+
+      const setup = await page.evaluate(
+        async ({ pos, cx, cz }) => {
+          const M = window.__minevoxel;
+          const { ChunkColumn } = await import('/src/world/chunkColumn.js');
+          const cm = M.chunkManager;
+          const col = new ChunkColumn(cx, cz, cm.numSections, cm.hasSkylight);
+          col.state = 'generating';
+          cm.columns.set(col.key, col);
+
+          const setResult = cm.setBlock(pos.x, pos.y, pos.z, M.BLOCKS.GLOWSTONE);
+          cm._unloadColumn(col); // what a real distance-based unload calls
+          return { setResult, stillLoaded: cm.columns.has(col.key) };
+        },
+        { pos, cx, cz }
+      );
+      if (!setup.setResult) throw new Error('setup failed: setBlock on the still-generating column did not report success');
+      if (setup.stillLoaded) throw new Error('setup failed: the column was not actually removed by _unloadColumn');
+
+      await page.waitForTimeout(300); // let the fire-and-forget IndexedDB write actually land
+      const savedDiffs = await idbGetAll(page, 'chunkDiffs');
+      const match = savedDiffs.find((d) => d.cx === cx && d.cz === cz);
+      const expectedGlowstone = await page.evaluate(() => window.__minevoxel.BLOCKS.GLOWSTONE);
+      if (!match || match.diffs.length === 0 || match.diffs[0][1] !== expectedGlowstone) {
+        throw new Error(`expected the edit on the still-generating, since-unloaded column to be persisted to chunkDiffs, found: ${JSON.stringify(match)}`);
+      }
+    });
+
     await step('schema migration path actually runs on an old-schemaVersion save', async () => {
       const worlds = await idbGetAll(page, 'worlds');
       const w = worlds.find((r) => r.id === record.id);
@@ -202,22 +251,38 @@ export default async function run(baseUrl) {
       if (migrated !== current) {
         throw new Error(`getWorld() did not migrate schemaVersion 0 -> current (${current}); got ${migrated}`);
       }
-      // And it must have actually been re-persisted at the current
-      // version, not just returned migrated-in-memory — listWorlds()
-      // (used by the world-select screen) reads straight from storage.
+
+      // Polish pass: getWorld()/listWorlds() now write the migrated
+      // record back to storage the first time it's read (migrateWorld()
+      // itself stays pure — it returns a migrated copy without touching
+      // the DB; the write-back lives in a small wrapper around it) —
+      // confirm the *raw* on-disk record actually changed, not just the
+      // in-memory value handed back this call.
+      const rawAfterGetWorld = await idbGetAll(page, 'worlds');
+      const rawRec = rawAfterGetWorld.find((r) => r.id === record.id);
+      if (!rawRec || rawRec.schemaVersion !== current) {
+        throw new Error(`expected getWorld() to persist the migrated record to storage, raw DB record has schemaVersion=${rawRec?.schemaVersion}`);
+      }
+
+      // And listWorlds() (the world-select screen) must migrate + write
+      // back too, independent of getWorld() having already done it above
+      // — re-corrupt the on-disk record and go through listWorlds() only
+      // this time.
+      rawRec.schemaVersion = 0;
+      await idbPut(page, 'worlds', rawRec);
       const listed = await page.evaluate(async () => {
         const worldSave = await import('/src/persistence/worldSave.js');
         const all = await worldSave.listWorlds();
         return all;
       });
-      // migrateWorld() itself doesn't write back to the DB (see its own
-      // comment: it returns a migrated copy) — listWorlds/getWorld both
-      // route every record through it on every read, so an unmigrated
-      // record on disk is fine as long as every reader keeps migrating
-      // it consistently. Confirm that's actually true for listWorlds too.
       const listedRec = listed.find((r) => r.id === record.id);
       if (!listedRec || listedRec.schemaVersion !== current) {
         throw new Error(`listWorlds() did not migrate the old-schemaVersion record too (got ${listedRec?.schemaVersion})`);
+      }
+      const rawAfterListWorlds = await idbGetAll(page, 'worlds');
+      const rawRec2 = rawAfterListWorlds.find((r) => r.id === record.id);
+      if (!rawRec2 || rawRec2.schemaVersion !== current) {
+        throw new Error(`expected listWorlds() to also persist the migrated record to storage, raw DB record has schemaVersion=${rawRec2?.schemaVersion}`);
       }
     });
 

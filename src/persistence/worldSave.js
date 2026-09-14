@@ -51,14 +51,30 @@ function migrateWorld(record) {
   return { ...record, schemaVersion: SCHEMA_VERSION };
 }
 
+// Polish pass: writes a migrated record back to storage the first time
+// it's actually read, instead of relying on every future read to
+// re-migrate it forever. Not a correctness fix (every reader already
+// routed through migrateWorld, so a stale on-disk schemaVersion was
+// always safe) — just avoids repeating the same no-op migration work on
+// every single load, which only mattered once there was more than one
+// migration branch to re-run. migrateWorld returns the *same* reference
+// when nothing changed, so `migrated !== record` is a free "did this
+// actually need migrating" check with no separate dirty flag.
+async function migrateAndPersist(record) {
+  const migrated = migrateWorld(record);
+  if (migrated !== record) await dbPut(STORES.worlds, migrated);
+  return migrated;
+}
+
 export async function listWorlds() {
   const all = await dbGetAll(STORES.worlds);
-  return all.map(migrateWorld).sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
+  const migrated = await Promise.all(all.map(migrateAndPersist));
+  return migrated.sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
 }
 
 export async function getWorld(worldId) {
   const record = await dbGet(STORES.worlds, worldId);
-  return record ? migrateWorld(record) : null;
+  return record ? migrateAndPersist(record) : null;
 }
 
 export async function createWorld({ name, seed, mode }) {

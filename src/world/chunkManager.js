@@ -597,7 +597,40 @@ export class ChunkManager {
     // still loaded at the time they ran. Fire-and-forget: the callback
     // does its own (async, IndexedDB-backed) write; nothing here waits
     // on it, matching every other injected-callback pattern in this file.
-    if (col.modifiedBlocks.size > 0) this.onChunkUnloadDirty?.(col.cx, col.cz, [...col.modifiedBlocks.entries()]);
+    //
+    // Post-launch data-loss fix: this used to check only
+    // col.modifiedBlocks, missing a real edge case — setBlock() on a
+    // column that hasn't finished its first generation yet doesn't write
+    // into modifiedBlocks at all, it queues into pendingDiffsToApply for
+    // _onGenerated to replay later (see setBlock's own comment). If the
+    // player moves away fast enough that this column unloads *before*
+    // that generation ever completes, _onGenerated's own guard
+    // (`if (!col) return; // unloaded before generation finished`)
+    // means the queued diff is never replayed into modifiedBlocks at
+    // all — it just sits orphaned in pendingDiffsToApply, invisible to
+    // getDirtyColumns() (which only looks at currently-loaded columns),
+    // silently losing the edit from every future save unless the player
+    // happens to revisit this exact chunk before the tab closes. Merging
+    // it in here — the same merge getDirtyColumns() already does for a
+    // *loaded* column — closes that gap.
+    //
+    // Deliberately NOT deleted from pendingDiffsToApply afterward (an
+    // earlier version of this fix did, and broke a same-session revisit:
+    // if the player comes back to this exact chunk before ever
+    // reloading the page, _requestGenerate() builds a brand new
+    // ChunkColumn and _onGenerated() is the only thing that replays
+    // pendingDiffsToApply onto it — deleting the entry here meant that
+    // replay silently had nothing left to work with, and the edit
+    // "disappeared" again until the next real reload re-queued it from
+    // storage). Leaving it in place means _onGenerated's own replay
+    // still consumes (and deletes) it normally later; persisting it here
+    // too is a harmless, idempotent duplicate write of the same data.
+    const queued = this.pendingDiffsToApply.get(col.key);
+    if (col.modifiedBlocks.size > 0 || queued) {
+      const merged = new Map(col.modifiedBlocks);
+      if (queued) for (const [localKey, id] of queued) merged.set(localKey, id);
+      this.onChunkUnloadDirty?.(col.cx, col.cz, [...merged.entries()]);
+    }
     for (let sy = 0; sy < this.numSections; sy++) this._disposeSectionMeshes(col, sy);
     this.columns.delete(col.key);
     this.pendingGenerate.delete(col.key);
