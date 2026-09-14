@@ -136,6 +136,15 @@ export class MessageLog {
     };
   }
 
+  /** Replaces this log's contents in place (notifying listeners with `null`, same as clear()) — for main.js's startGame(), where the console has already subscribed to this exact instance and a fresh MessageLog from fromJSON() would leave that subscription pointed at the wrong object. */
+  restoreFrom(data) {
+    this.entries = data?.entries ?? [];
+    if (data?.categoryEnabled) Object.assign(this.categoryEnabled, data.categoryEnabled);
+    if (data?.transientEnabled) Object.assign(this.transientEnabled, data.transientEnabled);
+    nextMessageId = Math.max(nextMessageId, ...this.entries.map((e) => e.id + 1), 1);
+    for (const fn of this._listeners) fn(null);
+  }
+
   static fromJSON(data, opts) {
     const log = new MessageLog(opts);
     if (data?.entries) {

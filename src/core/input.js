@@ -113,7 +113,14 @@ export class Input {
    */
   requestLock() {
     const result = this.dom.requestPointerLock({ unadjustedMovement: true });
-    if (result?.catch) result.catch(() => this.dom.requestPointerLock());
+    // The fallback retry's own promise needs a rejection handler too —
+    // browsers also refuse a request outright (e.g. the "too many
+    // pointer lock requests in a short window" cooldown after a recent
+    // unlock), not just the unadjustedMovement option specifically, and
+    // an unhandled rejection there would otherwise surface as an
+    // uncaught page error for something that's just "not locked yet,
+    // try again later," not a real failure.
+    if (result?.catch) result.catch(() => this.dom.requestPointerLock()?.catch(() => {}));
   }
 
   exitLock() {

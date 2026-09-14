@@ -22,9 +22,15 @@ export class AliasRegistry {
     return [...this.commands.entries()];
   }
 
+  /** Replaces this registry's contents in place — main.js's startGame() holds one long-lived AliasRegistry (registerAlias's dispatcher-node bookkeeping is keyed off it), so loading a save replaces its Map's contents rather than swapping in a whole new instance. */
+  restoreFrom(data) {
+    this.commands.clear();
+    for (const [name, text] of data ?? []) this.commands.set(name, text);
+  }
+
   static fromJSON(data) {
     const reg = new AliasRegistry();
-    for (const [name, text] of data ?? []) reg.commands.set(name, text);
+    reg.restoreFrom(data);
     return reg;
   }
 }

@@ -81,7 +81,17 @@ function expectedDescription(node, context) {
  * subtree, the error that got furthest through the input wins, since
  * that's the branch the user most likely intended.
  */
-function parseNode(node, reader, args, context) {
+/**
+ * `trace`, when passed, gets one {start,end,kind,typeName} entry pushed
+ * per successfully-matched token, in order — the console's live syntax
+ * highlighter's only real data source (kind is 'literal' or 'argument';
+ * typeName is the argument type's own .name, e.g. 'block_pos', so
+ * coordinates can be colored distinctly from other argument kinds
+ * without the highlighter re-implementing any parsing itself). A
+ * backtracked (failed) attempt never gets a trace entry — only tokens on
+ * the path actually taken.
+ */
+function parseNode(node, reader, args, context, trace) {
   reader.skipWhitespace();
   if (!reader.canRead()) {
     if (node.executor && (!node.requirement || node.requirement(context))) {
@@ -96,9 +106,10 @@ function parseNode(node, reader, args, context) {
     const word = peekWord(reader);
     if (word === child.name) {
       reader.cursor = start + word.length;
+      trace?.push({ start, end: reader.cursor, kind: 'literal' });
       // A matched literal is unambiguous — a failure deeper in this
       // branch is the real error, not a reason to try a sibling.
-      return parseNode(child, reader, args, context);
+      return parseNode(child, reader, args, context, trace);
     }
   }
 
@@ -109,7 +120,8 @@ function parseNode(node, reader, args, context) {
     try {
       const value = child.type.parse(reader, context);
       const nextArgs = { ...args, [child.name]: value };
-      return parseNode(child, reader, nextArgs, context);
+      trace?.push({ start, end: reader.cursor, kind: 'argument', typeName: child.type.name });
+      return parseNode(child, reader, nextArgs, context, trace);
     } catch (e) {
       reader.cursor = start;
       if (e instanceof CommandSyntaxError) errors.push(e);
@@ -134,13 +146,21 @@ export class CommandDispatcher {
     return node;
   }
 
-  /** Parses (without executing) — used by the syntax highlighter/inline error preview to check validity on every keystroke without side effects. */
-  parse(input, context) {
+  /**
+   * Parses (without executing) — used by the syntax highlighter/inline
+   * error preview to check validity on every keystroke without side
+   * effects. Pass `{ trace: [] }` to also get back, in that same array,
+   * one entry per successfully-matched token (see parseNode's own doc
+   * comment) — present whether parsing ultimately succeeds or fails,
+   * since a highlighter needs to color the tokens that DID parse even
+   * when a later one didn't.
+   */
+  parse(input, context, { trace } = {}) {
     const reader = new StringReader(input);
     reader.skipWhitespace();
     if (!reader.canRead()) return { ok: false, error: new CommandSyntaxError('Type a command', 0) };
     try {
-      const { node, args } = parseNode(this.root, reader, {}, context);
+      const { node, args } = parseNode(this.root, reader, {}, context, trace);
       return { ok: true, node, args };
     } catch (e) {
       if (e instanceof CommandSyntaxError) return { ok: false, error: e };

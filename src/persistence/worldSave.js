@@ -2,7 +2,7 @@ import { STORES, dbPut, dbPutMany, dbGet, dbGetAll, dbGetByPrefix, dbDelete, dbD
 import { serializeContainers, restoreContainers } from '../items/containerRegistry.js';
 import { pickSpawnPoint } from '../world/generator.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 const DEFAULT_DIMENSION_ID = 'overworld'; // every pre-v3 save's chunk diffs implicitly belong to this — see migrateWorld
 
 function newWorldId() {
@@ -48,6 +48,14 @@ function migrateWorld(record) {
     // world record's own schemaVersion still reflects "has been through
     // the v3 migration path", not because anything needs to change.
   }
+  if (record.schemaVersion < 4) {
+    // The command system: "Allow Commands" per the spec defaults on for
+    // creative, off for survival — applied once here so an existing save
+    // gets exactly the default it would have gotten had this setting
+    // existed when it was created, based on the mode it was actually
+    // created with.
+    record = { ...record, commandsEnabled: record.commandsEnabled ?? record.mode === 'creative' };
+  }
   return { ...record, schemaVersion: SCHEMA_VERSION };
 }
 
@@ -87,6 +95,7 @@ export async function createWorld({ name, seed, mode }) {
     mode,
     spawnX: spawn.x,
     spawnZ: spawn.z,
+    commandsEnabled: mode === 'creative',
     dimensionId: DEFAULT_DIMENSION_ID, // every world is created starting in the overworld — see playerState.dimensionId for "which dimension are they in *right now*"
     schemaVersion: SCHEMA_VERSION,
     createdAt: now,
@@ -148,7 +157,7 @@ export async function duplicateWorld(worldId, newName) {
  * autosave tick or an explicit Save-and-Quit) rather than from inside
  * the render loop itself, so this never stalls a frame.
  */
-export async function saveGame(worldId, { chunkManagers, player, dayNight, mobManager, itemDrops, inventoryUI, dimensionId, spawnX, spawnZ }) {
+export async function saveGame(worldId, { chunkManagers, player, dayNight, mobManager, itemDrops, inventoryUI, dimensionId, spawnX, spawnZ, commandsEnabled }) {
   // Every dimension that's ever had a ChunkManager built this session
   // (see main.js's ensureDimensionChunkManager) gets its dirty columns
   // saved, not just whichever one the player happens to be standing in
@@ -220,6 +229,7 @@ export async function saveGame(worldId, { chunkManagers, player, dayNight, mobMa
     // leave the record's existing values untouched.
     if (spawnX !== undefined) record.spawnX = spawnX;
     if (spawnZ !== undefined) record.spawnZ = spawnZ;
+    if (commandsEnabled !== undefined) record.commandsEnabled = commandsEnabled;
     await dbPut(STORES.worlds, record);
   }
 }
@@ -273,4 +283,20 @@ export async function saveGateRegistry(worldId, gateRegistry) {
 export async function loadGateRegistry(worldId) {
   const record = await dbGet(STORES.gateRegistry, worldId);
   return record?.gates ?? null;
+}
+
+/** Everything the command system owns beyond what saveGame already covers — gamerules, weather/difficulty (worldState.js), every /alias/function this world has defined, and the chat/command message log itself. One record, same "load once at startGame, save every persistNow" story as gateRegistry above. */
+export async function saveCommandData(worldId, { gamerules, worldState, aliases, functions, messageLog }) {
+  await dbPut(STORES.commandData, {
+    worldId,
+    gamerules,
+    worldState,
+    aliases: aliases.toJSON(),
+    functions: functions.toJSON(),
+    messageLog: messageLog.toJSON(),
+  });
+}
+
+export async function loadCommandData(worldId) {
+  return dbGet(STORES.commandData, worldId);
 }

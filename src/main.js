@@ -52,11 +52,22 @@ import { setCaptionsEnabled } from './ui/captions.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
-import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, getPlayerDimensionId } from './persistence/worldSave.js';
+import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
 import { loadSettings } from './settings/settings.js';
 import { applyMipmapping } from './mesh/atlas.js';
 import { Clouds } from './world/clouds.js';
 import { SkyRenderer } from './world/sky.js';
+import { createDispatcher } from './commands/registerAll.js';
+import { makeRootContext } from './commands/context.js';
+import { MessageLog } from './chat/messageLog.js';
+import { UndoStack } from './commands/operations.js';
+import { AliasRegistry, replayAliases } from './commands/aliases.js';
+import { FunctionStore } from './commands/functions.js';
+import { Scheduler } from './commands/scheduler.js';
+import { loadGamerules } from './commands/gamerules.js';
+import { loadWorldState } from './commands/worldState.js';
+import { TitleDisplay } from './ui/titleDisplay.js';
+import { ConsoleUI } from './ui/console.js';
 
 const WORLD_SEED = 1337; // matches genWorker.js until the world-creation menu (phase 9) picks one
 const FIXED_DT = 1 / 60;
@@ -160,7 +171,7 @@ function main() {
   input.onLockChange = (locked) => {
     if (locked) {
       overlayEl.classList.add('hidden');
-    } else if (escapeTriggeredLockLoss && !suppressOverlayOnUnlock && !inventoryUI.isOpen) {
+    } else if (escapeTriggeredLockLoss && !suppressOverlayOnUnlock && !inventoryUI.isOpen && !consoleUI.open) {
       overlayEl.classList.remove('hidden');
     }
     escapeTriggeredLockLoss = false;
@@ -311,6 +322,10 @@ function main() {
   // respawnPlayer() ever reads it.
   let spawnX = 0.5;
   let spawnZ = 0.5;
+  // Phase 6's "Allow Commands" toggle — startGame() below sets the real
+  // per-world value (worldSave.js's createWorld/migrateWorld default it
+  // from the world's mode: on for creative, off for survival).
+  let commandsEnabled = true;
   const fogColor = new THREE.Color(overworld.fogColor);
   const targetFogColor = new THREE.Color();
   const dayTint = new THREE.Color();
@@ -668,8 +683,16 @@ function main() {
         dimensionId: activeDimension.id,
         spawnX,
         spawnZ,
+        commandsEnabled,
       });
       await saveGateRegistry(currentWorldId, gateRegistry);
+      await saveCommandData(currentWorldId, {
+        gamerules: cmdGamerules,
+        worldState: cmdWorldState,
+        aliases: cmdAliases,
+        functions: cmdFunctions,
+        messageLog: cmdMessageLog,
+      });
     } finally {
       saveIndicatorEl.classList.remove('visible');
     }
@@ -681,6 +704,82 @@ function main() {
       await persistNow();
       scheduleAutosave(); // re-read settings.autosaveIntervalSec each cycle so a live slider change takes effect on the next tick, not just after a restart
     }, settings.autosaveIntervalSec * 1000);
+  }
+
+  // --- Command system (chat/console/parser/dispatcher) -------------------
+  // One dispatcher, one message log, one of everything else the command
+  // system owns — built once at boot (cheap, same reasoning as the
+  // world/renderer/player above), then re-populated per world in
+  // startGame() below the same way chunkManager/climateGenerator already
+  // are. `cmdWorld` is the one object every command executor reads/writes
+  // through (context.world) — it mirrors the existing window.__minevoxel
+  // debug-hook's own pattern of live getters over `let`-backed variables
+  // reassigned elsewhere (travelToDimension, startGame, respawnPlayer),
+  // so a command never sees state that's gone stale since the dispatcher
+  // itself was built.
+  const cmdMessageLog = new MessageLog();
+  const cmdUndoStack = new UndoStack();
+  const cmdAliases = new AliasRegistry();
+  const cmdFunctions = new FunctionStore();
+  const cmdScheduler = new Scheduler();
+  let cmdGamerules = loadGamerules();
+  let cmdWorldState = loadWorldState();
+  const titleDisplay = new TitleDisplay();
+  const dispatcher = createDispatcher();
+
+  const cmdWorld = {
+    player,
+    get chunkManager() { return chunkManager; },
+    mobManager,
+    get activeDimension() { return activeDimension; },
+    overworld,
+    cinderdeep,
+    get climateGenerator() { return climateGenerator; },
+    get cinderdeepClimate() { return cinderdeepClimate; },
+    dayNight,
+    particles,
+    titleDisplay,
+    messageLog: cmdMessageLog,
+    undoStack: cmdUndoStack,
+    aliases: cmdAliases,
+    functions: cmdFunctions,
+    scheduler: cmdScheduler,
+    get gamerules() { return cmdGamerules; },
+    get worldState() { return cmdWorldState; },
+    get seed() { return currentSeed; },
+    get spawnX() { return spawnX; },
+    set spawnX(v) { spawnX = v; },
+    get spawnZ() { return spawnZ; },
+    set spawnZ(v) { spawnZ = v; },
+    get commandsEnabled() { return commandsEnabled; },
+    set commandsEnabled(v) { commandsEnabled = v; },
+    respawnPlayer,
+    persistNow,
+    get currentWorldId() { return currentWorldId; },
+    get lastFrameMs() { return lastFrameMs; },
+    get lastWorldTriangles() { return lastWorldTriangles; },
+    get lastWorldDrawCalls() { return lastWorldDrawCalls; },
+  };
+
+  const consoleUI = new ConsoleUI({
+    dispatcher,
+    world: cmdWorld,
+    settings,
+    isBlocked: () => !input.pointerLocked || inventoryUI.isOpen || !overlayEl.classList.contains('hidden'),
+    reducedMotion: () => settings.controls.reducedMotion,
+    onOpen: exitLockForUI,
+    onClose: () => input.requestLock(),
+  });
+  consoleUI.setContextFactory(() => makeRootContext(cmdWorld, dispatcher));
+
+  /** /schedule's fire callback — a scheduled command runs with a fresh root context (nothing chained it from /execute, so there's no derived context to reuse) and any failure is reported the same way a typed command's own failure is, rather than throwing out of the tick loop. */
+  function runScheduledCommand(cmd) {
+    const context = makeRootContext(cmdWorld, dispatcher);
+    try {
+      dispatcher.execute(cmd, context);
+    } catch (e) {
+      context.error(e.message ?? String(e));
+    }
   }
 
   // Phase 9 (extended in revision-pass section 7): the world/renderer/
@@ -705,6 +804,19 @@ function main() {
     // an old world's spawn never silently moves out from under it.
     spawnX = worldRecord.spawnX ?? 0.5;
     spawnZ = worldRecord.spawnZ ?? 0.5;
+    commandsEnabled = worldRecord.commandsEnabled ?? (worldRecord.mode === 'creative');
+    consoleUI.setWorldId(worldRecord.id);
+    if (!isNew) {
+      const cmdData = await loadCommandData(worldRecord.id);
+      if (cmdData) {
+        cmdGamerules = loadGamerules(cmdData.gamerules);
+        cmdWorldState = loadWorldState(cmdData.worldState);
+        cmdAliases.restoreFrom(cmdData.aliases);
+        cmdFunctions.restoreFrom(cmdData.functions);
+        cmdMessageLog.restoreFrom(cmdData.messageLog);
+      }
+    }
+    replayAliases(dispatcher, cmdAliases);
     currentSeed = worldRecord.seed;
     chunkManager.setSeed(worldRecord.seed);
     climateGenerator = createOverworldGenerator(worldRecord.seed);
@@ -904,6 +1016,21 @@ function main() {
     accumulator += dt;
 
     while (accumulator >= FIXED_DT) {
+      // Console settings' "pause game" toggle (off by default — see
+      // settings/settings.js's DEFAULT_CONSOLE) — skips the entire fixed
+      // step (physics, mobs, timers) while the console is open, the same
+      // way losing pointer lock for the inventory/pause menu already
+      // effectively freezes gameplay, but without actually dropping
+      // pointer lock's side effects (autosave-on-unlock, WASD-into-chat
+      // prevention) twice. Rendering and the console's own input handling
+      // both keep running — only this fixed-step body is skipped.
+      if (consoleUI.open && settings.console.pauseGame) {
+        cmdScheduler.update(FIXED_DT, runScheduledCommand);
+        titleDisplay.update(FIXED_DT);
+        accumulator -= FIXED_DT;
+        input.endFrame();
+        continue;
+      }
       // wasPressed()-style one-shot flags (jump, toggles, hotbar select...)
       // must be read AND cleared within the same fixed step, not once per
       // rendered frame: on any display faster than the 60Hz physics rate,
@@ -1285,6 +1412,9 @@ function main() {
         footstepAccum = 0;
       }
 
+      cmdScheduler.update(FIXED_DT, runScheduledCommand);
+      titleDisplay.update(FIXED_DT);
+
       accumulator -= FIXED_DT;
       input.endFrame();
     }
@@ -1558,6 +1688,10 @@ function main() {
       get lastFrameMs() { return lastFrameMs; },
       get lastWorldTriangles() { return lastWorldTriangles; },
       get lastWorldDrawCalls() { return lastWorldDrawCalls; },
+      dispatcher,
+      consoleUI,
+      cmdWorld,
+      runCommand: (cmd) => dispatcher.execute(cmd.replace(/^\//, ''), makeRootContext(cmdWorld, dispatcher)),
     };
     window.__MINEVOXEL__ = hook;
     window.__minevoxel = hook;

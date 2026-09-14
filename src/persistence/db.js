@@ -8,7 +8,10 @@ const DB_NAME = 'minevoxel';
 // missing stores below, never touches existing ones), so this needs no
 // data migration of its own; worldSave.js's own schemaVersion is what
 // migrates existing *world records*.
-const DB_VERSION = 2;
+// Bumped again for the command system's own per-world store (gamerules,
+// weather/difficulty, aliases, functions) — same additive-only story as
+// the comment above.
+const DB_VERSION = 3;
 
 // One flat key space per store, string keys built from parts joined with
 // '|' — lets range-queries (IDBKeyRange.bound) select "everything for
@@ -21,6 +24,7 @@ export const STORES = {
   playerState: 'playerState', // keyPath 'worldId'
   entitySnapshots: 'entitySnapshots', // keyPath 'worldId' — mobs + item drops in loaded chunks at save time
   gateRegistry: 'gateRegistry', // keyPath 'worldId' — every Cinder Gate this world has ever ignited (world/gate.js's GateRegistry)
+  commandData: 'commandData', // keyPath 'worldId' — gamerules, weather/difficulty, aliases, and functions (commands/registerAll.js's world)
 };
 
 let dbPromise = null;
@@ -37,6 +41,7 @@ export function openDB() {
       if (!db.objectStoreNames.contains(STORES.playerState)) db.createObjectStore(STORES.playerState, { keyPath: 'worldId' });
       if (!db.objectStoreNames.contains(STORES.entitySnapshots)) db.createObjectStore(STORES.entitySnapshots, { keyPath: 'worldId' });
       if (!db.objectStoreNames.contains(STORES.gateRegistry)) db.createObjectStore(STORES.gateRegistry, { keyPath: 'worldId' });
+      if (!db.objectStoreNames.contains(STORES.commandData)) db.createObjectStore(STORES.commandData, { keyPath: 'worldId' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

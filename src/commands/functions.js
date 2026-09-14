@@ -34,9 +34,15 @@ export class FunctionStore {
     return [...this.functions.entries()];
   }
 
+  /** Replaces this store's contents in place — same reasoning as AliasRegistry.restoreFrom. */
+  restoreFrom(data) {
+    this.functions.clear();
+    for (const [name, text] of data ?? []) this.functions.set(name, text);
+  }
+
   static fromJSON(data) {
     const store = new FunctionStore();
-    for (const [name, text] of data ?? []) store.functions.set(name, text);
+    store.restoreFrom(data);
     return store;
   }
 }

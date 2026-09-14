@@ -90,11 +90,27 @@ export const DEFAULT_AUDIO = {
   ui: 100,
 };
 
+// Command-system console (ui/console.js) — its own small settings slice,
+// same "merge onto defaults" story as everything else here. `pauseGame`
+// defaults false per the spec's own explicit call-out (opening the
+// console to check something mid-fall shouldn't freeze you mid-fall).
+export const DEFAULT_CONSOLE = {
+  opacity: 72, // % background opacity of the log/input panels
+  scale: 100, // % font-size multiplier
+  maxLines: 500,
+  pauseGame: false,
+  showTimestamps: true,
+  toastCount: 5,
+  toastDurationSec: 8,
+  categorySounds: false,
+};
+
 export const DEFAULT_SETTINGS = {
   graphics: DEFAULT_GRAPHICS,
   performance: DEFAULT_PERFORMANCE,
   controls: DEFAULT_CONTROLS,
   audio: DEFAULT_AUDIO,
+  console: DEFAULT_CONSOLE,
   autosaveIntervalSec: 60,
 };
 
