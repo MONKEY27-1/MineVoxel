@@ -168,6 +168,90 @@ export default async function run(baseUrl) {
       if (fireCount !== 0) throw new Error(`expected no splash for a standing-still wade into water, fired ${fireCount} times`);
     });
 
+    await step('a sealed, sky-light-0 room triggers a cave-drip; open sky does not', async () => {
+      const pos = { x: 740, y: 60, z: 700 };
+      await page.evaluate((pos) => {
+        window.__minevoxel.player.position.x = pos.x + 0.5;
+        window.__minevoxel.player.position.z = pos.z + 0.5;
+      }, pos);
+      await page.waitForFunction(
+        (cxcz) => {
+          const col = window.__minevoxel.chunkManager.columns.get(cxcz);
+          return !!col && col.state === 'generated';
+        },
+        `${Math.floor(pos.x / 16)},${Math.floor(pos.z / 16)}`,
+        { timeout: 20000 }
+      );
+
+      const capResult = await page.evaluate((pos) => {
+        const M = window.__minevoxel;
+        // A fully solid shell around a small hollow room, several blocks
+        // thick on top — deterministic sky-light-0, not dependent on
+        // whatever this seed's real terrain happens to look like here.
+        for (let dx = -3; dx <= 3; dx++) {
+          for (let dz = -3; dz <= 3; dz++) {
+            for (let dy = -1; dy <= 8; dy++) M.chunkManager.setBlock(pos.x + dx, pos.y + dy, pos.z + dz, M.BLOCKS.STONE);
+          }
+        }
+        for (let dx = -2; dx <= 2; dx++) {
+          for (let dz = -2; dz <= 2; dz++) {
+            for (let dy = 0; dy <= 3; dy++) M.chunkManager.setBlock(pos.x + dx, pos.y + dy, pos.z + dz, 0);
+          }
+        }
+        M.player.position.x = pos.x + 0.5;
+        M.player.position.y = pos.y;
+        M.player.position.z = pos.z + 0.5;
+        M.player.velocity.x = 0; M.player.velocity.y = 0; M.player.velocity.z = 0;
+        M.player.flying = true;
+        const eyeY = Math.floor(M.player.position.y + M.player.eyeHeight);
+        return M.chunkManager.getRawLight(pos.x, eyeY, pos.z);
+      }, pos);
+      if (capResult.sky !== 0) throw new Error(`setup failed: expected sky light 0 inside the sealed room, got ${JSON.stringify(capResult)}`);
+
+      // Clear every existing particle first (earlier steps' splash/
+      // pickup bursts) so a plain count check is unambiguous — gravity
+      // integrates every particle's velocity every update() tick
+      // (including a drip's), so checking for its exact spawn velocity
+      // after any real wait is unreliable; a clean-slate count isn't.
+      await page.evaluate(() => {
+        window.__minevoxel.particles.particles.length = 0;
+        window.__minevoxel.dripTimer = 0.001; // force it to fire on the very next fixed tick instead of waiting out the real ~3-8s interval
+      });
+      await page.waitForTimeout(300);
+      const dripCount = await page.evaluate(() => window.__minevoxel.particles.particles.length);
+      if (dripCount === 0) {
+        const debugState = await page.evaluate((pos) => {
+          const M = window.__minevoxel;
+          const eyeY = Math.floor(M.player.position.y + M.player.eyeHeight);
+          return {
+            dripTimerNow: M.dripTimer,
+            skyNow: M.chunkManager.getRawLight(Math.floor(M.player.position.x), eyeY, Math.floor(M.player.position.z)),
+            playerPos: { x: M.player.position.x, y: M.player.position.y, z: M.player.position.z },
+          };
+        }, pos);
+        throw new Error(`expected a cave-drip particle in a sealed, sky-light-0 room, found none. debug: ${JSON.stringify(debugState)}`);
+      }
+
+      // Negative control: high in the open sky, same forced timer, should NOT fire.
+      const skyResult = await page.evaluate((pos) => {
+        const M = window.__minevoxel;
+        M.player.position.x = pos.x + 0.5;
+        M.player.position.y = 200;
+        M.player.position.z = pos.z + 0.5;
+        const eyeY = Math.floor(M.player.position.y + M.player.eyeHeight);
+        return M.chunkManager.getRawLight(pos.x, eyeY, pos.z);
+      }, pos);
+      if (skyResult.sky === 0) throw new Error(`setup failed: expected real sky light high in the air, got ${JSON.stringify(skyResult)}`);
+
+      await page.evaluate(() => {
+        window.__minevoxel.particles.particles.length = 0; // clear the drip from the previous check so this can't false-pass on a leftover
+        window.__minevoxel.dripTimer = 0.001;
+      });
+      await page.waitForTimeout(300);
+      const countInSky = await page.evaluate(() => window.__minevoxel.particles.particles.length);
+      if (countInSky !== 0) throw new Error(`expected no cave-drip particle in open sky, found ${countInSky}`);
+    });
+
     await step('respawning (death, void recovery, or new-world spawn) briefly flashes the fade overlay', async () => {
       const becameVisible = await page.evaluate(() => {
         window.__minevoxel.respawnPlayer();

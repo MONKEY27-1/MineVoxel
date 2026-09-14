@@ -140,3 +140,12 @@ export function playSplash(speed = 4) {
   playProfile('blocks', { ...profile, decay: profile.decay * (1 + t) }, { volume: 0.4 + t * 0.5, pitchVariance: 0.15 });
   showCaption('Splash');
 }
+
+// Polish pass: cave-drip ambience — a soft, quiet, higher-pitched single
+// droplet, distinct from the louder/lower splash above (a fall-speed-
+// scaled event) since this is a periodic background cue, not something
+// that just happened *to* the player.
+export function playDrip() {
+  playProfile('blocks', { freq: 900, noise: 0.3, decay: 0.12 }, { volume: 0.18, pitchVariance: 0.25 });
+  showCaption('Drip');
+}

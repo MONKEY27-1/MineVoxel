@@ -65,6 +65,17 @@ export class ParticleSystem {
     this._spawn(position, CATEGORY_COLORS.water, count, Math.max(2, speed * 0.6), { flat: true });
   }
 
+  /** A single cave-drip — polish pass. Unlike every other burst here, this falls straight down slowly rather than scattering, so it reads as one drop, not an impact. */
+  spawnDrip(position) {
+    if (this.particles.length > MAX_PARTICLES) return;
+    if (Math.random() * 1 >= this.densityMultiplier) return; // a single-particle "burst" can't scale by count, so density instead scales the odds of it spawning at all
+    const material = new THREE.MeshBasicMaterial({ color: CATEGORY_COLORS.water, transparent: true });
+    const mesh = new THREE.Mesh(this.geometry, material);
+    mesh.position.set(position.x, position.y, position.z);
+    this.scene.add(mesh);
+    this.particles.push({ mesh, velocity: new THREE.Vector3(0, -1.2, 0), life: 0, maxLife: 1.2, material });
+  }
+
   _spawn(position, color, count, speed, { flat = false } = {}) {
     if (this.particles.length > MAX_PARTICLES) return;
     const scaledCount = Math.round(count * this.densityMultiplier);

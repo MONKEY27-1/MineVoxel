@@ -43,7 +43,7 @@ import { ITEMS, POTION_EFFECTS } from './items/items.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands } from './items/containerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
-import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash } from './audio/synth.js';
+import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash, playDrip } from './audio/synth.js';
 import { explode } from './world/explosion.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { TuningPanel } from './ui/tuningPanel.js';
@@ -854,6 +854,15 @@ function main() {
 
   const prev = { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.yaw, pitch: player.pitch, eyeHeight: player.eyeHeight };
   let footstepAccum = 0;
+  // Polish pass: cave-drip ambience — the one item in "splash/drip/
+  // ambient particles" that still needed its own trigger logic (splash
+  // is a velocity edge, done separately). "In a cave" is approximated as
+  // "no sky light reaches this cell" (chunkManager.getRawLight's own sky
+  // channel, not dimmed by time of day — a real Minecraft-style cave-
+  // ambience trigger, not a guess), which also naturally covers the
+  // Cinderdeep everywhere (it has no sky light source at all, matching
+  // its all-cavern theme) without a dimensionId branch.
+  let dripTimer = 3 + Math.random() * 4;
 
   let accumulator = 0;
   let lastTime = performance.now();
@@ -1214,6 +1223,22 @@ function main() {
         }
       }
 
+      dripTimer -= FIXED_DT;
+      if (dripTimer <= 0) {
+        dripTimer = 3 + Math.random() * 5;
+        const eyeY = Math.floor(player.position.y + player.eyeHeight);
+        const { sky } = chunkManager.getRawLight(Math.floor(player.position.x), eyeY, Math.floor(player.position.z));
+        if (sky === 0) {
+          const dripPos = {
+            x: player.position.x + (Math.random() - 0.5) * 6,
+            y: player.position.y + player.eyeHeight + 2 + Math.random() * 2,
+            z: player.position.z + (Math.random() - 0.5) * 6,
+          };
+          particles.spawnDrip(dripPos);
+          playDrip();
+        }
+      }
+
       if (wasOnGround && player.onGround) {
         const dx = player.position.x - startX;
         const dz = player.position.z - startZ;
@@ -1471,6 +1496,8 @@ function main() {
       mobManager,
       projectiles,
       respawnPlayer,
+      get dripTimer() { return dripTimer; },
+      set dripTimer(v) { dripTimer = v; },
       menuController,
       startGame,
       persistNow,
