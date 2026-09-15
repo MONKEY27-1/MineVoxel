@@ -9,7 +9,14 @@ export const WEATHER_TYPES = ['clear', 'rain', 'thunder'];
 export const DIFFICULTY_LEVELS = ['peaceful', 'easy', 'normal', 'hard'];
 
 export function defaultWorldState() {
-  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal' };
+  // discoveredBiomes: phase 1b's "first-time discovery" message (main.js
+  // polls the biome under the player and checks this) — a plain array
+  // (not a Set) since this is exactly what gets round-tripped through
+  // saveCommandData/JSON as-is; main.js wraps it in a Set for the O(1)
+  // membership check and writes back through worldState.discoveredBiomes
+  // directly (same "the getter/setter IS the storage" pattern as
+  // gamerules).
+  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [] };
 }
 
 export function loadWorldState(saved) {
@@ -18,6 +25,7 @@ export function loadWorldState(saved) {
     if (WEATHER_TYPES.includes(saved.weather)) out.weather = saved.weather;
     if (typeof saved.weatherRemaining === 'number') out.weatherRemaining = saved.weatherRemaining;
     if (DIFFICULTY_LEVELS.includes(saved.difficulty)) out.difficulty = saved.difficulty;
+    if (Array.isArray(saved.discoveredBiomes)) out.discoveredBiomes = saved.discoveredBiomes;
   }
   return out;
 }

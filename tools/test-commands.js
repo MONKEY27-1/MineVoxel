@@ -70,6 +70,27 @@ export default async function run(baseUrl) {
     const record = await createAndStartWorld(page, { seed: SEED, mode: 'creative', name: 'Commands Test' });
     await waitForChunks(page, 15, 20000);
 
+    await step('world-loaded and first-time biome discovery messages post to the log on their own', async () => {
+      await page.waitForTimeout(2500); // biomeCheckTimer's first tick (main.js) fires within ~2s of boot
+      const texts = await page.evaluate(() =>
+        window.__minevoxel.cmdWorld.messageLog.entries.map((e) => ({ category: e.category, text: e.segments.map((s) => s.text).join('') }))
+      );
+      assert(texts.some((e) => e.category === 'system' && /World ".*" loaded \(seed \d+\)/.test(e.text)), `expected a world-loaded message, got ${JSON.stringify(texts)}`);
+      assert(texts.some((e) => e.category === 'discovery' && e.text.startsWith('Discovered:')), `expected a first-time biome discovery message, got ${JSON.stringify(texts)}`);
+    });
+
+    await step('/kill @s posts a death message with cause and coordinates, then respawns', async () => {
+      const before = await page.evaluate(() => window.__minevoxel.cmdWorld.messageLog.entries.length);
+      await page.evaluate(() => window.__minevoxel.runCommand('/kill @s'));
+      const texts = await page.evaluate(() =>
+        window.__minevoxel.cmdWorld.messageLog.entries.map((e) => ({ category: e.category, text: e.segments.map((s) => s.text).join('') }))
+      );
+      assert(texts.length > before, 'expected /kill to post at least one new log entry');
+      assert(texts.some((e) => e.category === 'death' && e.text.includes('/kill') && e.text.includes('died')), `expected a death message mentioning /kill, got ${JSON.stringify(texts.slice(before))}`);
+      const health = await page.evaluate(() => window.__minevoxel.player.health);
+      assert(health === (await page.evaluate(() => window.__minevoxel.player.maxHealth)), `expected full health after respawn, got ${health}`);
+    });
+
     await step('acquiring real pointer lock via a genuine click (ConsoleUI.isBlocked() requires it, same as gameplay)', async () => {
       await page.click('#game-canvas');
       await page.waitForFunction(() => window.__minevoxel.input?.pointerLocked === true, { timeout: 5000 }).catch(() => {});

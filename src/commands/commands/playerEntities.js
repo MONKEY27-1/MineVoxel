@@ -293,7 +293,8 @@ function runKill(context, selector) {
     if (e.dead) continue;
     if (e.kind === 'player') {
       e.ref.health = 0;
-      context.world.respawnPlayer?.();
+      e.ref.lastDamageCause = '/kill';
+      context.world.respawnPlayer?.('/kill');
     } else {
       e.ref.takeDamage(e.ref.health + 1);
     }
@@ -386,7 +387,8 @@ function runDamage(context, selector, amount) {
     if (e.dead) continue;
     if (e.kind === 'player') {
       e.ref.health = Math.max(0, e.ref.health - amount);
-      if (e.ref.health <= 0) context.world.respawnPlayer?.();
+      e.ref.lastDamageCause = '/damage';
+      if (e.ref.health <= 0) context.world.respawnPlayer?.('/damage');
     } else {
       e.ref.takeDamage(amount);
     }

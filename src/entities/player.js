@@ -83,6 +83,11 @@ export class Player {
     // one command.
     this.customName = null;
     this.tags = new Set();
+    // Purely descriptive — read by main.js's respawnPlayer() to word the
+    // death message the command system's chat log posts (see takeDamage,
+    // the fall-damage/drowning branches below, and their command-driven
+    // equivalents in commands/commands/playerEntities.js).
+    this.lastDamageCause = null;
     this.flying = true;
     this.onGround = false;
     this.sneaking = false;
@@ -226,11 +231,12 @@ export class Player {
     this._shakeTimeLeft = TUNING.DAMAGE_SHAKE_DURATION;
   }
 
-  /** Mob-attack damage — gated the same way fall damage/drowning already are. */
-  takeDamage(amount, knockback) {
+  /** Mob-attack damage — gated the same way fall damage/drowning already are. `cause` is purely descriptive (the command system's death message — see main.js's respawnPlayer), not read by any gameplay logic. */
+  takeDamage(amount, knockback, cause = 'combat') {
     if (this.gameMode !== 'survival') return;
     const reduction = Math.min(0.8, this._totalArmorDefense() * 0.04); // each defense point ~4%, capped at 80% like vanilla's toughness ceiling
     this.health = Math.max(0, this.health - amount * (1 - reduction));
+    this.lastDamageCause = cause;
     this.justHurt = true; // one-shot flag — main.js reads+clears it to trigger the hurt sound (phase 10)
     this._triggerDamageShake();
     if (knockback) {
@@ -667,6 +673,7 @@ export class Player {
         const fallDistance = this._fallStartY - this.position.y;
         if (fallDistance > 3) {
           this.health = Math.max(0, this.health - Math.floor(fallDistance - 3));
+          this.lastDamageCause = 'fall damage';
           this._triggerDamageShake();
           this.justHurt = true; // fall damage bypassed takeDamage() entirely, so the hurt sound (main.js reads+clears this) never fired for it either
         }
@@ -690,6 +697,7 @@ export class Player {
         if (this._sinceDrownTick >= 1) {
           this._sinceDrownTick = 0;
           this.health = Math.max(0, this.health - 2);
+          this.lastDamageCause = 'drowning';
           this._triggerDamageShake();
           this.justHurt = true; // same reasoning as the fall-damage branch above — drowning bypasses takeDamage() too
         }

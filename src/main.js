@@ -59,7 +59,7 @@ import { Clouds } from './world/clouds.js';
 import { SkyRenderer } from './world/sky.js';
 import { createDispatcher } from './commands/registerAll.js';
 import { makeRootContext } from './commands/context.js';
-import { MessageLog } from './chat/messageLog.js';
+import { MessageLog, seg, coordSeg } from './chat/messageLog.js';
 import { UndoStack } from './commands/operations.js';
 import { AliasRegistry, replayAliases } from './commands/aliases.js';
 import { FunctionStore } from './commands/functions.js';
@@ -494,7 +494,23 @@ function main() {
     setTimeout(() => fadeOverlayEl.classList.remove('visible'), holdMs);
   }
 
-  function respawnPlayer() {
+  /**
+   * `cause` is null for the two "fresh spawn, not a death" call sites
+   * (a brand-new world, or an existing world with no saved player state)
+   * — a death message only ever posts when something actually killed the
+   * player. Position is captured before it gets overwritten below, so
+   * the chat message's coordinates are where they died, not where they
+   * respawn.
+   */
+  function respawnPlayer(cause = null) {
+    if (cause) {
+      cmdMessageLog.push({
+        source: 'system',
+        category: 'death',
+        style: 'warning',
+        segments: [seg(`${player.customName || 'You'} died (${cause}) at `), coordSeg(player.position.x, player.position.y, player.position.z)],
+      });
+    }
     player.dismount(); // Emberstrider riding doesn't survive death/respawn
     // Dying always sends you back to the overworld spawn, regardless of
     // which dimension you died in — matches genre convention (a bed/
@@ -702,6 +718,15 @@ function main() {
     clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(async () => {
       await persistNow();
+      // Only the periodic timer announces this — persistNow() itself
+      // also fires on every pointer-lock loss (opening the inventory,
+      // pausing, ...; see input.onLockChange), and announcing THAT every
+      // time would spam the log far more than "autosave completed" is
+      // meant to. 'debug' category so it never pops a toast either
+      // (MessageLog's own transientEnabled default) — it's a background
+      // housekeeping event, not something that needs the player's
+      // attention, just a real place in the log for anyone filtering it in.
+      cmdMessageLog.push({ source: 'system', category: 'debug', style: 'debug', segments: 'Autosave completed.' });
       scheduleAutosave(); // re-read settings.autosaveIntervalSec each cycle so a live slider change takes effect on the next tick, not just after a restart
     }, settings.autosaveIntervalSec * 1000);
   }
@@ -780,6 +805,21 @@ function main() {
     } catch (e) {
       context.error(e.message ?? String(e));
     }
+  }
+
+  /** Phase 1b's first-time-discovery message for biomes — see biomeCheckTimer's own comment for why this is polled rather than event-driven (nothing currently emits a "biome changed" event). */
+  function checkBiomeDiscovery() {
+    const p = player.position;
+    let id;
+    if (activeDimension === overworld) {
+      const hb = climateGenerator.heightAndBiome(p.x, p.z);
+      id = hb.isOcean ? OCEAN_BIOME.id : hb.dominant.id;
+    } else {
+      id = cinderdeepClimate.biomeAt(p.x, p.z).id;
+    }
+    if (cmdWorldState.discoveredBiomes.includes(id)) return;
+    cmdWorldState.discoveredBiomes.push(id);
+    cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: `Discovered: ${id.replace(/_/g, ' ')}` });
   }
 
   // Phase 9 (extended in revision-pass section 7): the world/renderer/
@@ -883,6 +923,13 @@ function main() {
         itemDrops.spawn({ x: d.x, y: d.y, z: d.z }, d.itemId, d.count, d.durability, d.dimensionId ?? 'overworld');
       }
     }
+
+    cmdMessageLog.push({
+      source: 'system',
+      category: 'system',
+      style: 'normal',
+      segments: `World "${worldRecord.name}" loaded (seed ${worldRecord.seed}).`,
+    });
 
     requestAnimationFrame(tick);
     scheduleAutosave();
@@ -999,6 +1046,15 @@ function main() {
   // its all-cavern theme) without a dimensionId branch.
   let dripTimer = 3 + Math.random() * 4;
 
+  // Phase 1b's "first-time discovery" message — checked every couple of
+  // seconds (not every frame; sampling the biome under the player is
+  // cheap but there's no reason to do it 60 times a second for something
+  // that only needs to notice a change the player themself could
+  // perceive by walking, at most, a few blocks a tick) against
+  // worldState.discoveredBiomes (persisted with the rest of the command
+  // system's state — see saveCommandData).
+  let biomeCheckTimer = 0;
+
   let accumulator = 0;
   let lastTime = performance.now();
   let lastFrameMs = 16.6;
@@ -1074,7 +1130,7 @@ function main() {
       // forever in both game modes. VOID_Y is well below any legitimately
       // generated terrain (world floor is Y=0), so this only ever fires
       // on a genuine fall-through.
-      if (player.position.y < VOID_Y) respawnPlayer();
+      if (player.position.y < VOID_Y) respawnPlayer(player.gameMode === 'survival' ? 'fell out of the world' : null);
 
       // Cinder Gate travel: standing inside the portal surface for a few
       // seconds triggers the dimension swap (instant in creative). The
@@ -1311,11 +1367,15 @@ function main() {
           const dmg = Math.round((1 - dmgDist / dangerRadius) * 10);
           if (dmg > 0) {
             const kb = dmgDist > 0.01 ? 1 / dmgDist : 0;
-            player.takeDamage(dmg, {
-              x: (player.position.x - fuse.x) * kb,
-              y: 4,
-              z: (player.position.z - fuse.z) * kb,
-            });
+            player.takeDamage(
+              dmg,
+              {
+                x: (player.position.x - fuse.x) * kb,
+                y: 4,
+                z: (player.position.z - fuse.z) * kb,
+              },
+              'an explosion'
+            );
           }
         }
         // Mobs take the same distance-scaled hit — explosions previously
@@ -1342,7 +1402,7 @@ function main() {
         particles.spawnSplash(player.justEnteredWater, player.justEnteredWater.speed);
         playSplash(player.justEnteredWater.speed);
       }
-      if (player.gameMode === 'survival' && player.health <= 0) respawnPlayer();
+      if (player.gameMode === 'survival' && player.health <= 0) respawnPlayer(player.lastDamageCause ?? 'unknown causes');
 
       // Night Vision (phase 6): temporarily overrides the active
       // dimension's own ambient-floor config (see dimension.js) with a
@@ -1414,6 +1474,12 @@ function main() {
 
       cmdScheduler.update(FIXED_DT, runScheduledCommand);
       titleDisplay.update(FIXED_DT);
+
+      biomeCheckTimer -= FIXED_DT;
+      if (biomeCheckTimer <= 0) {
+        biomeCheckTimer = 2;
+        checkBiomeDiscovery();
+      }
 
       accumulator -= FIXED_DT;
       input.endFrame();

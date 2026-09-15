@@ -374,7 +374,7 @@ export class Mob {
         if (def.rangedAttack && projectiles) {
           this._fireRangedAttack(def.rangedAttack, dx, dz, distToPlayer, player, projectiles);
         } else {
-          player.takeDamage(def.attackDamage, { x: (dx / distToPlayer) * 4, y: 3, z: (dz / distToPlayer) * 4 });
+          player.takeDamage(def.attackDamage, { x: (dx / distToPlayer) * 4, y: 3, z: (dz / distToPlayer) * 4 }, def.name);
         }
         // Ashbone's lingering decay — a real damage-over-time on top of
         // the flat hit, not simplified away like the rest of the roster's

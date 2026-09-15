@@ -96,7 +96,7 @@ export class ProjectileManager {
         if (p.damage > 0) {
           if (hit === player) {
             const len = Math.hypot(hitPos.x - p.position.x, hitPos.z - p.position.z) || 1;
-            player.takeDamage(p.damage, { x: ((hitPos.x - p.position.x) / len) * p.knockback, y: 3, z: ((hitPos.z - p.position.z) / len) * p.knockback });
+            player.takeDamage(p.damage, { x: ((hitPos.x - p.position.x) / len) * p.knockback, y: 3, z: ((hitPos.z - p.position.z) / len) * p.knockback }, 'a projectile');
           } else if (hit && hit !== 'terrain') {
             const len = Math.hypot(hitPos.x - p.position.x, hitPos.z - p.position.z) || 1;
             hit.takeDamage(p.damage, { x: ((hitPos.x - p.position.x) / len) * p.knockback, z: ((hitPos.z - p.position.z) / len) * p.knockback });
