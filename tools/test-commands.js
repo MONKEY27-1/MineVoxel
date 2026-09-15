@@ -52,6 +52,11 @@ async function openConsole(page, prefill) {
     else M.consoleUI.openEmpty();
   }, prefill ?? '');
   await page.waitForFunction(() => !document.getElementById('console-screen').classList.contains('hidden'), { timeout: 5000 });
+  // _doOpen() focuses the input on the next animation frame, not
+  // synchronously — waiting only for the DOM to be visible races against
+  // that, so a keyboard.type() call right after openConsole() can land
+  // on the wrong (or no) focused element. Wait for real focus too.
+  await page.waitForFunction(() => document.activeElement === document.getElementById('console-input'), { timeout: 5000 });
   if (prefill && prefill !== '/') {
     await page.fill('#console-input', '');
     await page.keyboard.type(prefill);

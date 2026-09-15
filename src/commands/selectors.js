@@ -80,7 +80,7 @@ export class Selector {
     }
     reader.skip(); // '@'
     const base = reader.read();
-    if (!'sear'.includes(base)) {
+    if (!'senr'.includes(base)) {
       reader.cursor -= 2;
       reader.error(`Unknown selector "@${base}" — expected @s, @e, @n, or @r`);
     }

@@ -31,7 +31,8 @@
     "test:audio": "node tools/run-with-server.js tools/test-audio.js",
     "test:a11y": "node tools/run-with-server.js tools/test-a11y.js",
     "test:atlas-hash": "node tools/run-with-server.js tools/test-atlas-hash.js",
-    "test:commands": "node tools/run-with-server.js tools/test-commands.js"
+    "test:commands": "node tools/run-with-server.js tools/test-commands.js",
+    "test:command-parser": "node tools/test-command-parser.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"
