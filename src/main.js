@@ -39,8 +39,9 @@ import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
-import { ITEMS, POTION_EFFECTS } from './items/items.js';
-import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands } from './items/containerRegistry.js';
+import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName } from './items/items.js';
+import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests } from './items/containerRegistry.js';
+import { allSpawners } from './world/structures/spawnerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
 import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash, playDrip } from './audio/synth.js';
@@ -634,6 +635,10 @@ function main() {
       player.dimension = toDimension;
       world.setActive(toDimension.id);
       applyDimensionAtmosphere(renderer.scene, toDimension);
+      if (!cmdWorldState.discoveredDimensions.includes(toDimension.id)) {
+        cmdWorldState.discoveredDimensions.push(toDimension.id);
+        cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: `Discovered a new dimension: ${toDimension.id}` });
+      }
       player.position.x = standX;
       player.position.y = standY + 1;
       player.position.z = standZ;
@@ -822,6 +827,41 @@ function main() {
     cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: `Discovered: ${id.replace(/_/g, ' ')}` });
   }
 
+  // Same real data sources /locate structure already searches
+  // (spawnerRegistry.js/containerRegistry.js's pendingLoot) — checked on
+  // the same cadence as checkBiomeDiscovery, for the same reason (no
+  // "player entered a structure" event exists to hang this off of
+  // instead). Neither registry tags entries with a dimensionId, so this
+  // doesn't filter by activeDimension — a real but narrow limitation
+  // (documented, not silently papered over): a coordinate collision
+  // between dimensions could in principle mis-fire, though in practice
+  // the two use very different coordinate scales (see
+  // OVERWORLD_TO_CINDERDEEP_SCALE) and structures are sparse.
+  const STRUCTURE_DISCOVERY_RADIUS = 24;
+  function checkStructureDiscovery() {
+    const p = player.position;
+    const candidates = [];
+    for (const s of allSpawners()) if (s.mobType === 'cinder_wraith') candidates.push({ x: s.x, y: s.y, z: s.z, id: 'emberhold' });
+    for (const c of allPendingLootChests()) {
+      candidates.push({ x: c.x, y: c.y, z: c.z, id: c.tableId.startsWith('bastion_') ? 'ashkin_bastion' : 'ruined_gate' });
+    }
+    for (const c of candidates) {
+      const key = `${c.id}@${c.x},${c.y},${c.z}`;
+      if (cmdWorldState.discoveredStructures.includes(key)) continue;
+      if (Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z) > STRUCTURE_DISCOVERY_RADIUS) continue;
+      cmdWorldState.discoveredStructures.push(key);
+      cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: `Discovered structure: ${c.id.replace(/_/g, ' ')}` });
+    }
+  }
+
+  /** Phase 1b's "first tier craft" milestone — inventoryUI.onItemCrafted (wired below, right after inventoryUI is constructed) calls this with whatever item just came out of a crafting table or the smithing table. Only fires on a genuinely new *highest* tier, not every craft. */
+  function checkCraftMilestone(itemId) {
+    const tier = getNonBlockItem(itemId)?.material?.tier;
+    if (!tier || tier <= cmdWorldState.highestToolTier) return;
+    cmdWorldState.highestToolTier = tier;
+    cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: `Milestone: crafted your first ${itemDisplayName(itemId).replace(/_/g, ' ')}!` });
+  }
+
   // Phase 9 (extended in revision-pass section 7): the world/renderer/
   // player above are all constructed eagerly (cheap — chunkManager's
   // workers sit idle until something actually calls .update(), which
@@ -980,6 +1020,7 @@ function main() {
   }
 
   const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer, player });
+  inventoryUI.onItemCrafted = checkCraftMilestone;
 
   function toggleInventory() {
     if (inventoryUI.isOpen) {
@@ -1479,6 +1520,7 @@ function main() {
       if (biomeCheckTimer <= 0) {
         biomeCheckTimer = 2;
         checkBiomeDiscovery();
+        checkStructureDiscovery();
       }
 
       accumulator -= FIXED_DT;

@@ -14,7 +14,7 @@ import {
   effectId,
   enchantmentId,
 } from '../argumentTypes.js';
-import { resolvePos, requireWithinHeight, resolveEntities, requireOneEntity } from '../commandHelpers.js';
+import { resolvePos, requireWithinHeight, resolveEntities, requireOneEntity, needsConfirmation, CONFIRM_THRESHOLD } from '../commandHelpers.js';
 import { resolvePosition } from '../coordinates.js';
 import { CommandExecutionError } from '../context.js';
 import { getBlock } from '../../world/blocks.js';
@@ -93,8 +93,12 @@ export function register(dispatcher) {
   dispatcher.register(
     literal('kill')
       .describes('Kills entities')
-      .executes((context) => runKill(context, null))
-      .then(argument('selector', entitySelector()).executes((context, args) => runKill(context, args.selector)))
+      .executes((context) => runKill(context, null, {}))
+      .then(
+        argument('selector', entitySelector())
+          .executes((context, args) => runKill(context, args.selector, args))
+          .then(literal('--confirm').executes((context, args) => runKill(context, args.selector, { ...args, confirm: true })))
+      )
   );
 
   dispatcher.register(
@@ -286,8 +290,13 @@ function runClear(context, clearItemId) {
   return { success: true, affected: cleared };
 }
 
-function runKill(context, selector) {
+function runKill(context, selector, args) {
   const entities = selector ? resolveEntities(context, selector) : [context.executor];
+  if (needsConfirmation(entities.length, args)) {
+    throw new CommandExecutionError(
+      `This would kill ${formatCount(entities.length)} entities (over ${formatCount(CONFIRM_THRESHOLD)}) — re-run the command with --confirm appended to actually do it.`
+    );
+  }
   let killed = 0;
   for (const e of entities) {
     if (e.dead) continue;

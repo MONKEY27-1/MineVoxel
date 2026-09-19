@@ -16,7 +16,12 @@ export function defaultWorldState() {
   // membership check and writes back through worldState.discoveredBiomes
   // directly (same "the getter/setter IS the storage" pattern as
   // gamerules).
-  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [] };
+  // highestToolTier: phase 1b's "first tier craft" milestone (see
+  // main.js's checkCraftMilestone) — this game's real tool/armor tier
+  // ladder (items.js's TOOL_MATERIAL: wood=1, stone=2, iron=3,
+  // voidsteel=4; there's no "diamond" tier here, voidsteel is the
+  // endgame equivalent) rather than a fabricated one.
+  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0 };
 }
 
 export function loadWorldState(saved) {
@@ -26,6 +31,9 @@ export function loadWorldState(saved) {
     if (typeof saved.weatherRemaining === 'number') out.weatherRemaining = saved.weatherRemaining;
     if (DIFFICULTY_LEVELS.includes(saved.difficulty)) out.difficulty = saved.difficulty;
     if (Array.isArray(saved.discoveredBiomes)) out.discoveredBiomes = saved.discoveredBiomes;
+    if (Array.isArray(saved.discoveredDimensions)) out.discoveredDimensions = saved.discoveredDimensions;
+    if (Array.isArray(saved.discoveredStructures)) out.discoveredStructures = saved.discoveredStructures;
+    if (typeof saved.highestToolTier === 'number') out.highestToolTier = saved.highestToolTier;
   }
   return out;
 }

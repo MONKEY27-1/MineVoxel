@@ -89,6 +89,10 @@ export class InventoryUI {
     // reference would go stale after any save/reload. Always read
     // `this.player.armor` fresh instead.
     this.player = player;
+    // Set by main.js — the command system's "first tier craft" milestone
+    // check (see checkCraftMilestone). Not wired here directly so this
+    // file doesn't need to know about the command system at all.
+    this.onItemCrafted = null;
     this.mode = null;
     this.context = null;
     this.containerPos = null;
@@ -288,6 +292,7 @@ export class InventoryUI {
       while ((recipe = this._getCraftingOutput()) && this.playerInventory.hasSpaceFor(recipe.outputId, recipe.outputCount)) {
         this.playerInventory.addItem(recipe.outputId, recipe.outputCount);
         consumeCraftingGrid(craftingGrid.slots);
+        this.onItemCrafted?.(recipe.outputId);
       }
       return;
     }
@@ -308,6 +313,7 @@ export class InventoryUI {
     if (!this.cursor) this.cursor = { itemId: recipe.outputId, count: recipe.outputCount };
     else this.cursor.count += recipe.outputCount;
     consumeCraftingGrid(craftingGrid.slots);
+    this.onItemCrafted?.(recipe.outputId);
   }
 
   /** Consumes the smithing table's 3 specific input slots by 1 each — unlike a crafting recipe, "every occupied cell" isn't the right rule here (there are exactly 3 fixed roles, not an arbitrary grid). */
@@ -327,6 +333,7 @@ export class InventoryUI {
       slot.count -= 1;
       if (slot.count <= 0) table.slots[i] = null;
     }
+    this.onItemCrafted?.(result.itemId);
   }
 
   _pickCreativeItem(itemId) {
