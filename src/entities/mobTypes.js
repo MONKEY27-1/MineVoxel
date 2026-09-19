@@ -270,6 +270,71 @@ export const MOB_TYPES = {
     // per-instance state (set on the Mob itself, not this shared def).
     rideable: true,
   }),
+
+  // --- The Hollow Reach (dimension 3), phase 3 -------------------------
+  // Shapes reused again (biped/spider), same scope call as the Cinderdeep
+  // roster above — see HOLLOWREACH.md. Hollowkin only ever spawns in
+  // `hollow_reach` for now (the spec's own "rarely, at night, in the
+  // overworld" nuance is a real, documented scope cut: mobTypes.js has no
+  // per-dimension spawn-weight/rarity concept, only one `dimension`
+  // string per mob — adding one just for this single case was judged
+  // more scope than this pass, see HOLLOWREACH.md).
+  hollowkin: hostile({
+    name: 'hollowkin',
+    dimension: 'hollow_reach',
+    shape: 'biped',
+    size: { width: 0.6, height: 2.9 }, // tall and thin, per spec
+    maxHealth: 20,
+    walkSpeed: 2.3,
+    attackDamage: 5,
+    attackRange: 1.5,
+    attackCooldown: 1.0,
+    aggroRange: 26,
+    particleColor: 0x1a1622,
+    // Passive until the player looks straight at it (mob.js's
+    // isPlayerStaringAt), then permanently hostile — a deliberate
+    // simplification of vanilla's own subtler re-passivation, see
+    // HOLLOWREACH.md.
+    activatesOnStare: true,
+    teleports: true,
+    teleportsOnDamage: true,
+    carriesBlocks: true,
+    damagedByWater: true,
+    drops: [{ itemId: ITEMS.RIFTPEARL.id, min: 0, max: 1, chance: 0.6, lootingBoost: true }],
+  }),
+  riftmite: hostile({
+    name: 'riftmite',
+    dimension: 'hollow_reach',
+    shape: 'spider', // tiny/fast — reuses the many-legged shape at a small scale rather than new geometry
+    size: { width: 0.4, height: 0.3 },
+    maxHealth: 8,
+    walkSpeed: 3.6,
+    attackDamage: 2,
+    attackRange: 1.0,
+    attackCooldown: 0.6,
+    aggroRange: 14,
+    particleColor: 0x6a4a8a,
+    drops: [],
+  }),
+  stoneskitter: hostile({
+    name: 'stoneskitter',
+    dimension: 'hollow_reach',
+    shape: 'spider',
+    size: { width: 0.5, height: 0.4 },
+    maxHealth: 8,
+    walkSpeed: 3.0,
+    attackDamage: 2,
+    attackRange: 1.0,
+    attackCooldown: 0.8,
+    aggroRange: 10,
+    particleColor: 0x8a8a92,
+    // Burrows into nearby stone to hide when it isn't chasing anything,
+    // and calls every other Stoneskitter within range the instant it's
+    // struck — see mob.js's _updateAI and mobManager.js's tryPlayerAttack.
+    burrowsInStone: true,
+    callsAlliesOnHit: true,
+    drops: [],
+  }),
 };
 
 export const HOSTILE_MOB_IDS = Object.keys(MOB_TYPES).filter((id) => MOB_TYPES[id].category === 'hostile');

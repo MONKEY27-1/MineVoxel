@@ -395,6 +395,67 @@ const BUILDERS = {
       ctx.fillRect(48, 13, TILE, 3);
     }, seed);
   },
+
+  // --- The Hollow Reach (dimension 3), phase 3 -------------------------
+  hollowkin(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      ctx.fillStyle = '#0d0b12';
+      ctx.fillRect(0, 0, TILE, TILE);
+      // Pale violet glowing eyes with no pupils — a stare-activated
+      // watcher, not a face with expression.
+      ctx.fillStyle = '#c9a7ff';
+      ctx.fillRect(4, 6, 2, 2);
+      ctx.fillRect(10, 6, 2, 2);
+
+      put('headSide', 16, 0);
+      ctx.fillStyle = '#0d0b12';
+      ctx.fillRect(16, 0, TILE, TILE);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#141018', [shade('#141018', 0.08), '#1c1622'], seed ^ 3, 0.2);
+
+      put('limb', 48, 0);
+      // Long thin limbs, unbroken black — no joints/detail, reads as an
+      // elongated silhouette rather than a clothed body.
+      ctx.fillStyle = '#0d0b12';
+      ctx.fillRect(48, 0, TILE, TILE);
+    }, seed);
+  },
+  riftmite(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#5a3a7a', [shade('#5a3a7a', 0.2)], seed ^ 1, 0.3);
+      drawEyes(ctx, 0, 0, '#c9a7ff', true);
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#4a2f66', [shade('#4a2f66', 0.15)], seed ^ 2, 0.3);
+
+      put('body', 32, 0);
+      speckleFill(ctx, 32, 0, '#6a4a8a', [shade('#6a4a8a', 0.2), '#8a6ab0'], seed ^ 3, 0.35);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#3a2452', [shade('#3a2452', 0.1)], seed ^ 4, 0.25);
+    }, seed);
+  },
+  stoneskitter(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#8a8a92', [shade('#8a8a92', -0.15), '#6e6e76'], seed ^ 1, 0.4);
+      drawEyes(ctx, 0, 0, '#1a1a1a');
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#7e7e86', [shade('#7e7e86', -0.15)], seed ^ 2, 0.4);
+
+      put('body', 32, 0);
+      // Mottled stone-gray, meant to blend with Palestone/stone brick at
+      // a glance — "burrows into stone to hide" per spec.
+      speckleFill(ctx, 32, 0, '#8a8a92', [shade('#8a8a92', 0.15), '#5e5e66'], seed ^ 3, 0.4);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#6e6e76', [shade('#6e6e76', -0.1)], seed ^ 4, 0.3);
+    }, seed);
+  },
 };
 
 const cache = new Map();

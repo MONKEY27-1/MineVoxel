@@ -1171,6 +1171,39 @@ function main() {
     });
   }
 
+  const RIFTMITE_SPAWN_CHANCE = 0.12;
+
+  /**
+   * Riftpearl (phase 3): a plain thrown-item shot aimed by look direction
+   * — unlike the Rift Shard's own Undervault-seeking compass throw above
+   * — with a small chance to spawn a Riftmite where it lands ("spawns
+   * rarely when a Riftpearl is thrown" per spec). No teleportation here:
+   * that's the Far Gate's own job (phase 7), not a general property of
+   * this item.
+   */
+  function throwRiftpearl() {
+    const origin = player.eyePosition;
+    const look = player.lookDirection;
+    const speed = 12;
+    projectiles.spawn({
+      position: { ...origin },
+      velocity: { x: look.x * speed, y: look.y * speed + 2, z: look.z * speed },
+      color: 0x8a6ab0,
+      radius: 0.15,
+      gravity: true,
+      maxLifetime: 6,
+      owner: 'player',
+      damage: 0,
+      dimensionId: activeDimension.id,
+      onHit: (hitPos) => {
+        particles.spawnBurst(hitPos, 0x8a6ab0, 8, 2.5);
+        if (Math.random() < RIFTMITE_SPAWN_CHANCE) {
+          mobManager.spawn('riftmite', { x: hitPos.x, y: hitPos.y, z: hitPos.z });
+        }
+      },
+    });
+  }
+
   const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer, player });
   inventoryUI.onItemCrafted = checkCraftMilestone;
 
@@ -1345,10 +1378,15 @@ function main() {
 
       if (!inventoryUI.isOpen) {
         interaction.update(FIXED_DT, player, input, chunkManager, mobManager.hasAttackableMobInSight(player), mobManager.getLiveMobs());
-        mobManager.tryPlayerAttack(player, input);
+        mobManager.tryPlayerAttack(player, input, chunkManager);
         mobManager.tryPlayerBarter(player, input);
         mobManager.tryPlayerInteractMob(player, input);
         if (mobManager.justHit) playMobHit();
+        // Hollowkin's first-stare activation (phase 3) — no bespoke
+        // shriek sound exists yet, reusing the same hit cue as a stand-in
+        // (same "something big just happened" reasoning as reusing
+        // playExplosion for the Rift Gate opening above).
+        if (mobManager.justActivated) playMobHit();
         if (input.wasMousePressed(0)) viewModel.triggerSwing();
 
         if (interaction.justBroke) {
@@ -1501,6 +1539,17 @@ function main() {
           held.count -= 1;
           if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
           throwRiftShard();
+          playUIClick();
+        }
+
+        // Throwing a Riftpearl (phase 3): a plain look-aimed throw,
+        // always — unlike the Rift Shard it has no frame-slot interaction
+        // to avoid.
+        if (input.wasMousePressed(2) && player.selectedItem?.itemId === ITEMS.RIFTPEARL.id) {
+          const held = player.selectedItem;
+          held.count -= 1;
+          if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+          throwRiftpearl();
           playUIClick();
         }
 
@@ -1958,6 +2007,7 @@ function main() {
       isRiftFrameComplete,
       igniteRiftGate,
       throwRiftShard,
+      throwRiftpearl,
       interaction,
       dayNight,
       itemDrops,

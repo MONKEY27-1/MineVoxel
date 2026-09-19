@@ -81,6 +81,7 @@ export class MobManager {
     this.justHit = null; // { mobTypeId } | null
     this.justKilled = null; // { mobTypeId } | null
     this.justBartered = null; // { mobTypeId, itemId, count } | null
+    this.justActivated = null; // { mobTypeId } | null — Hollowkin's first-stare activation (mob.js's justActivated flag)
     this._playerBarterCooldown = 0;
     this._playerInteractCooldown = 0;
     // One global mob list shared across both dimensions (see mob.js's
@@ -99,6 +100,7 @@ export class MobManager {
 
   update(dt, player, chunkManager, dayNight, dimension, projectiles) {
     this.justKilled = null;
+    this.justActivated = null;
     this._activeDimensionId = dimension.id;
     this._playerAttackCooldown = Math.max(0, this._playerAttackCooldown - dt);
     this._playerBarterCooldown = Math.max(0, this._playerBarterCooldown - dt);
@@ -117,7 +119,10 @@ export class MobManager {
         mob.mesh.visible = false;
         continue;
       }
-      mob.mesh.visible = true;
+      // Stoneskitter, burrowed (mob.js's _burrowed): hidden but still
+      // present/ticking, same spirit as the dimension-hide above just for
+      // a different reason — not left behind, just tucked into stone.
+      mob.mesh.visible = !mob._burrowed;
       if (mob.dead) {
         this._onDeath(mob, player);
         this.mobs.splice(i, 1);
@@ -149,6 +154,19 @@ export class MobManager {
       // pattern already used for a mob left behind in another dimension.
       if (chunkManager.isColumnLoaded(mob.position.x, mob.position.z)) {
         mob.update(dt, chunkManager, player, projectiles);
+        if (mob._justTeleported) {
+          mob._justTeleported = false;
+          this.particles?.spawnBurst(
+            { x: mob.position.x, y: mob.position.y + mob.size.height * 0.5, z: mob.position.z },
+            mob.def.particleColor ?? 0xaaaaaa,
+            8,
+            2.5
+          );
+        }
+        if (mob.justActivated) {
+          mob.justActivated = false;
+          this.justActivated = { mobTypeId: mob.typeId };
+        }
       }
 
       const dist = Math.hypot(
@@ -388,7 +406,7 @@ export class MobManager {
     return this.mobs.filter((m) => !m.dead && !m.despawning && m.dimensionId === this._activeDimensionId);
   }
 
-  tryPlayerAttack(player, input) {
+  tryPlayerAttack(player, input, chunkManager) {
     this.justHit = null;
     if (!input.wasMousePressed(0) || this._playerAttackCooldown > 0) return;
     const target = this._findAttackTarget(player);
@@ -401,7 +419,10 @@ export class MobManager {
     const dx = target.position.x - player.position.x;
     const dz = target.position.z - player.position.z;
     const len = Math.hypot(dx, dz) || 1;
-    target.takeDamage(damage, { x: dx / len, z: dz / len });
+    // chunkManager is what lets mob.js's takeDamage attempt a teleport
+    // dodge (Hollowkin) — passed here, not from TNT/command damage, so
+    // only a real player hit can be dodged.
+    target.takeDamage(damage, { x: dx / len, z: dz / len }, chunkManager);
     target.killedByPlayer = true; // "died from a player hit" for playerKillOnly drops — set on any hit, not just the fatal one, same spirit as vanilla's "last hurt by player" tracking
     this.particles?.spawnBurst(
       { x: target.position.x, y: target.position.y + target.size.height * 0.6, z: target.position.z },
@@ -409,6 +430,18 @@ export class MobManager {
       6,
       2.5
     );
+
+    // Stoneskitter: "calls nearby ones when struck" — every ally of the
+    // same type within range gets forced into a chase regardless of its
+    // own aggroRange (mob.js's _alertedTimer), not just the one hit.
+    if (target.def.callsAlliesOnHit) {
+      const radius = 12;
+      for (const mob of this.mobs) {
+        if (mob === target || mob.dead || mob.typeId !== target.typeId || mob.dimensionId !== this._activeDimensionId) continue;
+        const d = Math.hypot(mob.position.x - target.position.x, mob.position.y - target.position.y, mob.position.z - target.position.z);
+        if (d <= radius) mob._alertedTimer = 8;
+      }
+    }
   }
 
   /** Right-click a barterable mob (Ashkin) with its accepted item — tosses back one weighted-random item and consumes the held one. */

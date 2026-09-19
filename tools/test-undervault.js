@@ -83,6 +83,11 @@ function run() {
     console.log('    - a lava pool exists under the portal room platform...');
     assert(bp.some((e) => e.id === BLOCKS.LAVA), 'expected a lava pool beneath the portal room');
 
+    console.log('    - the portal room has a Stoneskitter spawner (phase 3) guarding the gate...');
+    const spawnerEntries = bp.filter((e) => e.id === BLOCKS.MONSTER_SPAWNER);
+    assert(spawnerEntries.length === 1, `expected exactly 1 monster spawner in the blueprint, found ${spawnerEntries.length}`);
+    assert(spawnerEntries[0].spawner?.mobType === 'stoneskitter', `expected the spawner's mobType to be 'stoneskitter', got ${spawnerEntries[0].spawner?.mobType}`);
+
     console.log('    - the entire structure is one connected space (flood fill from the entry reaches the portal room)...');
     // The entry room is built at local (0,0,BASE_Y) -> world (site.originX, 34, site.originZ).
     const entryKey = `${site.originX},34,${site.originZ}`;

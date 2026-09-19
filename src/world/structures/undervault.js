@@ -154,7 +154,7 @@ function buildFountainRoom(lb, rnd, cx, cy, cz) {
   void rnd;
 }
 
-/** 12-slot Rift Gate frame (a 5x5 ring, corners and the 3x3 interior excluded — see blocks.js's own note) laid flat on the platform, some slots pre-filled at random. A raised platform over a sunken lava pool, guarded from falling in by its own solid floor everywhere except the pool itself. */
+/** 12-slot Rift Gate frame (a 5x5 ring, corners and the 3x3 interior excluded — see blocks.js's own note) laid flat on the platform, some slots pre-filled at random. A raised platform over a sunken lava pool, guarded from falling in by its own solid floor everywhere except the pool itself. Also places a Stoneskitter spawner (phase 3) at one of the platform's own corners — solid ground, clear of both the frame ring and the interior the portal itself will later fill — "guarded by a Stoneskitter spawner" per spec. */
 function buildPortalRoom(lb, rnd, cx, cy, cz) {
   const half = ROOM_HALF + 2; // a bit larger than the standard room — this is the destination room
   lb.setBox(cx - half - 1, cy - 1, cz - half - 1, cx + half + 1, cy + ROOM_HEIGHT + 1, cz + half + 1, BLOCKS.STONE_BRICKS);
@@ -187,6 +187,14 @@ function buildPortalRoom(lb, rnd, cx, cy, cz) {
   for (const [dx, dz] of [[-half + 1, -half + 1], [half - 1, -half + 1], [-half + 1, half - 1], [half - 1, half - 1]]) {
     placeTorch(lb, cx + dx, cy + 2, cz + dz);
   }
+
+  // A platform corner (excluded from the frame ring, untouched by the
+  // interior the portal will later fill) at standing height, one block
+  // above the solid floor already laid down by the platform box above.
+  const spawnerX = cx - 2;
+  const spawnerZ = cz - 2;
+  lb.set(spawnerX, cy, spawnerZ, BLOCKS.MONSTER_SPAWNER);
+  return { spawner: { wx: spawnerX, y: cy, wz: spawnerZ, mobType: 'stoneskitter' } };
 }
 
 /** A straight corridor between two room centers, 3 wide, 3 tall, stone-brick floor/ceiling, periodic torches — used whenever consecutive cells share a Y level. */
@@ -340,13 +348,15 @@ function buildUndervault(site) {
   const lb = new LocalBlocks();
   const roles = shuffle(Object.keys(MIDDLE_ROOM_BUILDERS), rnd);
   const chests = [];
+  const spawners = [];
 
   cells.forEach((cell, i) => {
     const { x, y, z } = worldOf(cell);
     if (i === 0) {
       buildEntry(lb, rnd, x, y, z);
     } else if (i === cells.length - 1) {
-      buildPortalRoom(lb, rnd, x, y, z);
+      const result = buildPortalRoom(lb, rnd, x, y, z);
+      if (result?.spawner) spawners.push(result.spawner);
     } else {
       const role = roles[(i - 1) % roles.length];
       const result = MIDDLE_ROOM_BUILDERS[role](lb, rnd, x, y, z, site.siteSeed);
@@ -365,6 +375,7 @@ function buildUndervault(site) {
   // (see buildLibrary) — key by the same local "x,y,z" the block map
   // itself uses, so attaching metadata is a lookup, not a scan.
   const chestByLocalKey = new Map(chests.map((c) => [`${c.wx},${c.y},${c.wz}`, c]));
+  const spawnerByLocalKey = new Map(spawners.map((s) => [`${s.wx},${s.y},${s.wz}`, s]));
 
   const blueprint = [];
   for (const [key, id] of lb.map) {
@@ -372,6 +383,8 @@ function buildUndervault(site) {
     const entry = { wx: site.originX + x, y, wz: site.originZ + z, id };
     const chest = chestByLocalKey.get(key);
     if (chest && id === BLOCKS.CHEST) entry.chest = { tableId: chest.tableId, seed: chest.seed };
+    const spawner = spawnerByLocalKey.get(key);
+    if (spawner && id === BLOCKS.MONSTER_SPAWNER) entry.spawner = { mobType: spawner.mobType };
     blueprint.push(entry);
   }
 

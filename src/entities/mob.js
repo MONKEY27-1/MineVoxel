@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { sweepAABB, aabbFits } from './physics.js';
 import { MOB_TYPES } from './mobTypes.js';
 import { getMobTextureSheet, setBoxFaceUVs } from './mobTexture.js';
-import { BLOCKS } from '../world/blocks.js';
+import { BLOCKS, isSolid } from '../world/blocks.js';
 import { ARMOR_MATERIAL, getNonBlockItem } from '../items/items.js';
 
 const AZURECAP_BLOCKS = new Set([
@@ -39,6 +39,84 @@ function findNearbyAzurecap(chunkManager, pos, radius) {
     }
   }
   return closest;
+}
+
+// --- The Hollow Reach (dimension 3), phase 3: Hollowkin/Stoneskitter AI helpers ---
+
+const STARE_RANGE = 22; // Hollowkin: "looked at directly" — a longer range than mobManager.js's own melee attack-target cone (ATTACK_REACH), since this is a notice check, not a reach check
+const STARE_CONE_COS = Math.cos(THREE.MathUtils.degToRad(10)); // tight — must be looked straight at, not just roughly toward
+const TELEPORT_INVULN_TIME = 0.2; // brief post-teleport window — "cannot be hit while teleporting away"
+const CARRIABLE_BLOCKS = new Set([BLOCKS.PALESTONE, BLOCKS.DIRT]); // deliberately excludes gravity-affected blocks (sand/gravel) — see HOLLOWREACH.md
+const STONE_LIKE_BLOCKS = new Set([BLOCKS.STONE, BLOCKS.PALESTONE, BLOCKS.STONE_BRICKS, BLOCKS.MOSSY_STONE_BRICKS, BLOCKS.CRACKED_STONE_BRICKS, BLOCKS.COBBLESTONE]);
+
+/** Hollowkin's stare-activation check: is the player's eye within STARE_RANGE and looking almost exactly at the mob's center? */
+function isPlayerStaringAt(player, mob) {
+  const eye = player.eyePosition;
+  const look = player.lookDirection;
+  const cx = mob.position.x;
+  const cy = mob.position.y + mob.size.height * 0.6;
+  const cz = mob.position.z;
+  const tx = cx - eye.x;
+  const ty = cy - eye.y;
+  const tz = cz - eye.z;
+  const dist = Math.hypot(tx, ty, tz);
+  if (dist > STARE_RANGE || dist < 0.001) return false;
+  const dot = (tx * look.x + ty * look.y + tz * look.z) / dist;
+  return dot >= STARE_CONE_COS;
+}
+
+/** Nearest block matching `blockSet` within `radius` of `pos`, or null — same coarse-scan shape as findNearbyAzurecap above, generalized to any block set. */
+function findNearbyBlockOf(chunkManager, pos, radius, blockSet) {
+  const cx = Math.floor(pos.x);
+  const cy = Math.floor(pos.y);
+  const cz = Math.floor(pos.z);
+  let closest = null;
+  let closestDistSq = Infinity;
+  for (let x = cx - radius; x <= cx + radius; x++) {
+    for (let y = cy - radius; y <= cy + radius; y++) {
+      for (let z = cz - radius; z <= cz + radius; z++) {
+        if (!blockSet.has(chunkManager.getBlock(x, y, z))) continue;
+        const distSq = (x - pos.x) ** 2 + (y - pos.y) ** 2 + (z - pos.z) ** 2;
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq;
+          closest = { x, y, z };
+        }
+      }
+    }
+  }
+  return closest;
+}
+
+// A creative-mode player can be flying/floating tens of blocks above the
+// real terrain (no gravity), so a Hollowkin closing a gap or dodging a
+// hit needs to search well past "a few blocks" of vertical slack to find
+// real ground beneath wherever the player happens to be — not just the
+// short step-up range a grounded search would need on foot.
+const TELEPORT_LANDING_SEARCH_RANGE = 48;
+
+/**
+ * A safe stand-on-solid-ground Y near (x, aroundY, z) — a small bounded
+ * search alternating up/down from aroundY, same "clip to a valid spot"
+ * discipline mobManager.js's own _findSpawnSpot uses for natural spawns.
+ * Returns null if nothing valid turns up nearby, so the caller can just
+ * skip that tick's teleport rather than force a bad landing.
+ */
+function findTeleportLanding(chunkManager, x, aroundY, z, height) {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const headBlocks = Math.max(1, Math.ceil(height));
+  for (let dy = 0; dy <= TELEPORT_LANDING_SEARCH_RANGE; dy++) {
+    for (const sign of dy === 0 ? [1] : [1, -1]) {
+      const y = Math.floor(aroundY) + dy * sign;
+      if (!isSolid(chunkManager.getBlock(ix, y - 1, iz))) continue;
+      let clear = true;
+      for (let h = 0; h < headBlocks; h++) {
+        if (isSolid(chunkManager.getBlock(ix, y + h, iz))) { clear = false; break; }
+      }
+      if (clear) return y;
+    }
+  }
+  return null;
 }
 
 const GRAVITY = 20; // mobs don't carry a Dimension reference (only players/chunks do) — matches the overworld's own gravity value directly
@@ -244,6 +322,21 @@ export class Mob {
     this.riddenBy = null;
     this.walkCycle = 0;
 
+    // Hollow Reach phase 3 (Hollowkin/Stoneskitter) — always initialized,
+    // not lazily, so they're harmless no-ops for every mob type that
+    // doesn't set the corresponding def flag.
+    this._activated = false; // Hollowkin: true forever once first stared at (mobTypes.js's activatesOnStare)
+    this._teleportCooldown = 0;
+    this._teleportInvulnTimer = 0;
+    this._justTeleported = false; // one-shot flag, read+cleared by mobManager.js for a teleport particle cue
+    this.justActivated = false; // one-shot flag, read+cleared by mobManager.js for an activation sound cue
+    this._carriedBlockId = null;
+    this._carryTimer = 1 + Math.random() * 3;
+    this._waterDamageTimer = 0;
+    this._burrowTimer = 2 + Math.random() * 4;
+    this._burrowed = false;
+    this._alertedTimer = 0; // Stoneskitter: forces a chase regardless of aggroRange while > 0 — see mobTypes.js's callsAlliesOnHit
+
     const sheet = getMobTextureSheet(typeId, this.isRareVariant ? 1 : 0);
     this.material = new THREE.MeshBasicMaterial({ map: sheet.texture, color: 0xffffff });
 
@@ -268,7 +361,26 @@ export class Mob {
     return { width: this.def.size.width * this.sizeScale, height: this.def.size.height * this.sizeScale };
   }
 
-  takeDamage(amount, knockbackDir) {
+  takeDamage(amount, knockbackDir, chunkManager) {
+    // "Cannot be hit while teleporting away" — a brief window right after
+    // any teleport (both the gap-closing chase teleport and the dodge
+    // below), not just during the dodge's own instant.
+    if (this._teleportInvulnTimer > 0) return;
+    // Hollowkin: a chance to teleport a short distance away instead of
+    // taking the hit at all. Only fires when a real chunkManager was
+    // passed in — mobManager.js's tryPlayerAttack does; TNT/command
+    // damage doesn't, and a scripted kill or an explosion shouldn't be
+    // dodgeable.
+    if (this.def.teleportsOnDamage && chunkManager && Math.random() < 0.5) {
+      const angle = Math.random() * Math.PI * 2;
+      const tx = this.position.x + Math.cos(angle) * (4 + Math.random() * 3);
+      const tz = this.position.z + Math.sin(angle) * (4 + Math.random() * 3);
+      const ty = findTeleportLanding(chunkManager, tx, this.position.y, tz, this.size.height);
+      if (ty !== null) {
+        this.teleport(tx, ty, tz);
+        return;
+      }
+    }
     this.health -= amount;
     this._hurtFlash = 0.15;
     if (knockbackDir) {
@@ -280,6 +392,18 @@ export class Mob {
       this.despawning = true;
       this._deathT = 0;
     }
+  }
+
+  /** Instantly repositions the mob and clears velocity — Hollowkin's gap-closing chase teleport and its damage-dodge both use this. Sets TELEPORT_INVULN_TIME, matching "cannot be hit while teleporting away." */
+  teleport(x, y, z) {
+    this.position.x = x;
+    this.position.y = y;
+    this.position.z = z;
+    this.velocity.x = 0;
+    this.velocity.y = 0;
+    this.velocity.z = 0;
+    this._teleportInvulnTimer = TELEPORT_INVULN_TIME;
+    this._justTeleported = true;
   }
 
   /** True once the death-flop animation has finished and the mob can actually be removed. */
@@ -308,6 +432,8 @@ export class Mob {
     if (this.dead) return;
     this._attackCooldownTimer = Math.max(0, this._attackCooldownTimer - dt);
     this._hurtFlash = Math.max(0, this._hurtFlash - dt);
+    this._teleportCooldown = Math.max(0, this._teleportCooldown - dt);
+    this._teleportInvulnTimer = Math.max(0, this._teleportInvulnTimer - dt);
 
     // Ridden: the player's own _updateRiding() already set _moveDir/yaw
     // directly this same frame (player.update() runs before
@@ -326,6 +452,7 @@ export class Mob {
     const distToPlayer = Math.hypot(dx, dz);
 
     this._forcedAggroTimer = Math.max(0, this._forcedAggroTimer - dt);
+    this._alertedTimer = Math.max(0, this._alertedTimer - dt);
 
     // Ashkin: hostile category by default, but neutral (idle, ignores the
     // player) while any gold armor is worn — checked fresh every tick
@@ -334,11 +461,27 @@ export class Mob {
     // timer (chest opened nearby) overrides gold-neutrality entirely.
     const neutral = def.neutralUnlessGoldWorn && playerWearsGold(player) && this._forcedAggroTimer <= 0;
 
-    if (def.category === 'hostile' && !neutral) {
+    // Hollowkin: passive (idle, ignored) until the player looks straight
+    // at it once — after that it's hostile for good, a deliberate
+    // simplification of vanilla's own subtler re-passivation (see
+    // HOLLOWREACH.md). Checked every tick, not cached, since a player can
+    // look away long before ever triggering it.
+    if (def.activatesOnStare && !this._activated && isPlayerStaringAt(player, this)) {
+      this._activated = true;
+      this.justActivated = true;
+    }
+    const staredGateOpen = !def.activatesOnStare || this._activated;
+
+    // Stoneskitter: being struck alerts every ally within range (see
+    // mobManager.js's tryPlayerAttack) to close in regardless of its own
+    // aggroRange — a forced-chase override, not a change to the range.
+    const alerted = this._alertedTimer > 0;
+
+    if (def.category === 'hostile' && !neutral && staredGateOpen) {
       if (distToPlayer < def.attackRange) this.aiState = 'attack';
-      else if (distToPlayer < def.aggroRange) this.aiState = 'chase';
+      else if (distToPlayer < def.aggroRange || alerted) this.aiState = 'chase';
       else this.aiState = 'idle';
-    } else if (neutral) {
+    } else {
       this.aiState = 'idle';
     }
 
@@ -366,6 +509,21 @@ export class Mob {
     } else if (this.aiState === 'chase') {
       this.yaw = Math.atan2(-dx, -dz);
       this._moveDir = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
+
+      // Hollowkin: teleports to close a large gap instead of just walking
+      // — "closes gaps" per spec. Only while chasing, on a cooldown, and
+      // only if a real landing spot turns up nearby (findTeleportLanding)
+      // so it never strands itself inside a wall or over the void.
+      if (def.teleports && chunkManager && this._teleportCooldown <= 0 && distToPlayer > 6) {
+        const angle = Math.random() * Math.PI * 2;
+        const tx = player.position.x + Math.cos(angle) * (2 + Math.random() * 2);
+        const tz = player.position.z + Math.sin(angle) * (2 + Math.random() * 2);
+        const ty = findTeleportLanding(chunkManager, tx, player.position.y, tz, this.size.height);
+        if (ty !== null) {
+          this.teleport(tx, ty, tz);
+          this._teleportCooldown = 1.2 + Math.random() * 0.8;
+        }
+      }
     } else if (this.aiState === 'attack') {
       this.yaw = Math.atan2(-dx, -dz);
       this._moveDir = { x: 0, z: 0 };
@@ -382,14 +540,85 @@ export class Mob {
         if (def.decayDamage) player.addDecay(def.decayDamage, def.decayDuration ?? 4);
       }
     } else {
-      this._wanderTimer -= dt;
-      if (this._wanderTimer <= 0) {
-        this._wanderTimer = 1.5 + Math.random() * 2.5;
-        if (Math.random() < 0.4) {
-          this._moveDir = { x: 0, z: 0 };
-        } else {
-          this.yaw = Math.random() * Math.PI * 2;
-          this._moveDir = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
+      // Stoneskitter: frozen and hidden while burrowed — no wandering
+      // until it pops back out (below).
+      if (def.burrowsInStone && this._burrowed) {
+        this._moveDir = { x: 0, z: 0 };
+      } else {
+        this._wanderTimer -= dt;
+        if (this._wanderTimer <= 0) {
+          this._wanderTimer = 1.5 + Math.random() * 2.5;
+          if (Math.random() < 0.4) {
+            this._moveDir = { x: 0, z: 0 };
+          } else {
+            this.yaw = Math.random() * Math.PI * 2;
+            this._moveDir = { x: -Math.sin(this.yaw), z: -Math.cos(this.yaw) };
+          }
+        }
+
+        // Hollowkin: while idle, occasionally picks up a nearby carriable
+        // block and, a little later, sets it down again somewhere else
+        // nearby — "picks up and carries certain blocks, placing them
+        // elsewhere" per spec. Deliberately excludes gravity-affected
+        // blocks (sand/gravel) so this never needs to hook
+        // FallingBlockManager (see mobTypes.js's CARRIABLE_BLOCKS note).
+        if (def.carriesBlocks && chunkManager) {
+          this._carryTimer -= dt;
+          if (this._carryTimer <= 0) {
+            this._carryTimer = 4 + Math.random() * 5;
+            if (this._carriedBlockId != null) {
+              const px = Math.floor(this.position.x + (Math.random() - 0.5) * 3);
+              const pz = Math.floor(this.position.z + (Math.random() - 0.5) * 3);
+              const py = Math.floor(this.position.y);
+              if (chunkManager.getBlock(px, py, pz) === BLOCKS.AIR && isSolid(chunkManager.getBlock(px, py - 1, pz))) {
+                chunkManager.setBlock(px, py, pz, this._carriedBlockId);
+                this._carriedBlockId = null;
+              }
+            } else {
+              const found = findNearbyBlockOf(chunkManager, this.position, 3, CARRIABLE_BLOCKS);
+              if (found) {
+                this._carriedBlockId = chunkManager.getBlock(found.x, found.y, found.z);
+                chunkManager.setBlock(found.x, found.y, found.z, BLOCKS.AIR);
+              }
+            }
+          }
+        }
+      }
+
+      // Stoneskitter: burrows into nearby stone to hide, then pops back
+      // out later — a simplified stand-in for vanilla's silverfish
+      // actually replacing the block itself (a bigger feature touching
+      // world block state directly — see HOLLOWREACH.md).
+      if (def.burrowsInStone && chunkManager) {
+        this._burrowTimer -= dt;
+        if (this._burrowTimer <= 0) {
+          if (this._burrowed) {
+            this._burrowed = false;
+            this._burrowTimer = 3 + Math.random() * 4;
+          } else {
+            const found = findNearbyBlockOf(chunkManager, this.position, 4, STONE_LIKE_BLOCKS);
+            if (found) {
+              this._burrowed = true;
+              this._burrowTimer = 3 + Math.random() * 3;
+            } else {
+              this._burrowTimer = 1 + Math.random() * 2;
+            }
+          }
+        }
+      }
+    }
+
+    // Water damage (Hollowkin): checked at the feet, matching vanilla's
+    // own "any contact with water" rule for its End counterpart, not just
+    // full submersion. A periodic check, not every tick — one getBlock
+    // call is cheap either way, but this matches the same once-in-a-while
+    // cadence the rest of this file's own timers use.
+    if (def.damagedByWater && chunkManager) {
+      this._waterDamageTimer -= dt;
+      if (this._waterDamageTimer <= 0) {
+        this._waterDamageTimer = 0.5;
+        if (chunkManager.getBlock(Math.floor(this.position.x), Math.floor(this.position.y), Math.floor(this.position.z)) === BLOCKS.WATER) {
+          this.takeDamage(1, null);
         }
       }
     }

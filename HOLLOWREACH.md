@@ -14,7 +14,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 
 - [x] Phase 1 — The Undervault and the Rift Gate
 - [x] Phase 2 — The central island
-- [ ] Phase 3 — Mobs (Hollowkin, Riftmite, Stoneskitter, Vaultling)
+- [x] Phase 3 — Mobs (Hollowkin, Riftmite, Stoneskitter; Vaultling is its own phase 8 item per spec)
 - [ ] Phase 4 — The Riftwyrm
 - [ ] Phase 5 — Death, the exit gate, and rewards
 - [ ] Phase 6 — Respawning the Riftwyrm
@@ -171,6 +171,103 @@ be rewritten) lives at `src/ending/poem.txt`.
   this pass. `RIFT_PORTAL` gets a good static painted texture instead
   (still visually distinct — pale/void speckle vs. the Cinder Gate's
   warm purple-orange).
+
+## Architecture decisions (phase 3)
+
+- **No new AI-dispatch architecture or entity subclass** — Hollowkin,
+  Riftmite, and Stoneskitter all reuse `mob.js`'s existing flat,
+  data-driven `_updateAI` dispatcher (the same one Ashkin's
+  `neutralUnlessGoldWorn` and Tuskbeast's `repelledByAzurecap` already
+  extend), gated behind new `def` flags (`activatesOnStare`, `teleports`,
+  `teleportsOnDamage`, `carriesBlocks`, `damagedByWater`,
+  `burrowsInStone`, `callsAlliesOnHit`). Riftmite and Stoneskitter both
+  reuse the `spider` shape at a small scale rather than new geometry —
+  same scope call the Cinderdeep roster already made for its own
+  floating/rod-segment mobs.
+- **Hollowkin's stare-activation is permanent, not vanilla's subtler
+  re-passivation** — once `isPlayerStaringAt` (mob.js) trips
+  `_activated = true`, it never goes back to passive. A deliberate,
+  documented simplification: real re-passivation needs a "how long since
+  last seen" state machine this pass didn't build.
+- **Hollowkin only ever spawns with `dimension: 'hollow_reach'`** — the
+  spec's own "rarely, at night, in the overworld" nuance is a real,
+  deliberate scope cut. `mobTypes.js` has exactly one `dimension` string
+  per mob and `mobManager.js`'s natural-spawn filter is a flat equality
+  check; a cross-dimension rarity spawn would need either an array-valued
+  `dimension` field or a secondary rarity-gate flag, judged more scope
+  than this pass, not silently dropped.
+- **Teleportation (gap-closing chase + damage-dodge) shares one bounded
+  landing search** (`findTeleportLanding`, mob.js) rather than two — it
+  scans up to `TELEPORT_LANDING_SEARCH_RANGE` (48) blocks up/down from a
+  target Y for solid ground with clear headroom, and the caller just
+  skips that tick's teleport if nothing turns up (never forces a bad
+  landing into a wall or the void). The range had to be widened from an
+  initial, much smaller bound after `tools/test-hollowreach-mobs.js`
+  caught a real gap: a creative-mode player floats (no gravity) tens of
+  blocks above the actual terrain, and Hollowkin closing a gap toward
+  wherever the player is floating needs to search that far down to find
+  real ground — not just the few blocks a grounded, on-foot search would
+  need. This is a genuine gameplay case (a flying/floating target), not
+  just a test artifact.
+- **"Cannot be hit while teleporting away" is a short timer
+  (`_teleportInvulnTimer`, 0.2s), not a state machine** — set by every
+  teleport (both the chase-closing kind and the dodge), checked as an
+  early return at the top of `takeDamage`. The dodge itself is
+  instantaneous (there's no separate "mid-teleport" animation state in
+  this engine), so the invulnerability window is what actually
+  implements the spec's "cannot be hit while teleporting away," not the
+  dodge's own instant relocation.
+- **The teleport-dodge only fires when `takeDamage` is given a real
+  `chunkManager`** (`mobManager.js`'s `tryPlayerAttack` now passes one) —
+  TNT explosion damage and `/kill`-style command damage (`mob.js`'s other
+  two `takeDamage` call sites) don't pass one, so only a real player melee
+  hit can be dodged. A scripted kill or an explosion shouldn't be
+  dodgeable, and this reads as a deliberate design line, not an oversight.
+- **Block-carrying deliberately excludes gravity-affected blocks**
+  (sand/gravel) — `CARRIABLE_BLOCKS` (mob.js) is just `{PALESTONE, DIRT}`,
+  so this never needs to hook `FallingBlockManager` from inside mob AI
+  code. Hollowkin picks one up (turns it to air), waits, then tries to
+  place it back down at a random nearby spot with solid ground beneath
+  and open air above — if no valid spot turns up, it just keeps carrying
+  it and tries again later, never forcing a bad placement.
+- **Stoneskitter's "burrows into stone to hide" is a simplified stand-in
+  for vanilla's silverfish actually replacing the block itself** — that
+  would mean the mob's own position becomes a real, breakable block
+  (touching world block state and the mining/drop pipeline directly), a
+  bigger feature than this pass's scope. Instead, `_burrowed` just freezes
+  movement and hides the mesh (`mobManager.js`'s per-mob loop now computes
+  visibility as `!mob._burrowed`, not an unconditional `true`, which is
+  the one real wiring change this needed — `mobManager.js` used to stomp
+  any mesh-visibility state a mob set for itself every single tick before
+  `update()` ran).
+- **Stoneskitter's "calls nearby ones when struck" lives in
+  `mobManager.js`'s `tryPlayerAttack`, not in `mob.js`'s `takeDamage`** —
+  alerting allies needs the full mob list and player position, which only
+  `MobManager` has; it sets a plain `_alertedTimer` on every same-type
+  ally within range, and `mob.js`'s own aiState logic treats
+  `_alertedTimer > 0` as "force a chase regardless of aggroRange," not as
+  a separate alerted state.
+- **Riftpearl throwing is a distinct, general interaction from the Rift
+  Shard's own Undervault-seeking compass throw** — `throwRiftpearl()`
+  (main.js) aims by the player's own look direction (an ordinary thrown
+  item), not toward any fixed target, and has a small
+  (`RIFTMITE_SPAWN_CHANCE`) chance to spawn a Riftmite where it lands.
+  No teleportation is attached to it here — that's the Far Gate's own
+  job (phase 7), not a general property of the item.
+- **The Undervault's portal room now also places a `MONSTER_SPAWNER`
+  block** (`structures/undervault.js`'s `buildPortalRoom`) at one of the
+  platform's own corners — the same block/metadata shape every other
+  structure's spawner already uses (`spawner: {mobType}`, threaded through
+  `placeBlueprintInChunk` exactly like a chest's metadata). This was
+  deliberately left out of phase 1 (there was no `stoneskitter` mob type
+  yet to reference) and wired in now that phase 3 provides it.
+  `tools/test-undervault.js` gained a matching assertion. A known rough
+  edge, recorded rather than fixed this pass: the portal room's only real
+  floor is that same small platform (everywhere else is open air over a
+  sunken lava pool per phase 1's own design), so a wandering Stoneskitter
+  could in principle walk off the platform — acceptable for a small fast
+  mob in a room that has no other floor to give it, not worth a bespoke
+  fenced-in spawner room.
 
 ## Notable honesty calls
 
