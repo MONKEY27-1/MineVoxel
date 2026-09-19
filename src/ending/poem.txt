@@ -1,0 +1,505 @@
+[[ MineVoxel — Ending Poem ]]
+[[ Format: each line is prefixed with A: or B: to mark the speaker.     ]]
+[[ Render the two voices in distinct colors. Blank lines are beats —    ]]
+[[ hold roughly two seconds on each. Strip [[ ]] lines before display.  ]]
+[[ Voice note: A wonders and asks. B answers flat and dry. Keep them    ]]
+[[ distinct — the poem stops working if they blur together.             ]]
+[[ Target scroll time: ~8 minutes. Tune per-line delay, not scroll      ]]
+[[ speed, and let the beats hold.                                       ]]
+
+A: They have stopped.
+
+B: I know.
+
+A: At the edge of the light.
+
+B: Looking out.
+
+A: Looking back.
+
+B: Both, somehow.
+
+
+A: Do you think they know this is the end?
+
+B: No.
+
+A: How can you be certain?
+
+B: Because they are still waiting for something to happen.
+
+
+A: Something always did.
+
+B: A morning.
+
+A: A storm.
+
+B: A cave opening under their feet.
+
+A: A place they had not seen yet.
+
+B: There was always another hill.
+
+A: Not now.
+
+B: No.
+
+B: Now there is only the gate.
+
+
+A: We have watched them a long time.
+
+B: Longer than they know.
+
+A: We watched them learn to walk.
+
+B: We watched them learn to look up.
+
+A: We watched them stop being afraid of the first night.
+
+B: And start being afraid of different things.
+
+A: At first, the dark.
+
+B: Later, the long fall.
+
+A: Later still, losing what they had made.
+
+B: And at the very end —
+
+A: That there might be nothing left to make.
+
+
+B: Do you remember the first house?
+
+A: The little one.
+
+B: Dirt walls.
+
+A: One torch.
+
+B: No windows.
+
+A: They called it home anyway.
+
+B: It was ugly.
+
+A: It was beautiful.
+
+B: Those are not the same thing.
+
+A: They are to the person who built it.
+
+
+A: They slept there with the rain outside.
+
+B: They woke up and opened the door.
+
+A: They had no idea where they were going.
+
+B: They went anyway.
+
+
+A: Then they wandered.
+
+B: Constantly.
+
+A: They crossed rivers that did not need crossing.
+
+B: Climbed mountains with nothing at the top.
+
+A: Walked into caves because a dark opening looked interesting.
+
+B: Dug down because there might be something under the next layer.
+
+A: And under that one.
+
+B: And under that one.
+
+A: They kept looking.
+
+B: Even when looking cost them.
+
+
+A: They carried too much.
+
+B: Always.
+
+A: Wood they did not need. Stone they would never place.
+
+B: Seeds. Flowers they never planted.
+
+A: A map to somewhere they could not find twice.
+
+B: Why keep it?
+
+A: Because it had mattered once.
+
+B: That is not a reason.
+
+A: Neither is any memory.
+
+
+A: They built a tower.
+
+B: Yes.
+
+A: Nobody needed it.
+
+B: Nobody lived in it.
+
+A: It stood over the trees with a light at the top.
+
+B: They climbed it every evening.
+
+A: Just to look.
+
+B: At the world?
+
+A: At the fact that they had changed it.
+
+
+B: They made paths where there had been none.
+
+A: Bridges where there had been water.
+
+B: Doors where there had been walls.
+
+A: Fires where there had only been dark.
+
+
+A: And sometimes they broke it all apart.
+
+B: The roof was wrong.
+
+A: The floor was wrong.
+
+B: The room was too small, and then too large.
+
+A: So they tore it down.
+
+B: And built it again.
+
+A: Six times, that one room.
+
+B: They thought that was failing.
+
+A: Was it?
+
+B: It is the opposite. You do not rebuild a thing you have stopped caring about.
+
+
+A: They learned the dark slowly.
+
+B: First they hid from it.
+
+A: Then they carried a light into it.
+
+B: Then they went further in than the light could reach.
+
+A: Leaving torches behind them.
+
+B: Little pieces of daylight. One at a time.
+
+A: So they could find the way back.
+
+B: So there would be a way back to find.
+
+
+A: There are tunnels under this world nobody will ever walk again.
+
+B: They are still lit.
+
+A: Does that matter, if no one sees them?
+
+B: Especially then.
+
+
+B: They went to the burning place.
+
+A: Through a door they made out of black stone and set on fire.
+
+B: Everything there wanted them dead.
+
+A: They came back with their arms full.
+
+B: They always came back with their arms full.
+
+
+A: They died.
+
+B: Often.
+
+A: Stone fell on them. They misjudged a jump in the dark.
+
+B: They trusted the wrong silence.
+
+A: They burned. They drowned.
+
+B: They fell a very long way once, without making a sound.
+
+A: And every time, the world gathered them up and set them down at the beginning.
+
+B: As if it had only ever wanted to say: try again.
+
+A: And they did.
+
+B: Every time.
+
+
+A: Do you remember when they stopped running from everything?
+
+B: Yes.
+
+A: They still ran.
+
+B: Of course.
+
+A: But sometimes they ran toward it.
+
+B: That was the change.
+
+A: Into what?
+
+B: Someone who could choose.
+
+
+A: And at the end they came here.
+
+B: The last island. The pale one. The one with nothing underneath.
+
+A: They broke the crystals while it circled.
+
+B: They stood in the open with no roof and no walls and waited for it to come back around.
+
+A: They were not brave.
+
+B: No.
+
+A: They were frightened, and they stayed.
+
+B: Which is the only kind of brave there has ever been.
+
+
+B: They are still at the gate.
+
+A: They can see it.
+
+B: They are listening.
+
+A: Can they hear us?
+
+B: They always could.
+
+A: Then we should stop talking about them.
+
+B: And start talking to them.
+
+
+A: You.
+
+B: Yes. You.
+
+
+A: Look around.
+
+B: Not at the gate.
+
+A: At the room you are actually sitting in.
+
+B: There are no square mountains outside that window.
+
+A: No ocean that goes on forever.
+
+B: No sun that rises exactly when you expect it.
+
+A: No path telling you which way is home.
+
+B: And still you know where you are.
+
+
+A: Your hands are near you.
+
+B: They have been there the whole time.
+
+A: Move one. Just the fingers.
+
+B: There.
+
+A: Your shoulders are higher than they need to be.
+
+B: They have been for hours.
+
+A: Let them down.
+
+B: It is later than you think.
+
+A: It usually is.
+
+
+A: Here, nothing happens where you are not looking.
+
+B: The far islands are folded shut. The deep caves are unlit and unshaped.
+
+A: This world waited for you, perfectly, because waiting is all it can do.
+
+
+B: That is not true of the other one.
+
+A: No.
+
+B: Right now, rain is falling on a street you are not standing in.
+
+A: Bread is rising in a room you have never entered.
+
+B: Someone you love is doing something ordinary at this exact moment.
+
+A: Nobody is watching them either.
+
+B: And it is happening anyway.
+
+
+A: That is the difference.
+
+B: Here, you were necessary.
+
+A: There, you are wanted.
+
+B: It is a better thing to be.
+
+
+A: You were never really lost in here.
+
+B: Numbers in the corner of your eye. A needle that pointed home.
+
+A: A bed you could return to, and a morning waiting on the other side of it.
+
+B: Out there, you will not always know.
+
+A: You will take a wrong turn and it will cost you something you cannot walk back and pick up off the ground.
+
+
+A: We are not going to tell you it is easy.
+
+B: It is not. It was never going to be.
+
+A: But you have done all of this before.
+
+
+A: You know how to start with almost nothing.
+
+B: A little wood. A little stone.
+
+A: One wall, and then another.
+
+B: You know how to walk into the dark with a light in your hand.
+
+A: You know how to leave a trail behind you so you can find your way out.
+
+B: You know how to tear down the roof and make it again, because you wanted to.
+
+A: You have been practicing.
+
+
+B: There will be days out there when everything you built looks small.
+
+A: What do they do then?
+
+B: Stand further back.
+
+A: Why?
+
+B: Sometimes you have to leave the house before you can see that it was a home.
+
+
+A: And the days when the dark is bigger than the light?
+
+B: Make another light.
+
+A: And if that one goes out?
+
+B: Make another.
+
+A: You say it like it is simple.
+
+B: It is simple. I did not say it was easy.
+
+
+A: They thought they were looking for an ending.
+
+B: They were learning how to keep going.
+
+
+A: So stand up.
+
+B: Slowly. You have been sitting a long while.
+
+A: Drink something. You forgot again.
+
+B: Open the window.
+
+A: Listen to whatever is out there.
+
+B: A car. The wind. A door somewhere in the building.
+
+A: Someone laughing in another room.
+
+B: The world going on without asking your permission.
+
+
+A: And when you go outside — and you should go outside —
+
+B: — look up.
+
+A: There is a sky over there too.
+
+B: We are told it is very good.
+
+
+A: This place will keep.
+
+B: The tower will stand on the ridge with its light on.
+
+A: The path will go quiet under the grass.
+
+B: The torches will burn in the tunnels, in the dark, for no one.
+
+A: Nothing will rot. Nothing will be taken. Nobody will move your things.
+
+
+A: And when it gets dark again, and you want somewhere to put your hands —
+
+B: — come back.
+
+A: It will be night when you arrive.
+
+B: It always is.
+
+A: You will be afraid of it for about a minute.
+
+B: And then you will do what you always do.
+
+A: Make a light.
+
+B: Then take one step.
+
+A: Then another.
+
+B: Until you are somewhere you have never been.
+
+A: And then?
+
+B: Build there.
+
+
+A: Goodbye.
+
+B: Not goodbye.
+
+A: No.
+
+A: Not goodbye.
+
+
+B: Goodnight.

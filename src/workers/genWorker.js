@@ -2,6 +2,7 @@ import { Section } from '../world/section.js';
 import { computeSkyLight } from '../world/lighting.js';
 import { createOverworldGenerator } from '../world/generator.js';
 import { createCinderdeepGenerator } from '../world/cinderdeepGenerator.js';
+import { createHollowReachGenerator } from '../world/hollowReachGenerator.js';
 
 // dimensionId -> generator factory. Adding a third dimension means one
 // more entry here, not a new worker file or an if-branch anywhere else —
@@ -11,6 +12,7 @@ import { createCinderdeepGenerator } from '../world/cinderdeepGenerator.js';
 const GENERATOR_FACTORIES = {
   overworld: createOverworldGenerator,
   cinderdeep: createCinderdeepGenerator,
+  hollow_reach: createHollowReachGenerator,
 };
 
 // Set by 'init', before any 'seed' or chunk-request message this worker

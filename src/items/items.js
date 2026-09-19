@@ -155,6 +155,14 @@ export const ITEMS = {
   VOIDSTEEL_AXE: defineTool('axe', TOOL_MATERIAL.VOIDSTEEL),
   VOIDSTEEL_SHOVEL: defineTool('shovel', TOOL_MATERIAL.VOIDSTEEL),
   VOIDSTEEL_SWORD: defineTool('sword', TOOL_MATERIAL.VOIDSTEEL),
+
+  // --- The Hollow Reach (dimension 3) ------------------------------------
+  RIFTPEARL: defineMaterial('riftpearl'),
+  // Crafted from a Riftpearl + Cinder Powder (already exists — dropped by
+  // the Cinderdeep's cinder_wraith); thrown, it arcs toward the nearest
+  // Undervault (main.js's throwRiftShard) — a real navigation aid, not
+  // just another material.
+  RIFT_SHARD: defineMaterial('rift_shard'),
 };
 
 const byId = new Map(nonBlockItems.map((i) => [i.id, i]));

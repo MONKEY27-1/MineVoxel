@@ -1167,6 +1167,36 @@ painters.voidsteel_upgrade_plate = (ctx, ox, oy) => {
   ctx.strokeStyle = '#6a5fae';
   ctx.strokeRect(ox + 2.5, oy + 4.5, 11, 7);
 };
+painters.riftpearl = (ctx, ox, oy) => {
+  const grad = ctx.createRadialGradient(ox + 6, oy + 6, 1, ox + 8, oy + 8, 7);
+  grad.addColorStop(0, '#e8f2ff');
+  grad.addColorStop(0.5, '#8fc0d8');
+  grad.addColorStop(1, '#2a4a5a');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(ox + 8, oy + 8, 6, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+painters.rift_shard = (ctx, ox, oy) => {
+  ctx.fillStyle = '#c9a7ff';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 1);
+  ctx.lineTo(ox + 12, oy + 8);
+  ctx.lineTo(ox + 8, oy + 15);
+  ctx.lineTo(ox + 4, oy + 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#f2e9ff';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 3);
+  ctx.lineTo(ox + 9, oy + 8);
+  ctx.lineTo(ox + 8, oy + 12);
+  ctx.lineTo(ox + 7, oy + 8);
+  ctx.closePath();
+  ctx.fill();
+};
+
 painters.azurecap_lure = (ctx, ox, oy) => {
   ctx.strokeStyle = '#8b5a2b';
   ctx.lineWidth = 1.5;
@@ -1271,5 +1301,130 @@ painters.cinder_portal = (ctx, ox, oy) => {
   for (let i = 0; i < 30; i++) {
     ctx.fillStyle = rnd() < 0.5 ? '#7a3ff2' : '#f2a83a';
     ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+};
+
+// --- The Hollow Reach (dimension 3) -------------------------------------
+
+painters.palestone = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#d9d4c8', ['#cfc9ba', '#e4dfd2', '#c4bfae'], 0.35, 901);
+};
+
+painters.mossy_stone_bricks = (ctx, ox, oy) => {
+  brickGrid(ctx, ox, oy, '#8a8a8a', '#5c5c5c', 902);
+  const rnd = mulberry32(9021);
+  for (let i = 0; i < 14; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? '#4d7a3a' : '#3d6430';
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+};
+
+painters.cracked_stone_bricks = (ctx, ox, oy) => {
+  brickGrid(ctx, ox, oy, '#7d7d7d', '#525252', 903);
+  ctx.strokeStyle = '#3f3f3f';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox + 2, oy + 3);
+  ctx.lineTo(ox + 6, oy + 7);
+  ctx.lineTo(ox + 4, oy + 11);
+  ctx.lineTo(ox + 9, oy + 14);
+  ctx.moveTo(ox + 11, oy + 2);
+  ctx.lineTo(ox + 13, oy + 8);
+  ctx.stroke();
+};
+
+// Cross-plane blocks render with alpha cutout — clearRect first so the
+// unpainted area is genuinely transparent, same as wheat_crop/cobweb.
+painters.iron_bars = (ctx, ox, oy) => {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  ctx.strokeStyle = '#9aa0a6';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox + 1, oy + 1, TILE - 2, TILE - 2);
+  ctx.beginPath();
+  ctx.moveTo(ox + TILE / 2, oy);
+  ctx.lineTo(ox + TILE / 2, oy + TILE);
+  ctx.moveTo(ox, oy + TILE / 2);
+  ctx.lineTo(ox + TILE, oy + TILE / 2);
+  ctx.strokeStyle = '#6e7378';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+};
+
+painters.torch = (ctx, ox, oy) => {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  ctx.fillStyle = '#6b4a2d';
+  ctx.fillRect(ox + 7, oy + 6, 2, 9);
+  ctx.fillStyle = '#f2a83a';
+  ctx.fillRect(ox + 6, oy + 3, 4, 4);
+  ctx.fillStyle = '#ffe9b0';
+  ctx.fillRect(ox + 7, oy + 4, 2, 2);
+};
+
+painters.bookshelf_side = (ctx, ox, oy) => {
+  ctx.fillStyle = '#8a5a35';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  const rnd = mulberry32(904);
+  const colors = ['#a83a3a', '#3a5ea8', '#3a8a5a', '#c2a23a', '#7a3a8a'];
+  for (let x = 1; x < TILE - 1; x += 3) {
+    ctx.fillStyle = colors[Math.floor(rnd() * colors.length)];
+    ctx.fillRect(ox + x, oy + 2, 2, TILE - 4);
+  }
+  ctx.strokeStyle = '#5c3a20';
+  ctx.strokeRect(ox, oy, TILE, TILE);
+};
+
+// The Rift Gate frame — empty vs filled reads like a vanilla end portal
+// frame's empty socket vs a seated eye: a dull hollow ring vs a bright
+// inset shard glow. No animated shader (chunkManager.js's portalSwirl
+// effect is baked to one hardcoded atlas rect at material-creation time
+// — extending it to a second texture is a real shader change, scoped out
+// here; a well-drawn static tile still reads as genuinely different from
+// the Cinder Gate's).
+painters.rift_gate_frame_empty = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#4a4658', ['#403c50', '#544f66'], 0.3, 905);
+  ctx.strokeStyle = '#2c2938';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox + 2, oy + 2, TILE - 4, TILE - 4);
+};
+
+painters.rift_gate_frame_filled = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#4a4658', ['#403c50', '#544f66'], 0.3, 905);
+  ctx.strokeStyle = '#2c2938';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox + 2, oy + 2, TILE - 4, TILE - 4);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.beginPath();
+  ctx.ellipse(ox + 8, oy + 8, 3.5, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#f2e9ff';
+  ctx.beginPath();
+  ctx.ellipse(ox + 8, oy + 8, 1.4, 1.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+painters.spire_crystal = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#3a2f5e', ['#4a3d72', '#2c2348'], 0.2, 907);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 1);
+  ctx.lineTo(ox + 13, oy + 8);
+  ctx.lineTo(ox + 8, oy + 15);
+  ctx.lineTo(ox + 3, oy + 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#f2e9ff';
+  ctx.beginPath();
+  ctx.arc(ox + 8, oy + 8, 2, 0, Math.PI * 2);
+  ctx.fill();
+};
+
+painters.rift_portal = (ctx, ox, oy) => {
+  const rnd = mulberry32(906);
+  ctx.fillStyle = '#0a0814';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let i = 0; i < 26; i++) {
+    ctx.fillStyle = rnd() < 0.6 ? '#c9a7ff' : '#f2e9ff';
+    const size = rnd() < 0.2 ? 1 : 1;
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), size, size);
   }
 };

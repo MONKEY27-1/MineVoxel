@@ -130,6 +130,21 @@ export const LOOT_TABLES = {
       { itemId: ITEMS.FLINT_AND_STEEL.id, weight: 2, min: 1, max: 1 },
     ],
   },
+  // The Undervault (Hollow Reach, phase 1) — one to three per world, at
+  // great distance from spawn, so its library/storeroom/prison loot
+  // should read as a real find, not a common-structure trickle.
+  undervault: {
+    rolls: [3, 6],
+    entries: [
+      { itemId: ITEMS.IRON_INGOT.id, weight: 8, min: 2, max: 5 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 6, min: 1, max: 3 },
+      { itemId: ITEMS.DIAMOND.id, weight: 3, min: 1, max: 2 },
+      { itemId: ITEMS.IRON_SWORD.id, weight: 3, min: 1, max: 1 },
+      { itemId: ITEMS.IRON_PICKAXE.id, weight: 2, min: 1, max: 1 },
+      { itemId: BLOCKS.STONE_BRICKS, weight: 6, min: 4, max: 10 },
+      { itemId: ITEMS.STICK.id, weight: 6, min: 2, max: 8 },
+    ],
+  },
 };
 
 /** Deterministic given the same seed — used once, at first-open, per chest. */

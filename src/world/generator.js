@@ -9,6 +9,7 @@ import { createMineshaftPlacer } from './structures/mineshaft.js';
 import { createVillagePlacer } from './structures/village.js';
 import { createTemplePlacer, createRuinsPlacer } from './structures/temple.js';
 import { createRuinedGatePlacer } from './structures/ruinedGate.js';
+import { createUndervaultPlacer } from './structures/undervault.js';
 import { placeBlueprintInChunk } from './structures/placement.js';
 
 // The overworld terrain generator: layered simplex noise picks a point in
@@ -145,6 +146,13 @@ export function createOverworldGenerator(seed) {
     tag: 33,
     heightAt: groundHeightAt,
   });
+  // Phase 1 (the Hollow Reach): one to three Undervaults per world, at
+  // great distance from spawn — see structures/undervault.js's own note
+  // on why this uses a fixed-site placer instead of the per-region grid
+  // every other structure here uses. Exposed on the returned generator
+  // (below) so main.js's Rift Shard throw can point toward the nearest
+  // known site without needing its own copy of this seed-derived data.
+  const undervaultPlacer = createUndervaultPlacer(s);
   const isOceanAt = (x, z) => heightAndBiome(x, z).isOcean;
   const biomeAt = (x, z) => {
     const hb = heightAndBiome(x, z);
@@ -378,6 +386,7 @@ export function createOverworldGenerator(seed) {
       ...templePlacer.blueprintsNear(cx, cz, groundHeightAt, biomeAt),
       ...ruinsPlacer.blueprintsNear(cx, cz, groundHeightAt, biomeAt),
       ...ruinedGatePlacer.blueprintsNear(cx, cz),
+      ...undervaultPlacer.blueprintsNear(cx, cz),
     ];
     for (const blueprint of allBlueprints) {
       const result = placeBlueprintInChunk(blueprint, cx, cz, setBlock);
@@ -419,7 +428,7 @@ export function createOverworldGenerator(seed) {
     if (biome.wet && rnd() < 0.04) setBlock(lx, surfaceY + 1, lz, BLOCKS.LILY_PAD);
   }
 
-  return { generateColumn, heightAndBiome, sampleClimate };
+  return { generateColumn, heightAndBiome, sampleClimate, undervaultSites: undervaultPlacer.sites };
 }
 
 function plantTree(setBlock, x, baseY, z, tree, rnd) {

@@ -32,7 +32,10 @@
     "test:a11y": "node tools/run-with-server.js tools/test-a11y.js",
     "test:atlas-hash": "node tools/run-with-server.js tools/test-atlas-hash.js",
     "test:commands": "node tools/run-with-server.js tools/test-commands.js",
-    "test:command-parser": "node tools/test-command-parser.js"
+    "test:command-parser": "node tools/test-command-parser.js",
+    "test:hollowreach-terrain": "node tools/test-hollowreach-terrain.js",
+    "test:undervault": "node tools/test-undervault.js",
+    "test:hollowreach": "node tools/run-with-server.js tools/test-hollowreach.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

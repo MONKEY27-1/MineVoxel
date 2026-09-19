@@ -7,6 +7,9 @@ import { World } from './world/world.js';
 import { Dimension } from './world/dimension.js';
 import { createOverworld } from './world/overworldDimension.js';
 import { createCinderdeep } from './world/cinderdeepDimension.js';
+import { createHollowReach } from './world/hollowReachDimension.js';
+import { HOLLOW_ARRIVAL_POINT } from './world/hollowReachGenerator.js';
+import { findRiftGateFrame, isRiftFrameComplete, igniteRiftGate } from './world/riftGate.js';
 import { createCinderdeepGenerator } from './world/cinderdeepGenerator.js';
 import { ChunkManager } from './world/chunkManager.js';
 import { createOverworldGenerator } from './world/generator.js';
@@ -96,7 +99,21 @@ const BIOME_MOTE_COLOR = {
   bloodcap_grove: 0xc62b46, // red spores, matches Bloodcap fungus
   azurecap_hollow: 0x2ba3b8, // blue spores, matches Azurecap fungus
   basalt_fractures: 0x4a494c, // dark ash, matches basalt
+  // The Hollow Reach has one biome (its whole identity is "the void"),
+  // not several — this key is looked up by the same BIOME_MOTE_COLOR[biomeName]
+  // the atmosphere block already uses for every other dimension, with
+  // 'hollow_reach' standing in as that one biome's own name.
+  hollow_reach: 0xc9a7ff, // drifting purple motes, per spec
 };
+
+// The Hollow Reach's own fog tint — a desaturated purple, per spec
+// ("heavy distance fog in a desaturated purple"). Not a real per-biome
+// system the way the overworld/Cinderdeep have (this dimension is
+// deliberately one uniform void-island biome), so this is a single fixed
+// constant rather than a sampler function — see the atmosphere block's
+// own comment on why it gets an explicit branch there instead of
+// pretending to share the Cinderdeep's biome-sampler shape.
+const HOLLOW_FOG_TINT = 0x6a5a9e;
 
 function main() {
   // Dev-only regression checks, safe to run on every boot: the
@@ -123,6 +140,7 @@ function main() {
   const world = new World();
   const overworld = world.register(createOverworld());
   const cinderdeep = world.register(createCinderdeep());
+  const hollowReach = world.register(createHollowReach());
   applyDimensionAtmosphere(renderer.scene, overworld);
   // Per-world gate registry (worldSave.js persists/restores it) — every
   // Cinder Gate this world has ever ignited, so a return trip finds the
@@ -684,6 +702,77 @@ function main() {
     }
   }
 
+  /**
+   * The Rift Gate's one-way trip to the Hollow Reach (phase 1) — much
+   * simpler than travelToDimension's Cinder Gate logic above: there's no
+   * return-gate search and nothing to build, since the destination is
+   * always the fixed arrival point above the central island's fountain
+   * (hollowReachGenerator.js's HOLLOW_ARRIVAL_POINT — comfortably clear
+   * of the island's own noise-driven surface height, see that constant's
+   * own comment). No entity carry-over either: stepping through the
+   * Rift Gate is a personal one-way trip, not a group teleport the way
+   * arriving mobs/drops near a Cinder Gate is.
+   */
+  async function travelToHollowReach() {
+    if (isTraveling) return;
+    player.dismount();
+    isTraveling = true;
+    fadeOverlayEl.style.transition = '';
+    fadeOverlayEl.classList.add('visible');
+    try {
+      const targetChunkManager = ensureDimensionChunkManager(hollowReach);
+      await ensureChunkLoadedAt(targetChunkManager, HOLLOW_ARRIVAL_POINT.x, HOLLOW_ARRIVAL_POINT.z);
+      chunkManager = targetChunkManager;
+      activeDimension = hollowReach;
+      player.dimension = hollowReach;
+      world.setActive(hollowReach.id);
+      applyDimensionAtmosphere(renderer.scene, hollowReach);
+      if (!cmdWorldState.discoveredDimensions.includes(hollowReach.id)) {
+        cmdWorldState.discoveredDimensions.push(hollowReach.id);
+        cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: `Discovered a new dimension: ${hollowReach.id}` });
+      }
+      // Per spec: "don't let someone wander in at full health with no
+      // gear and no idea" — shown every trip (not just the first), since
+      // until phase 5's exit gate exists, every single crossing genuinely
+      // has no way back except dying.
+      titleDisplay.showTitle('The Hollow Reach', 'There is no way back until the Riftwyrm falls.', 6);
+      cmdMessageLog.push({
+        source: 'system',
+        category: 'warning',
+        style: 'warning',
+        segments: 'You have entered the Hollow Reach. The only ways out are the exit gate that appears once the Riftwyrm dies, or death.',
+      });
+      player.position.x = HOLLOW_ARRIVAL_POINT.x;
+      player.position.y = HOLLOW_ARRIVAL_POINT.y;
+      player.position.z = HOLLOW_ARRIVAL_POINT.z;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      travelCooldown = 3;
+    } finally {
+      setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
+      isTraveling = false;
+    }
+  }
+
+  // One entry per portal-surface block id — a lookup the standing-on-a-
+  // portal tick check (below) reads from, instead of a growing chain of
+  // per-block if/else as more gate types exist. Cinder Gate travel is
+  // bidirectional (computed from whichever dimension is currently
+  // active); the Rift Gate is a fixed one-way trip with no stand delay.
+  // Built once here (not inside the tick loop) since it only needs to
+  // exist once per game session.
+  const PORTAL_TRAVEL = {
+    [BLOCKS.CINDER_PORTAL]: {
+      standSeconds: () => (player.gameMode === 'creative' ? 0 : STAND_SECONDS_TO_TRAVEL),
+      go: () => travelToDimension(activeDimension, activeDimension === overworld ? cinderdeep : overworld),
+    },
+    [BLOCKS.RIFT_PORTAL]: {
+      standSeconds: () => 0,
+      go: () => travelToHollowReach(),
+    },
+  };
+
   // --- Persistence: current world id, autosave scheduling ------------
   let currentWorldId = null;
   const saveIndicatorEl = document.getElementById('save-indicator');
@@ -693,7 +782,7 @@ function main() {
     if (!currentWorldId) return;
     saveIndicatorEl.classList.add('visible');
     try {
-      const chunkManagers = [overworld, cinderdeep].map((d) => d.chunkManager).filter(Boolean);
+      const chunkManagers = [...world.dimensions.values()].map((d) => d.chunkManager).filter(Boolean);
       await saveGame(currentWorldId, {
         chunkManagers,
         player,
@@ -819,6 +908,8 @@ function main() {
     if (activeDimension === overworld) {
       const hb = climateGenerator.heightAndBiome(p.x, p.z);
       id = hb.isOcean ? OCEAN_BIOME.id : hb.dominant.id;
+    } else if (activeDimension === hollowReach) {
+      id = 'hollow_reach'; // one uniform biome for the whole dimension — see HOLLOW_FOG_TINT's own comment
     } else {
       id = cinderdeepClimate.biomeAt(p.x, p.z).id;
     }
@@ -843,7 +934,8 @@ function main() {
     const candidates = [];
     for (const s of allSpawners()) if (s.mobType === 'cinder_wraith') candidates.push({ x: s.x, y: s.y, z: s.z, id: 'emberhold' });
     for (const c of allPendingLootChests()) {
-      candidates.push({ x: c.x, y: c.y, z: c.z, id: c.tableId.startsWith('bastion_') ? 'ashkin_bastion' : 'ruined_gate' });
+      const id = c.tableId.startsWith('bastion_') ? 'ashkin_bastion' : c.tableId === 'undervault' ? 'undervault' : 'ruined_gate';
+      candidates.push({ x: c.x, y: c.y, z: c.z, id });
     }
     for (const c of candidates) {
       const key = `${c.id}@${c.x},${c.y},${c.z}`;
@@ -908,11 +1000,12 @@ function main() {
     } else {
       gateRegistry = GateRegistry.fromJSON(await loadGateRegistry(worldRecord.id));
       const savedDimensionId = (await getPlayerDimensionId(worldRecord.id)) ?? 'overworld';
-      if (savedDimensionId === 'cinderdeep') {
-        chunkManager = ensureDimensionChunkManager(cinderdeep);
-        activeDimension = cinderdeep;
-        player.dimension = cinderdeep;
-        applyDimensionAtmosphere(renderer.scene, cinderdeep);
+      const savedDimension = world.get(savedDimensionId);
+      if (savedDimension && savedDimension !== overworld) {
+        chunkManager = ensureDimensionChunkManager(savedDimension);
+        activeDimension = savedDimension;
+        player.dimension = savedDimension;
+        applyDimensionAtmosphere(renderer.scene, savedDimension);
       }
       const { playerState, entities, pendingDiffsByDimension: pending } = await loadGame(worldRecord.id, {
         chunkManager,
@@ -1017,6 +1110,65 @@ function main() {
     const eye = player.eyePosition;
     const look = player.lookDirection;
     itemDrops.spawn({ x: eye.x + look.x * 0.6, y: eye.y + look.y * 0.6, z: eye.z + look.z * 0.6 }, itemId, count, durability);
+  }
+
+  const RIFT_SHARD_SHATTER_CHANCE = 0.25;
+
+  /**
+   * A real ProjectileManager shot (gravity: true, same "arcs and lands"
+   * physics splash potions/lobbed shots already use), aimed toward the
+   * nearest known Undervault rather than wherever the player is looking
+   * — an eye-of-ender-style compass, not a thrown weapon. If no
+   * Undervault has been generated on the main-thread climate generator
+   * yet (shouldn't normally happen — they're computed once at world
+   * creation, not lazily), falls back to the player's own look direction
+   * rather than crashing on an empty list.
+   */
+  function throwRiftShard() {
+    const sites = climateGenerator.undervaultSites ?? [];
+    const origin = player.eyePosition;
+    let dirX;
+    let dirZ;
+    if (sites.length > 0) {
+      let nearest = sites[0];
+      let bestDist = Infinity;
+      for (const s of sites) {
+        const d = Math.hypot(s.originX - origin.x, s.originZ - origin.z);
+        if (d < bestDist) {
+          bestDist = d;
+          nearest = s;
+        }
+      }
+      const dx = nearest.originX - origin.x;
+      const dz = nearest.originZ - origin.z;
+      const len = Math.hypot(dx, dz) || 1;
+      dirX = dx / len;
+      dirZ = dz / len;
+    } else {
+      const look = player.lookDirection;
+      const len = Math.hypot(look.x, look.z) || 1;
+      dirX = look.x / len;
+      dirZ = look.z / len;
+    }
+    const speed = 9;
+    projectiles.spawn({
+      position: { ...origin },
+      velocity: { x: dirX * speed, y: 4.5, z: dirZ * speed },
+      color: 0xc9a7ff,
+      radius: 0.15,
+      gravity: true,
+      maxLifetime: 8,
+      owner: 'player',
+      damage: 0,
+      dimensionId: activeDimension.id,
+      onHit: (hitPos) => {
+        if (Math.random() < RIFT_SHARD_SHATTER_CHANCE) {
+          particles.spawnBurst(hitPos, 0xc9a7ff, 10, 3);
+        } else {
+          itemDrops.spawn(hitPos, ITEMS.RIFT_SHARD.id, 1, undefined, activeDimension.id);
+        }
+      },
+    });
   }
 
   const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer, player });
@@ -1173,19 +1325,19 @@ function main() {
       // on a genuine fall-through.
       if (player.position.y < VOID_Y) respawnPlayer(player.gameMode === 'survival' ? 'fell out of the world' : null);
 
-      // Cinder Gate travel: standing inside the portal surface for a few
-      // seconds triggers the dimension swap (instant in creative). The
-      // cooldown after arriving stops an immediate bounce back through
-      // the destination gate's own portal block.
+      // Portal travel: standing inside a portal surface for a few
+      // seconds triggers the dimension swap (instant in creative, and
+      // always instant for the Rift Gate's own one-way trip — see
+      // PORTAL_TRAVEL above). The cooldown after arriving stops an
+      // immediate bounce back through the destination's own portal block.
       travelCooldown = Math.max(0, travelCooldown - FIXED_DT);
       const feetBlock = chunkManager.getBlock(Math.floor(player.position.x), Math.floor(player.position.y), Math.floor(player.position.z));
-      if (feetBlock === BLOCKS.CINDER_PORTAL && !isTraveling && travelCooldown <= 0) {
+      const portal = PORTAL_TRAVEL[feetBlock];
+      if (portal && !isTraveling && travelCooldown <= 0) {
         portalStandTime += FIXED_DT;
-        const threshold = player.gameMode === 'creative' ? 0 : STAND_SECONDS_TO_TRAVEL;
-        if (portalStandTime >= threshold) {
+        if (portalStandTime >= portal.standSeconds()) {
           portalStandTime = 0;
-          const target = activeDimension === overworld ? cinderdeep : overworld;
-          travelToDimension(activeDimension, target);
+          portal.go();
         }
       } else {
         portalStandTime = 0;
@@ -1313,6 +1465,42 @@ function main() {
           held.count -= 1;
           if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
           player.inventory.addItem(ITEMS.WATER_BOTTLE.id, 1);
+          playUIClick();
+        }
+
+        // The Rift Gate frame (phase 1): right-clicking one of its 12
+        // empty slots with a Rift Shard held fills it; once all 12 read
+        // filled, the interior opens into the one-way portal surface.
+        // Same "tool-shaped item, not a block, needs its own hook"
+        // reasoning as flint and steel above.
+        const targetsEmptyFrameSlot =
+          interaction.target && chunkManager.getBlock(...interaction.target.blockPos) === BLOCKS.RIFT_GATE_FRAME_EMPTY;
+        if (input.wasMousePressed(2) && player.selectedItem?.itemId === ITEMS.RIFT_SHARD.id && targetsEmptyFrameSlot) {
+          const [bx, by, bz] = interaction.target.blockPos;
+          chunkManager.setBlock(bx, by, bz, BLOCKS.RIFT_GATE_FRAME_FILLED);
+          const held = player.selectedItem;
+          held.count -= 1;
+          if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+          playBlockPlace(BLOCKS.RIFT_GATE_FRAME_FILLED);
+          const frame = findRiftGateFrame(chunkManager, bx, by, bz);
+          if (frame && isRiftFrameComplete(chunkManager, frame)) {
+            igniteRiftGate(chunkManager, frame);
+            particles.spawnBurst({ x: frame.centerX + 0.5, y: frame.y + 0.5, z: frame.centerZ + 0.5 }, 0xc9a7ff, 30, 4);
+            // No bespoke gate-opening sound exists yet — reusing the
+            // lowest-frequency existing "something big just happened" cue
+            // rather than leaving the moment silent.
+            playExplosion();
+            cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'The Rift Gate opens.' });
+          }
+        }
+
+        // Throwing a Rift Shard (phase 1): right-clicking with one held,
+        // anywhere that ISN'T one of its own empty frame slots, throws it.
+        if (input.wasMousePressed(2) && player.selectedItem?.itemId === ITEMS.RIFT_SHARD.id && !targetsEmptyFrameSlot) {
+          const held = player.selectedItem;
+          held.count -= 1;
+          if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+          throwRiftShard();
           playUIClick();
         }
 
@@ -1587,6 +1775,14 @@ function main() {
     // own generator's biomeAt() already returns a fogTint directly, so
     // this branches on which *biome sampler* applies, the one thing that
     // really does differ per dimension, rather than on a dimensionId.
+    // The Hollow Reach gets its own explicit branch rather than falling
+    // into the Cinderdeep's — it has no biome sampler at all (the whole
+    // dimension is deliberately one uniform void-island "biome"), and
+    // falling through to cinderdeepClimate.biomeAt(rx,rz) would sample
+    // the *Cinderdeep's* noise fields at Hollow Reach coordinates,
+    // producing a wrong, wandering fog tint (a real bug caught while
+    // first visually verifying phase 2 in a browser — see
+    // HOLLOWREACH.md).
     let biomeName;
     let biomeFogTint;
     let biomeFogDensity;
@@ -1595,6 +1791,10 @@ function main() {
       biomeName = climate.isOcean ? OCEAN_BIOME.id : climate.dominant.id;
       biomeFogTint = climate.isOcean ? OCEAN_BIOME.fogTint : climate.dominant.fogTint;
       biomeFogDensity = climate.isOcean ? OCEAN_BIOME.fogDensity : climate.dominant.fogDensity;
+    } else if (activeDimension === hollowReach) {
+      biomeName = 'hollow_reach';
+      biomeFogTint = HOLLOW_FOG_TINT;
+      biomeFogDensity = 1;
     } else {
       const biome = cinderdeepClimate.biomeAt(rx, rz);
       biomeName = biome.id;
@@ -1746,12 +1946,18 @@ function main() {
       get activeDimension() { return activeDimension; },
       overworld,
       cinderdeep,
+      hollowReach,
       get gateRegistry() { return gateRegistry; },
       travelToDimension,
+      travelToHollowReach,
       ensureDimensionChunkManager,
       findGateFrame,
       igniteGateFrame,
       buildAndIgniteGate,
+      findRiftGateFrame,
+      isRiftFrameComplete,
+      igniteRiftGate,
+      throwRiftShard,
       interaction,
       dayNight,
       itemDrops,

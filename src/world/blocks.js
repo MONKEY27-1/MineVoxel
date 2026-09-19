@@ -330,6 +330,40 @@ export const BLOCKS = {
   // more than you could in vanilla (primed TNT there is an entity, not a
   // minable block, so there's nothing to actually drop).
   TNT_LIT: define({ name: 'tnt_lit', texture: { top: 'tnt_top_lit', side: 'tnt_side_lit' }, hardness: 0, drops: null, blastResistance: 0 }),
+
+  // --- The Hollow Reach (dimension 3) -----------------------------------
+  PALESTONE: define({ name: 'palestone', texture: { all: 'palestone' }, hardness: 3, tool: 'pickaxe', blastResistance: 9 }),
+  MOSSY_STONE_BRICKS: define({ name: 'mossy_stone_bricks', texture: { all: 'mossy_stone_bricks' }, hardness: 1.5, tool: 'pickaxe' }),
+  CRACKED_STONE_BRICKS: define({ name: 'cracked_stone_bricks', texture: { all: 'cracked_stone_bricks' }, hardness: 1.5, tool: 'pickaxe' }),
+  // No thin-pane geometry exists in this engine (only full-cube or
+  // cross-plane) — bars use the same cross-plane rendering wheat/cobweb
+  // already use, but stay `solid: true` (collision doesn't care how a
+  // block is rendered), so they genuinely block movement the way a
+  // prison cell's bars should, unlike every other cross block here.
+  IRON_BARS: define({ name: 'iron_bars', texture: { all: 'iron_bars' }, hardness: 5, tool: 'pickaxe', cross: true, transparent: true, blastResistance: 6 }),
+  TORCH: define({ name: 'torch', texture: { all: 'torch' }, solid: false, transparent: true, hardness: 0, cross: true, lightEmission: 13, blastResistance: 0 }),
+  BOOKSHELF: define({ name: 'bookshelf', texture: { top: 'planks', side: 'bookshelf_side', bottom: 'planks' }, hardness: 1.5, tool: 'axe' }),
+  // The Rift Gate's frame: 12 fixed slots (a 5x5 ring with the corners
+  // and the 3x3 interior excluded — the same shape a vanilla end portal
+  // frame uses), placed by structures/undervault.js with some already
+  // filled and some empty, randomized per world. Unlike the Cinder
+  // Gate's frame (any obsidian the player stacks up themselves), this
+  // one is a fixed structural feature of the portal room — right-
+  // clicking an empty slot with a Rift Shard swaps it to the filled
+  // block id (main.js), the same lit/unlit block-swap TNT_LIT already
+  // uses for its own two-state block. Unbreakable, like a vanilla end
+  // portal frame.
+  RIFT_GATE_FRAME_EMPTY: define({ name: 'rift_gate_frame', texture: { all: 'rift_gate_frame_empty' }, hardness: Infinity, drops: null, blastResistance: Infinity }),
+  RIFT_GATE_FRAME_FILLED: define({ name: 'rift_gate_frame_filled', texture: { all: 'rift_gate_frame_filled' }, hardness: Infinity, drops: null, blastResistance: Infinity }),
+  // The Rift Gate's interior surface, filled in once all 12 frame slots
+  // are — one-way to the Hollow Reach (main.js's portal-target dispatch
+  // table), never minable, same reasoning as CINDER_PORTAL.
+  RIFT_PORTAL: define({ name: 'rift_portal', texture: { all: 'rift_portal' }, solid: false, transparent: true, hardness: Infinity, lightEmission: 9, drops: null, blastResistance: Infinity }),
+  // Phase 2: crystals ringing the central island's obsidian pillars.
+  // Phase 4 (the Riftwyrm) is what actually makes destroying one matter
+  // (it heals the wyrm while intact) — the block itself is real and
+  // minable today, that mechanic hooks in later without a block change.
+  SPIRE_CRYSTAL: define({ name: 'spire_crystal', texture: { all: 'spire_crystal' }, hardness: 3, blastResistance: 3, lightEmission: 10, transparent: true, renderOpaque: true }),
 };
 
 export function getBlock(id) {
