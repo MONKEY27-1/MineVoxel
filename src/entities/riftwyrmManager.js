@@ -1,0 +1,103 @@
+import { Riftwyrm } from './riftwyrm.js';
+
+// Owns the Hollow Reach's one-of-a-kind boss — zero or one live Riftwyrm
+// at a time, plus its Rift Breath lingering hazards. Deliberately not
+// folded into mobManager.js: a boss has unique identity and its own
+// save/load story (persistence/worldSave.js's riftwyrmState store, not
+// the flat/interchangeable entitySnapshots array every regular mob
+// shares), so it gets its own small manager mirroring the same
+// "singleton owned directly by main.js" pattern gateRegistry already
+// uses for the Cinder Gate's own per-world state.
+
+const BREATH_CLOUD_RADIUS = 3;
+const BREATH_CLOUD_DURATION = 6;
+const BREATH_CLOUD_DAMAGE_PER_TICK = 2;
+const BREATH_CLOUD_TICK_INTERVAL = 1;
+
+export class RiftwyrmManager {
+  constructor(scene, particles, projectiles) {
+    this.scene = scene;
+    this.particles = particles;
+    this.projectiles = projectiles;
+    this.current = null; // the live Riftwyrm, or null
+    this.spawned = false; // has one ever been spawned in this world (persisted) — phase 6 will need this to gate its own respawn ritual
+    this.clouds = []; // active Rift Breath hazards: {x,y,z,remaining,tickTimer}
+    this.justDied = false; // one-shot flag, read+cleared by main.js for the (stub, phase-5-owned) death handling
+  }
+
+  spawn(position, pillars, fountain, health) {
+    this.current = new Riftwyrm(this.scene, position, { health, pillars, arrivalPoint: position, fountain });
+    this.spawned = true;
+  }
+
+  update(dt, chunkManager, player, dimension) {
+    this.justDied = false;
+    if (this.current) {
+      this.current.update(dt, chunkManager, player, this.particles, this.projectiles, dimension.id);
+      if (this.current.justBreathed) this._spawnBreathCloud(this.current.justBreathed);
+      if (this.current.dead) {
+        this.current.dispose();
+        this.current = null;
+        this.justDied = true;
+      }
+    }
+    this._updateClouds(dt, player, dimension);
+  }
+
+  _spawnBreathCloud(pos) {
+    this.clouds.push({ x: pos.x, y: pos.y, z: pos.z, remaining: BREATH_CLOUD_DURATION, tickTimer: 0 });
+  }
+
+  /**
+   * A deliberately narrow stand-in for a full lingering-potion-cloud
+   * system (documented as a real, separate scope cut in CINDERDEEP.md —
+   * "lingering needs a whole second entity type... scoped out") — just
+   * enough to make Rift Breath a real lingering hazard: a fixed-radius,
+   * fixed-duration zone that damages the player on a tick, visualized by
+   * reusing the existing particle system rather than a new mesh/shader.
+   */
+  _updateClouds(dt, player, dimension) {
+    for (let i = this.clouds.length - 1; i >= 0; i--) {
+      const c = this.clouds[i];
+      c.remaining -= dt;
+      c.tickTimer -= dt;
+      if (c.tickTimer <= 0) {
+        c.tickTimer = BREATH_CLOUD_TICK_INTERVAL;
+        this.particles?.spawnBurst({ x: c.x, y: c.y, z: c.z }, 0x6a3a8a, 6, 1.5);
+        if (dimension.id === 'hollow_reach') {
+          const dist = Math.hypot(player.position.x - c.x, player.position.y - c.y, player.position.z - c.z);
+          if (dist < BREATH_CLOUD_RADIUS) player.takeDamage(BREATH_CLOUD_DAMAGE_PER_TICK, null, 'Rift Breath');
+        }
+      }
+      if (c.remaining <= 0) this.clouds.splice(i, 1);
+    }
+  }
+
+  /** Only what's needed to resume the fight roughly where it left off — see Riftwyrm.toJSON's own note on why the trail/crystal-links need nothing extra. */
+  toJSON() {
+    return {
+      spawned: this.spawned,
+      alive: !!this.current,
+      health: this.current?.health ?? null,
+      x: this.current?.position.x ?? null,
+      y: this.current?.position.y ?? null,
+      z: this.current?.position.z ?? null,
+    };
+  }
+
+  /** `pillars`/`fountain` always come from the live generator, never the save — they're deterministic from the world seed alone, so persisting them would just be a second, redundant copy that could drift out of sync. */
+  static fromJSON(json, scene, particles, projectiles, pillars, fountain) {
+    const manager = new RiftwyrmManager(scene, particles, projectiles);
+    if (!json) return manager;
+    manager.spawned = !!json.spawned;
+    if (json.alive && json.health > 0) {
+      manager.current = new Riftwyrm(scene, { x: json.x, y: json.y, z: json.z }, { health: json.health, pillars, arrivalPoint: { y: json.y }, fountain });
+    }
+    return manager;
+  }
+
+  dispose() {
+    this.current?.dispose();
+    this.current = null;
+  }
+}

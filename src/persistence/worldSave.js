@@ -285,6 +285,26 @@ export async function loadGateRegistry(worldId) {
   return record?.gates ?? null;
 }
 
+/**
+ * The Hollow Reach's Riftwyrm (phase 4) — a one-of-a-kind boss, not a
+ * regular per-chunk mob, so it doesn't fit `entitySnapshots` (a flat,
+ * interchangeable array with no unique identity — fine for ordinary
+ * mobs, wrong for a boss whose specific health/state must survive
+ * reload). Same "load once at startGame, save every persistNow" story as
+ * gateRegistry above. A missing record just means "no wyrm yet," same as
+ * a missing gateRegistry record before a world's first Cinder Gate.
+ */
+export async function saveRiftwyrmState(worldId, state) {
+  await dbPut(STORES.riftwyrmState, { worldId, ...state });
+}
+
+export async function loadRiftwyrmState(worldId) {
+  const record = await dbGet(STORES.riftwyrmState, worldId);
+  if (!record) return null;
+  const { worldId: _worldId, ...state } = record;
+  return state;
+}
+
 /** Everything the command system owns beyond what saveGame already covers — gamerules, weather/difficulty (worldState.js), every /alias/function this world has defined, and the chat/command message log itself. One record, same "load once at startGame, save every persistNow" story as gateRegistry above. */
 export async function saveCommandData(worldId, { gamerules, worldState, aliases, functions, messageLog }) {
   await dbPut(STORES.commandData, {

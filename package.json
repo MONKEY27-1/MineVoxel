@@ -36,7 +36,8 @@
     "test:hollowreach-terrain": "node tools/test-hollowreach-terrain.js",
     "test:undervault": "node tools/test-undervault.js",
     "test:hollowreach": "node tools/run-with-server.js tools/test-hollowreach.js",
-    "test:hollowreach-mobs": "node tools/run-with-server.js tools/test-hollowreach-mobs.js"
+    "test:hollowreach-mobs": "node tools/run-with-server.js tools/test-hollowreach-mobs.js",
+    "test:riftwyrm": "node tools/run-with-server.js tools/test-riftwyrm.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

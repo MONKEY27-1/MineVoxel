@@ -11,7 +11,9 @@ const DB_NAME = 'minevoxel';
 // Bumped again for the command system's own per-world store (gamerules,
 // weather/difficulty, aliases, functions) — same additive-only story as
 // the comment above.
-const DB_VERSION = 3;
+// Bumped again for the Hollow Reach's own riftwyrmState store (phase 4) —
+// same additive-only story as both comments above.
+const DB_VERSION = 4;
 
 // One flat key space per store, string keys built from parts joined with
 // '|' — lets range-queries (IDBKeyRange.bound) select "everything for
@@ -25,6 +27,7 @@ export const STORES = {
   entitySnapshots: 'entitySnapshots', // keyPath 'worldId' — mobs + item drops in loaded chunks at save time
   gateRegistry: 'gateRegistry', // keyPath 'worldId' — every Cinder Gate this world has ever ignited (world/gate.js's GateRegistry)
   commandData: 'commandData', // keyPath 'worldId' — gamerules, weather/difficulty, aliases, and functions (commands/registerAll.js's world)
+  riftwyrmState: 'riftwyrmState', // keyPath 'worldId' — the Hollow Reach's one-of-a-kind boss (entities/riftwyrmManager.js), not a regular per-chunk mob
 };
 
 let dbPromise = null;
@@ -42,6 +45,7 @@ export function openDB() {
       if (!db.objectStoreNames.contains(STORES.entitySnapshots)) db.createObjectStore(STORES.entitySnapshots, { keyPath: 'worldId' });
       if (!db.objectStoreNames.contains(STORES.gateRegistry)) db.createObjectStore(STORES.gateRegistry, { keyPath: 'worldId' });
       if (!db.objectStoreNames.contains(STORES.commandData)) db.createObjectStore(STORES.commandData, { keyPath: 'worldId' });
+      if (!db.objectStoreNames.contains(STORES.riftwyrmState)) db.createObjectStore(STORES.riftwyrmState, { keyPath: 'worldId' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

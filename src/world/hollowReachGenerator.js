@@ -27,6 +27,13 @@ const FOUNTAIN_RADIUS = 5;
 // fountain platform instead.
 export const HOLLOW_ARRIVAL_POINT = { x: ISLAND_CENTER_X + 0.5, y: ISLAND_CENTER_Y + 10, z: ISLAND_CENTER_Z + 0.5 };
 
+// The Riftwyrm's own perch target (phase 4) — the fountain landmark
+// itself, a couple blocks up so it lands standing on the bedrock rather
+// than clipped into it. Phase 5's exit gate frame will occupy this exact
+// spot once the wyrm first dies, which is a real, intended overlap (a
+// dead wyrm has no more perching to do).
+export const HOLLOW_FOUNTAIN_POINT = { x: ISLAND_CENTER_X + 0.5, y: ISLAND_CENTER_Y + 1, z: ISLAND_CENTER_Z + 0.5 };
+
 function mulberry32(seed) {
   let a = seed | 0;
   return function () {
@@ -158,5 +165,11 @@ export function createHollowReachGenerator(seed) {
     return { chests: [], spawners: [] };
   }
 
-  return { generateColumn };
+  // Exposed so main.js's Riftwyrm (phase 4) can reuse the same fixed
+  // pillar ring as both its flight waypoints and its Spire Crystal
+  // healing targets, without a second copy of this placement math — the
+  // crystal itself is just BLOCKS.SPIRE_CRYSTAL at `(x, height+2, z)`,
+  // already the single source of truth for "is this crystal still
+  // alive," so nothing else needs to be exported alongside it.
+  return { generateColumn, pillars };
 }

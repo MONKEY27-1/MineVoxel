@@ -8,8 +8,10 @@ import { Dimension } from './world/dimension.js';
 import { createOverworld } from './world/overworldDimension.js';
 import { createCinderdeep } from './world/cinderdeepDimension.js';
 import { createHollowReach } from './world/hollowReachDimension.js';
-import { HOLLOW_ARRIVAL_POINT } from './world/hollowReachGenerator.js';
+import { HOLLOW_ARRIVAL_POINT, HOLLOW_FOUNTAIN_POINT, createHollowReachGenerator } from './world/hollowReachGenerator.js';
 import { findRiftGateFrame, isRiftFrameComplete, igniteRiftGate } from './world/riftGate.js';
+import { RiftwyrmManager } from './entities/riftwyrmManager.js';
+import { RIFTWYRM_MAX_HEALTH } from './entities/riftwyrm.js';
 import { createCinderdeepGenerator } from './world/cinderdeepGenerator.js';
 import { ChunkManager } from './world/chunkManager.js';
 import { createOverworldGenerator } from './world/generator.js';
@@ -56,7 +58,7 @@ import { setCaptionsEnabled } from './ui/captions.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
-import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
+import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, saveRiftwyrmState, loadRiftwyrmState, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
 import { loadSettings } from './settings/settings.js';
 import { applyMipmapping } from './mesh/atlas.js';
 import { Clouds } from './world/clouds.js';
@@ -334,6 +336,12 @@ function main() {
   // fields, no worker), rebuilt alongside climateGenerator whenever the
   // world's real seed is known.
   let cinderdeepClimate = createCinderdeepGenerator(WORLD_SEED);
+  // Same idea again, for the Hollow Reach (phase 4) — this pass only
+  // actually needs its `.pillars` (the Riftwyrm's flight waypoints and
+  // Spire Crystal positions), not a biome sampler, but building the real
+  // generator is cheap and keeps this consistent with the two above
+  // rather than hand-picking just the pillar math out of it.
+  let hollowReachClimate = createHollowReachGenerator(WORLD_SEED);
   let activeDimension = overworld;
   // The chosen world's stored spawn point (worldSave.js's createWorld —
   // seed-derived, not the origin; see generator.js's pickSpawnPoint for
@@ -384,6 +392,11 @@ function main() {
   const hud = new Hud(atlasUV);
   const mobManager = new MobManager(renderer.scene, { particles, itemDrops, xpOrbs });
   const projectiles = new ProjectileManager(renderer.scene, particles);
+  // The Hollow Reach's boss (phase 4) — a singleton, not a MobManager
+  // entry (see riftwyrmManager.js's own note on why). `let`, not `const`:
+  // startGame's load branch replaces it wholesale via
+  // RiftwyrmManager.fromJSON, same story as gateRegistry.
+  let riftwyrmManager = new RiftwyrmManager(renderer.scene, particles, projectiles);
 
   // --- Revision-pass section 8: clouds, sky, sun/shadow light --------
   const clouds = new Clouds(renderer.scene, WORLD_SEED);
@@ -749,6 +762,20 @@ function main() {
       player.velocity.y = 0;
       player.velocity.z = 0;
       travelCooldown = 3;
+      // The Riftwyrm (phase 4) is simply present from the moment the
+      // Hollow Reach is first entered — matching vanilla's own End dragon,
+      // which is never "summoned," just already there. Only ever spawns
+      // once per world; phase 6 owns the crystal-ritual respawn.
+      if (!riftwyrmManager.spawned) {
+        const pillars = hollowReachClimate.pillars;
+        const spawnPillar = pillars[0];
+        riftwyrmManager.spawn(
+          { x: spawnPillar.x, y: HOLLOW_FOUNTAIN_POINT.y + 25, z: spawnPillar.z },
+          pillars,
+          HOLLOW_FOUNTAIN_POINT,
+          RIFTWYRM_MAX_HEALTH
+        );
+      }
     } finally {
       setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
       isTraveling = false;
@@ -796,6 +823,7 @@ function main() {
         commandsEnabled,
       });
       await saveGateRegistry(currentWorldId, gateRegistry);
+      await saveRiftwyrmState(currentWorldId, riftwyrmManager.toJSON());
       await saveCommandData(currentWorldId, {
         gamerules: cmdGamerules,
         worldState: cmdWorldState,
@@ -993,12 +1021,22 @@ function main() {
     chunkManager.setSeed(worldRecord.seed);
     climateGenerator = createOverworldGenerator(worldRecord.seed);
     cinderdeepClimate = createCinderdeepGenerator(worldRecord.seed);
+    hollowReachClimate = createHollowReachGenerator(worldRecord.seed);
     player.setGameMode(worldRecord.mode);
 
     if (isNew) {
       respawnPlayer();
     } else {
       gateRegistry = GateRegistry.fromJSON(await loadGateRegistry(worldRecord.id));
+      riftwyrmManager.dispose();
+      riftwyrmManager = RiftwyrmManager.fromJSON(
+        await loadRiftwyrmState(worldRecord.id),
+        renderer.scene,
+        particles,
+        projectiles,
+        hollowReachClimate.pillars,
+        HOLLOW_FOUNTAIN_POINT
+      );
       const savedDimensionId = (await getPlayerDimensionId(worldRecord.id)) ?? 'overworld';
       const savedDimension = world.get(savedDimensionId);
       if (savedDimension && savedDimension !== overworld) {
@@ -1421,6 +1459,29 @@ function main() {
           if (collapseGateIfFrameBroken(chunkManager, bx, by, bz)) {
             gateRegistry.unregister(activeDimension.id, bx, by, bz);
           }
+          // Destroying a Spire Crystal (phase 4) — an explosion per spec,
+          // not just an ordinary mined block. This only reacts to the
+          // block breaking; the Riftwyrm's own healing beam already stops
+          // itself the very next tick it notices the block is gone (a
+          // plain getBlock check, riftwyrm.js's own source of truth), so
+          // nothing here needs to reach into the boss directly.
+          if (interaction.justBroke.blockId === BLOCKS.SPIRE_CRYSTAL) {
+            particles.spawnBurst(interaction.justBroke.position, 0xc9a7ff, 30, 5);
+            playExplosion();
+            const dist = Math.hypot(
+              player.position.x - interaction.justBroke.position.x,
+              player.position.y - interaction.justBroke.position.y,
+              player.position.z - interaction.justBroke.position.z
+            );
+            if (dist < 4 && player.gameMode === 'survival') {
+              const kb = dist > 0.01 ? 1 / dist : 0;
+              player.takeDamage(
+                4,
+                { x: (player.position.x - interaction.justBroke.position.x) * kb, y: 3, z: (player.position.z - interaction.justBroke.position.z) * kb },
+                'a Spire Crystal'
+              );
+            }
+          }
         }
         if (interaction.justPlaced) {
           playBlockPlace(interaction.justPlaced.blockId);
@@ -1671,6 +1732,20 @@ function main() {
       }
       mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension, projectiles);
       projectiles.update(FIXED_DT, chunkManager, player, mobManager, activeDimension);
+      // The Riftwyrm only ever exists in the Hollow Reach — there's no
+      // "left behind in another dimension" concept to handle (unlike
+      // mobManager's mobs) since nothing can currently leave that
+      // dimension at all (see travelToHollowReach's own warning).
+      if (activeDimension === hollowReach) {
+        riftwyrmManager.update(FIXED_DT, chunkManager, player, activeDimension);
+        if (riftwyrmManager.current?.justDamagedPlayer || riftwyrmManager.current?.justBuffetedPlayer) playPlayerHurt();
+        if (riftwyrmManager.justDied) {
+          // A stub: the real ~10s death sequence, XP burst, and exit gate
+          // are phase 5's own job (riftwyrm.js's own note on this). For
+          // now the fight just ends cleanly instead of hanging forever.
+          cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'The Riftwyrm falls.' });
+        }
+      }
       if (mobManager.justKilled) playMobDeath();
       if (player.justHurt) {
         playPlayerHurt();
@@ -1953,6 +2028,7 @@ function main() {
     }
 
     hud.update(player, interaction, dt);
+    hud.updateBossBar(activeDimension === hollowReach ? riftwyrmManager.current : null);
 
     const stats = chunkManager.getStats();
     debugOverlay.update({
@@ -2008,6 +2084,7 @@ function main() {
       igniteRiftGate,
       throwRiftShard,
       throwRiftpearl,
+      get riftwyrmManager() { return riftwyrmManager; },
       interaction,
       dayNight,
       itemDrops,

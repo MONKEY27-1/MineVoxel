@@ -144,6 +144,44 @@ html, body {
   background: linear-gradient(#5fb8e8, #2c86b5);
 }
 
+/* The Riftwyrm's boss bar (Hollow Reach phase 4) — top-center, matching
+   the vanilla convention this game otherwise has no precedent for (no
+   boss existed anywhere before this). Shown/hidden by Hud.updateBossBar
+   toggling .hidden, same as every other HUD element here. */
+#boss-bar {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--hud-scale, 1));
+  transform-origin: center top;
+  width: 360px;
+  text-align: center;
+}
+
+#boss-bar-name {
+  color: #e8e0f5;
+  font-size: 16px;
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  margin-bottom: 4px;
+}
+
+#boss-bar-track {
+  width: 100%;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#boss-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(#c9a7ff, #7a4fb0);
+  transition: width 0.2s ease-out;
+}
+
 #status-effects {
   position: absolute;
   top: 16px;

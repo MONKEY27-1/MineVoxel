@@ -15,7 +15,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 1 — The Undervault and the Rift Gate
 - [x] Phase 2 — The central island
 - [x] Phase 3 — Mobs (Hollowkin, Riftmite, Stoneskitter; Vaultling is its own phase 8 item per spec)
-- [ ] Phase 4 — The Riftwyrm
+- [x] Phase 4 — The Riftwyrm (the death sequence itself is a stub — see phase 5)
 - [ ] Phase 5 — Death, the exit gate, and rewards
 - [ ] Phase 6 — Respawning the Riftwyrm
 - [ ] Phase 7 — Far Gates and the void crossing
@@ -269,8 +269,131 @@ be rewritten) lives at `src/ending/poem.txt`.
   mob in a room that has no other floor to give it, not worth a bespoke
   fenced-in spawner room.
 
+## Architecture decisions (phase 4)
+
+- **No boss precedent existed anywhere in this codebase before this
+  pass** — confirmed by a dedicated research pass before writing any
+  code. `mobTypes.js`'s "Ashen Sovereign" is a flavor comment on a
+  crafting material, not a built boss; `CINDERDEEP.md` explicitly lists
+  its own boss (phase 8) as not built. There was no boss health bar/name
+  label anywhere in `src/ui/`, no summoning ritual, no lingering-cloud
+  system (a real, separate, already-documented scope cut in
+  CINDERDEEP.md), and no beam/tether rendering helper. Every one of these
+  had to be designed from scratch for the Riftwyrm, not adapted from an
+  existing pattern.
+- **`Riftwyrm` deliberately does NOT extend `Mob`.** A `Mob` is a single
+  gravity-affected AABB body built from `mob.js`'s box-limb shape
+  vocabulary; the Riftwyrm is an ungrounded, non-colliding, segmented
+  flying body driven by its own waypoint state machine. Forcing it
+  through `Mob` would mean fighting that abstraction at every turn
+  (gravity, AABB collision, the box-limb builders, the shared
+  `_updateAI` dispatcher's hostile/aggroRange model) rather than fitting
+  it — a real, deliberate divergence from "reuse the mob system," made
+  because the shapes of the two problems are genuinely different, not
+  out of laziness.
+- **Not folded into `MobManager` either.** `entities/riftwyrmManager.js`
+  is a small dedicated singleton (zero or one live `Riftwyrm`, plus its
+  Rift Breath hazards), mirroring the same "singleton owned directly by
+  main.js" pattern `GateRegistry` already established for the Cinder
+  Gate's own per-world state — chosen specifically because a boss has
+  unique identity and its own save/load story, unlike `MobManager`'s
+  flat, interchangeable `mobs` array.
+- **Segmented body: index-lagged trail sampling, not a real arc-length
+  spline.** The head records its own position every tick into a bounded
+  history buffer; each body segment just reads the history entry
+  `i * HISTORY_STEP` ticks back. Visually reads as a real serpentine
+  trail at normal flight speeds without the added complexity of genuine
+  arc-length resampling — a deliberate simplification, not an oversight.
+- **Four flight states (`circling`/`charging`/`perching`/`recovering`),
+  not five** — spec lists "strafing" as its own item, but here it's a
+  periodic modifier applied *during* `circling` (banking the orbit path
+  toward the player for a few seconds) rather than a fifth top-level
+  state. A real, distinct behavior still happens; it just isn't its own
+  named state in the machine, since nothing else about the AI actually
+  needs to branch on "circling vs. strafing" as a separate mode.
+- **Spire Crystal "links" are just live blocks — there is no separate
+  crystal-health registry to lose or desync on reload.** `_aliveCrystals`
+  is a plain `chunkManager.getBlock` scan over the fixed pillar ring
+  (`hollowReachGenerator.js`'s own `pillars`, now exported for exactly
+  this reuse). Breaking a crystal is simply breaking the block; the
+  healing beam notices on its own very next tick via the same block
+  check, no event/callback wiring needed between the block-break pipeline
+  and the boss. The explosion-on-break effect is a separate, purely
+  cosmetic/damage hook in `main.js`'s own `interaction.justBroke`
+  handling — it doesn't need to reach into the Riftwyrm at all.
+- **Two real bugs found by `tools/test-riftwyrm.js`, not by eye — both
+  about unloaded chunks, the same "phantom air" trap `mobManager.js`
+  already had to guard regular mobs against:**
+  1. The island (radius ~108) is bigger than default render distance
+     around the player, so the Riftwyrm's own head can fly over a column
+     that isn't loaded at all — `getBlock`/`setBlock` can't tell
+     "unloaded" from "genuinely air" there. Fixed by checking
+     `chunkManager.isColumnLoaded` before both the block-destruction scan
+     and before trusting an "the crystal reads as gone" result (an
+     unloaded column now holds the beam steady and skips that tick,
+     rather than treating "can't see it" as "destroyed").
+  2. Even with the head's own column confirmed loaded, `_clearBlocksNear`'s
+     3x3x3 scan can still spill one cell into a *neighboring* column near
+     a chunk boundary that isn't loaded — found via a test that placed
+     blocks exactly at a chunk edge. Fixed by checking
+     `isColumnLoaded` per cell inside the scan, not just once for the
+     head's own position.
+- **Rift Breath's lingering cloud is a small, boss-specific hazard
+  tracker (`riftwyrmManager.js`'s `clouds` array), not a generalized
+  lingering-potion-cloud system** — CINDERDEEP.md already documents that
+  general system as a real, separate scope cut ("a whole second entity
+  type... scoped out"). This is deliberately narrower: a fixed-radius,
+  fixed-duration zone that damages the player on a tick and reuses the
+  existing particle system for its visual, built just wide enough to make
+  the Riftwyrm's one specific attack real.
+- **The healing beam and the future "visible link between two points"
+  need (nothing else currently needs one) is a plain stretched-cylinder
+  mesh (`riftwyrm.js`'s `pointBeam` helper), not a shader effect** — no
+  beam/tether/laser precedent existed anywhere to reuse or generalize
+  from, and a bright, thick, per-frame-repositioned cylinder is
+  unmissable (per spec) without needing a custom shader.
+- **The boss bar (`Hud.updateBossBar`, new `#boss-bar` DOM element) reuses
+  the exact same `.classList.toggle('hidden', …)` + `style.width`
+  pattern every other HUD bar here already uses** — no new UI framework
+  or pattern, just one more bar shown only while a live boss exists in
+  the currently active dimension.
+- **Persistence mirrors `GateRegistry` exactly, as a new, purely additive
+  `riftwyrmState` IndexedDB store** (`db.js`'s `DB_VERSION` bumped to 4,
+  same "additive-only, no migration needed" story as gateRegistry's own
+  bump before it). Only `{spawned, alive, health, x, y, z}` is persisted
+  — the segmented trail rebuilds itself from the current position within
+  a few seconds either way, and crystal "links" are already covered by
+  ordinary chunk persistence (see above), so neither needs its own save
+  data. `worldSave.js` gained matching `saveRiftwyrmState`/
+  `loadRiftwyrmState` functions, wired into `persistNow`/`startGame`
+  exactly where `saveGateRegistry`/`loadGateRegistry` already are.
+- **The Riftwyrm is simply present from the moment the Hollow Reach is
+  first entered**, matching vanilla's own End dragon (never "summoned,"
+  just already there) rather than needing a separate trigger. Spawns
+  exactly once per world (`riftwyrmManager.spawned`), which
+  `RiftwyrmManager.fromJSON`/the persisted record both respect, so a
+  reload never mints a second one.
+- **Death is a deliberate stub**, not the real thing: health reaching 0
+  starts a short (2.5s) fade-and-shrink, then the boss despawns and
+  `riftwyrmManager.justDied` fires once. The actual ~10s
+  rearing/light-burst/disintegration sequence, the XP burst, and the
+  exit gate spawning at the fountain are explicitly phase 5's own scope
+  (its own numbered spec item), not something to half-build here first.
+
 ## Notable honesty calls
 
+- The Riftwyrm's death right now just ends the fight (a stub fade, then
+  it's gone) — it does NOT spawn an exit gate, award XP, or return the
+  player anywhere, because none of that exists until phase 5. Right after
+  killing it, a player is still standing in a Hollow Reach with no way
+  home yet; that's an expected, temporary state of the build, not a bug.
+- The boss fight's flight AI, crystal healing, attacks, and persistence
+  were all verified through `tools/test-riftwyrm.js` (real Playwright
+  browser, real ticking, no shortcuts) rather than by manually flying
+  around waiting for a ~9-45 second cooldown to fire in a live session —
+  the test drives cooldown timers directly to make each behavior
+  deterministic to check, the same approach `test-hollowreach-mobs.js`
+  already established for Hollowkin's own longer timers.
 - The "no way back" warning (`titleDisplay` + a chat message) shows on
   *every* trip through the Rift Gate right now, not just the first —
   because until phase 5's exit gate exists, that's genuinely true every

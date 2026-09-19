@@ -30,6 +30,9 @@ export class Hud {
     this.hotbarEl = document.getElementById('hotbar');
     this.underwaterEl = document.getElementById('underwater-overlay');
     this.statusEffectsEl = document.getElementById('status-effects');
+    this.bossBarEl = document.getElementById('boss-bar');
+    this.bossBarNameEl = document.getElementById('boss-bar-name');
+    this.bossBarFillEl = document.getElementById('boss-bar-fill');
 
     this._slots = Array.from({ length: 9 }, () => {
       const el = document.createElement('div');
@@ -117,5 +120,13 @@ export class Hud {
       this._toastTimer -= dt ?? 0;
       if (this._toastTimer <= 0) this._nameToast.classList.add('hidden');
     }
+  }
+
+  /** `boss` is a live Riftwyrm (or any future boss with the same `{name, health, maxHealth}` shape) or null/undefined to hide the bar — no boss bar existed anywhere in this codebase before the Hollow Reach's Riftwyrm (phase 4). */
+  updateBossBar(boss) {
+    this.bossBarEl.classList.toggle('hidden', !boss);
+    if (!boss) return;
+    this.bossBarNameEl.textContent = boss.name ?? 'The Riftwyrm';
+    this.bossBarFillEl.style.width = `${Math.max(0, boss.health / boss.maxHealth) * 100}%`;
   }
 }
