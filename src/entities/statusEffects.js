@@ -23,6 +23,16 @@ export const EFFECT_TYPES = {
   decay: { name: 'Decay', color: 0x5a4d3a, duration: 4 },
 };
 
+// Dev Menu's "Night vision" toggle (phase 2) wants an indefinite effect
+// — a real `Infinity` duration would serialize to `null` the moment this
+// manager's toJSON() round-trips through JSON (the player-state save
+// blob), silently failing to persist across a reload despite the spec's
+// own "toggle states persist per world" requirement. A large but
+// perfectly ordinary, JSON-safe number instead: never practically runs
+// out in real play, and hud.js's own chip renders anything at or above
+// it as "∞" instead of a meaningless multi-million-minute countdown.
+export const INDEFINITE_DURATION = 1e9;
+
 export class StatusEffectManager {
   constructor() {
     this.active = new Map(); // type -> remaining seconds

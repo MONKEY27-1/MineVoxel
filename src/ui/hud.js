@@ -1,6 +1,6 @@
 import { itemIconTile, itemDisplayName, isBlockItem, getNonBlockItem } from '../items/items.js';
 import { applyIcon } from './itemIcon.js';
-import { EFFECT_TYPES } from '../entities/statusEffects.js';
+import { EFFECT_TYPES, INDEFINITE_DURATION } from '../entities/statusEffects.js';
 import { GLIDE_MAX_SPEED } from '../entities/player.js';
 
 const HOTBAR_ICON_SIZE = 36;
@@ -81,11 +81,19 @@ export class Hud {
       swatch.className = 'status-effect-swatch';
       swatch.style.background = `#${def.color.toString(16).padStart(6, '0')}`;
       const label = document.createElement('span');
-      const mm = Math.floor(remaining / 60);
-      const ss = Math.floor(remaining % 60)
-        .toString()
-        .padStart(2, '0');
-      label.textContent = `${def.name} ${mm}:${ss}`;
+      // Dev Menu's own "Night vision" toggle (phase 2) applies an
+      // INDEFINITE_DURATION effect rather than a real timed potion — the
+      // only caller that ever does that, so this is the one place an
+      // effect's remaining time needs a non-mm:ss display at all.
+      if (remaining >= INDEFINITE_DURATION) {
+        label.textContent = `${def.name} ∞`;
+      } else {
+        const mm = Math.floor(remaining / 60);
+        const ss = Math.floor(remaining % 60)
+          .toString()
+          .padStart(2, '0');
+        label.textContent = `${def.name} ${mm}:${ss}`;
+      }
       chip.append(swatch, label);
       this.statusEffectsEl.appendChild(chip);
     }

@@ -217,6 +217,29 @@ export class Player {
     // temporarily show third-back while gliding — see that file's own
     // note on why this never touches cameraMode/cycleCameraMode itself.
     this.glideThirdPerson = false;
+
+    // Dev Menu Player tab (see commands/commands/devMenu.js — every one
+    // of these is set exclusively through that command family, never
+    // poked directly by a UI control, per the dev menu's own routing
+    // rule). Plain fields rather than a separate devMenu-owned state
+    // object so "toggle state persists per world" falls out for free
+    // the moment this class's own save/load path is extended to them,
+    // with nothing dev-menu-specific to keep in sync.
+    this.devNoclip = false;
+    this.devInvulnerable = false;
+    this.devInstantMine = false;
+    this.devNoFallDamage = false;
+    this.devLiquidNoClip = false;
+    this.devFrozen = false;
+    this.devAutoHeal = false;
+    this.devReach = 6; // matches interaction.js's own REACH default — see raycastVoxel's call site
+    this.devFlySpeedMult = 1;
+    this.devFlyVerticalSpeedMult = 1;
+    this.devWalkSpeedMult = 1;
+    this.devSprintSpeedMult = 1;
+    this.devJumpMult = 1;
+    this.devGravityMult = 1;
+    this._wasDevNoclip = false; // edge-detects noclip switching off, see _pushOutOfSolidBlocks
   }
 
   get selectedItem() {
@@ -272,6 +295,7 @@ export class Player {
   /** Mob-attack damage — gated the same way fall damage/drowning already are. `cause` is purely descriptive (the command system's death message — see main.js's respawnPlayer), not read by any gameplay logic. */
   takeDamage(amount, knockback, cause = 'combat') {
     if (this.gameMode !== 'survival') return;
+    if (this.devInvulnerable) return;
     const reduction = Math.min(0.8, this._totalArmorDefense() * 0.04); // each defense point ~4%, capped at 80% like vanilla's toughness ceiling
     this.health = Math.max(0, this.health - amount * (1 - reduction));
     this.lastDamageCause = cause;
@@ -310,18 +334,38 @@ export class Player {
 
     this._updateWaterState(chunkManager);
 
+    // Dev Menu noclip (phase 2): the exit edge (was on, now off) is
+    // caught here, before this frame's own movement runs, so a player
+    // who noclipped into solid geometry gets pushed to the nearest free
+    // space before ordinary collision has a chance to see (and get
+    // confused by) an already-overlapping AABB.
+    if (this._wasDevNoclip && !this.devNoclip) this._pushOutOfSolidBlocks(chunkManager);
+    this._wasDevNoclip = this.devNoclip;
+
     if (this.gameMode === 'creative' && this._handleFlyToggle(input)) {
       // toggled this frame — fall through and still move normally
     }
 
     this._updateGlideToggle(input);
 
-    if (this.flying) {
+    if (this.devFrozen) {
+      // "Freeze player" (phase 2) — look/camera/status effects/breath
+      // still run above and below this branch, only actual movement is
+      // suppressed, with velocity zeroed so gravity can't quietly build
+      // up underneath the freeze and launch the player the instant it's
+      // lifted.
+      this.velocity.x = 0;
+      this.velocity.y = 0;
+      this.velocity.z = 0;
+    } else if (this.devNoclip) {
+      this.gliding = false;
+      this._updateNoclip(dt, input, chunkManager);
+    } else if (this.flying) {
       this.gliding = false;
       this._updateFly(dt, input, chunkManager);
     } else if (this.gliding) {
       this._updateGlide(dt, input, chunkManager);
-    } else if (this.headInWater || this.inWater) {
+    } else if ((this.headInWater || this.inWater) && !this.devLiquidNoClip) {
       this._updateSwim(dt, input, chunkManager);
     } else {
       this._updateGround(dt, input, chunkManager);
@@ -329,10 +373,77 @@ export class Player {
 
     this._updateBreathAndDamage(dt);
     this._updateStatusEffects(dt, chunkManager);
+    if (this.devAutoHeal && this.health < this.maxHealth) this.health = this.maxHealth;
     this._updateCameraBob(dt);
     this._updateFov(dt);
     this._updateDamageShake(dt);
     this._syncCamera();
+  }
+
+  /**
+   * Dev Menu noclip (phase 2): identical control feel to _updateFly
+   * (same move vector, same fly/vertical speed multipliers) but skips
+   * sweepAABB entirely — position moves by velocity*dt with no collision
+   * test at all, the one place in this class that's true. Exiting
+   * noclip is handled by _pushOutOfSolidBlocks, called from update()
+   * the instant devNoclip flips back off.
+   */
+  _updateNoclip(dt, input, chunkManager) {
+    const move = this._moveVector(input, false);
+    if (input.isDown('flyUp')) move.y += 1;
+    if (input.isDown('flyDown')) move.y -= 1;
+
+    const wantSprint = this._wantsSprint(input);
+    const speed = (wantSprint ? TUNING.FLY_SPRINT_SPEED : TUNING.FLY_SPEED) * this.devFlySpeedMult;
+    const target = move.lengthSq() > 0 ? move.normalize().multiplyScalar(speed) : new THREE.Vector3();
+    this.velocity.x = target.x;
+    this.velocity.y = target.y * this.devFlyVerticalSpeedMult;
+    this.velocity.z = target.z;
+
+    this.sprinting = wantSprint;
+    this.sneaking = false;
+
+    this.position.x += this.velocity.x * dt;
+    this.position.y += this.velocity.y * dt;
+    this.position.z += this.velocity.z * dt;
+    this.onGround = false;
+    void chunkManager; // unused here on purpose — noclip has no collision to test against
+  }
+
+  /**
+   * Searches expanding cube shells around the current block position for
+   * the nearest spot the player's full AABB actually fits into, and
+   * teleports there. Only ever called on the exact frame noclip is
+   * switched back off (see update()) — while it's on, being inside solid
+   * geometry is the entire point of the toggle, so this must never run
+   * while devNoclip is still true.
+   */
+  _pushOutOfSolidBlocks(chunkManager) {
+    const size = this.size;
+    if (aabbFits(chunkManager, this.position, size)) return;
+    const baseX = Math.floor(this.position.x);
+    const baseY = Math.floor(this.position.y);
+    const baseZ = Math.floor(this.position.z);
+    for (let radius = 0; radius <= 8; radius++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          for (let dz = -radius; dz <= radius; dz++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) !== radius) continue; // shell only — smaller radii already tried
+            const candidate = { x: baseX + dx + 0.5, y: baseY + dy, z: baseZ + dz + 0.5 };
+            if (aabbFits(chunkManager, candidate, size)) {
+              this.position = candidate;
+              this.velocity.x = 0;
+              this.velocity.y = 0;
+              this.velocity.z = 0;
+              return;
+            }
+          }
+        }
+      }
+    }
+    // No free space within 8 blocks in any direction — vanishingly
+    // unlikely (would need a solid mass wider than the noclip flight
+    // that got here), so left in place rather than guessing further.
   }
 
   /** Timed potion effects (statusEffects.js) plus the two gameplay ticks that ride on them: lava/fire contact damage (blocked by Fire Resistance) and Regeneration healing. */
@@ -498,7 +609,7 @@ export class Player {
 
     if (this.glideSpeed < GLIDE_MIN_SPEED) {
       this.gliding = false;
-      this.velocity.y -= this.dimension.gravity * dt;
+      this.velocity.y -= this.dimension.gravity * this.devGravityMult * dt;
       this._sweep(dt, chunkManager);
       return;
     }
@@ -517,7 +628,7 @@ export class Player {
     if (result.collideX || result.collideZ) {
       if (this.glideSpeed > GLIDE_WALL_DAMAGE_MIN_SPEED) {
         this.justGlideWallHit = true;
-        if (this.gameMode === 'survival') {
+        if (this.gameMode === 'survival' && !this.devInvulnerable) {
           const dmg = Math.round((this.glideSpeed - GLIDE_WALL_DAMAGE_MIN_SPEED) * GLIDE_WALL_DAMAGE_SCALE);
           if (dmg > 0) {
             this.health = Math.max(0, this.health - dmg);
@@ -658,10 +769,15 @@ export class Player {
     if (input.isDown('flyDown')) move.y -= 1; // Shift held: descend
 
     const wantSprint = this._wantsSprint(input);
-    const speed = wantSprint ? TUNING.FLY_SPRINT_SPEED : TUNING.FLY_SPEED;
+    // devFlySpeedMult scales the whole normalized vector (so it's a
+    // straightforward "fly speed" slider); devFlyVerticalSpeedMult is
+    // applied afterward to the y component only, so a slider left at its
+    // default 1 reproduces the exact pre-dev-menu behavior byte for byte
+    // instead of restructuring how horizontal/vertical share one budget.
+    const speed = (wantSprint ? TUNING.FLY_SPRINT_SPEED : TUNING.FLY_SPEED) * this.devFlySpeedMult;
     const target = move.lengthSq() > 0 ? move.normalize().multiplyScalar(speed) : new THREE.Vector3();
     this.velocity.x = target.x;
-    this.velocity.y = target.y;
+    this.velocity.y = target.y * this.devFlyVerticalSpeedMult;
     this.velocity.z = target.z;
 
     this.sprinting = wantSprint;
@@ -681,7 +797,11 @@ export class Player {
     this.sprinting = this._wantsSprint(input) && !this.sneaking;
 
     const move = this._moveVector(input, false);
-    let speed = this.sneaking ? TUNING.SNEAK_SPEED : this.sprinting ? TUNING.SPRINT_SPEED : TUNING.WALK_SPEED;
+    let speed = this.sneaking
+      ? TUNING.SNEAK_SPEED
+      : this.sprinting
+        ? TUNING.SPRINT_SPEED * this.devSprintSpeedMult
+        : TUNING.WALK_SPEED * this.devWalkSpeedMult;
     if (this.effects.has('speed')) speed *= SPEED_EFFECT_MULTIPLIER;
     const desired = move.multiplyScalar(speed);
 
@@ -710,7 +830,7 @@ export class Player {
       }
     }
 
-    this.velocity.y -= dim.gravity * dt;
+    this.velocity.y -= dim.gravity * this.devGravityMult * dt;
     if (this.effects.has('slow_falling') && this.velocity.y < -SLOW_FALLING_MAX_SPEED) {
       this.velocity.y = -SLOW_FALLING_MAX_SPEED;
     }
@@ -725,7 +845,10 @@ export class Player {
     if (this._jumpBufferTimer > 0 && this._coyoteTimer > 0) {
       this._jumpBufferTimer = 0;
       this._coyoteTimer = 0; // consumed — don't let the same grace window fire a second jump
-      this.velocity.y = TUNING.JUMP_SPEED;
+      // Jump height scales with the square of launch speed (apex =
+      // v^2/2g), so devJumpMult (a height multiplier, per the spec) is
+      // applied as its square root here rather than directly.
+      this.velocity.y = TUNING.JUMP_SPEED * Math.sqrt(this.devJumpMult);
       if (this.sprinting) {
         // Sprint-jump lunge — see SPRINT_JUMP_BOOST_SPEED's comment.
         // Scales the current horizontal velocity up to the boost speed
@@ -764,7 +887,7 @@ export class Player {
     const clearOneUp =
       aabbFits(chunkManager, { x: this.position.x, y: this.position.y + TUNING.STEP_HEIGHT, z: this.position.z }, size) &&
       aabbFits(chunkManager, { x: destX, y: this.position.y + TUNING.STEP_HEIGHT, z: destZ }, size);
-    if (blockedAtFoot && clearOneUp) this.velocity.y = TUNING.JUMP_SPEED;
+    if (blockedAtFoot && clearOneUp) this.velocity.y = TUNING.JUMP_SPEED * Math.sqrt(this.devJumpMult);
   }
 
   _updateSwim(dt, input, chunkManager) {
@@ -822,7 +945,14 @@ export class Player {
 
     if (!wasOnGround && this._fallStartY === null && this.velocity.y < 0) this._fallStartY = this.position.y;
     if (this.onGround) {
-      if (this.gameMode === 'survival' && this._fallStartY !== null && !this.inWater && !this.effects.has('slow_falling')) {
+      if (
+        this.gameMode === 'survival' &&
+        this._fallStartY !== null &&
+        !this.inWater &&
+        !this.effects.has('slow_falling') &&
+        !this.devNoFallDamage &&
+        !this.devInvulnerable
+      ) {
         const fallDistance = this._fallStartY - this.position.y;
         if (fallDistance > 3) {
           this.health = Math.max(0, this.health - Math.floor(fallDistance - 3));
@@ -849,10 +979,12 @@ export class Player {
         this._sinceDrownTick += dt;
         if (this._sinceDrownTick >= 1) {
           this._sinceDrownTick = 0;
-          this.health = Math.max(0, this.health - 2);
-          this.lastDamageCause = 'drowning';
-          this._triggerDamageShake();
-          this.justHurt = true; // same reasoning as the fall-damage branch above — drowning bypasses takeDamage() too
+          if (!this.devInvulnerable) {
+            this.health = Math.max(0, this.health - 2);
+            this.lastDamageCause = 'drowning';
+            this._triggerDamageShake();
+            this.justHurt = true; // same reasoning as the fall-damage branch above — drowning bypasses takeDamage() too
+          }
         }
       }
     } else {

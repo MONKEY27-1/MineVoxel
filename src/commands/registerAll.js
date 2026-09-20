@@ -11,8 +11,9 @@ import * as scripting from './commands/scripting.js';
 import * as debugCommands from './commands/debug.js';
 import * as chat from './commands/chat.js';
 import * as help from './commands/help.js';
+import * as devMenu from './commands/devMenu.js';
 
-const COMMAND_MODULES = [worldBlocks, playerEntities, worldState, effectsFeedback, scripting, debugCommands, chat, help];
+const COMMAND_MODULES = [worldBlocks, playerEntities, worldState, effectsFeedback, scripting, debugCommands, chat, help, devMenu];
 
 // Phase 6: a world created with "Allow Commands" off only lets these
 // three through — everything else is hidden from /help and tab

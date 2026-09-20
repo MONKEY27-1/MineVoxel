@@ -112,7 +112,12 @@ export class InteractionController {
     this.justBroke = null;
     this.justPlaced = null;
     this.wantsOpenContainer = null;
-    this.target = raycastVoxel(chunkManager, player.eyePosition, player.lookDirection, REACH);
+    // devReach (Dev Menu Player tab, "Infinite reach") defaults to this
+    // module's own REACH constant — see player.js's constructor — so
+    // ordinary play is completely unaffected until the slider is touched.
+    // Both breaking and placing key off this same raycast target, so one
+    // slider covers both per the spec's own wording.
+    this.target = raycastVoxel(chunkManager, player.eyePosition, player.lookDirection, player.devReach);
     this._placeCooldown = Math.max(0, this._placeCooldown - dt);
 
     for (let i = 0; i < 9; i++) {
@@ -151,7 +156,7 @@ export class InteractionController {
     const def = getBlock(this.target.blockId);
     if (def.hardness === Infinity) return; // unbreakable (bedrock)
 
-    if (player.gameMode === 'creative') {
+    if (player.gameMode === 'creative' || player.devInstantMine) {
       this.breakProgress = 1;
     } else {
       const multiplier = toolSpeedMultiplier(player.selectedItem, def);

@@ -1185,6 +1185,201 @@ function main() {
     if (devMenu.isOpen && !input.pointerLocked) input.requestLock();
   });
 
+  // --- Dev Menu — Player tab (phase 2) --------------------------------
+  // Every `set`/`run` below routes through runDevCommand — a real
+  // dispatcher command, per the dev menu's own architectural rule — while
+  // every `get` reads the resulting field straight off `player`, since a
+  // read is not a mutation and has nothing to route through. Two spec'd
+  // controls are deliberately not here (see DEVMENU.md's honesty-calls
+  // section): "No hunger"/"Feed to full"/hunger&saturation sliders/
+  // "Extinguish" (this game has no hunger/saturation system and no
+  // persistent on-fire status separate from the lava/fire contact-damage
+  // tick) and "apply status effect with amplifier" (no amplifier system
+  // exists — EFFECT_TYPES has no levels, just a duration).
+  const DEV_PLAYER_BOOL_TOGGLES = [
+    { name: 'noclip', field: 'devNoclip', label: 'Noclip', cheatLabel: 'Noclip', keywords: 'clip walls collision' },
+    { name: 'invulnerable', field: 'devInvulnerable', label: 'Invulnerable', cheatLabel: 'Invulnerable', keywords: 'god mode damage' },
+    { name: 'instantmine', field: 'devInstantMine', label: 'Instant mine', cheatLabel: 'Instant mine', keywords: 'break block instantly' },
+    { name: 'nofalldamage', field: 'devNoFallDamage', label: 'No fall damage', cheatLabel: 'No fall damage', keywords: 'fall damage' },
+    { name: 'liquidnoclip', field: 'devLiquidNoClip', label: 'No clip through liquids', cheatLabel: 'Liquid noclip', keywords: 'water lava swim' },
+    { name: 'freeze', field: 'devFrozen', label: 'Freeze player', cheatLabel: 'Frozen', keywords: 'stop movement' },
+    { name: 'autoheal', field: 'devAutoHeal', label: 'Auto-heal', cheatLabel: 'Auto-heal', keywords: 'regen health' },
+  ];
+  for (const { name, field, label, cheatLabel, keywords } of DEV_PLAYER_BOOL_TOGGLES) {
+    devMenu.registerControl({
+      id: `player.${name}`,
+      tab: 'player',
+      type: 'toggle',
+      label,
+      cheatLabel,
+      keywords,
+      get: () => player[field],
+      set: (value) => runDevCommand(`dev ${name} ${value}`),
+    });
+  }
+
+  devMenu.registerControl({
+    id: 'player.nightvision',
+    tab: 'player',
+    type: 'toggle',
+    label: 'Night vision',
+    cheatLabel: 'Night vision',
+    keywords: 'see dark',
+    get: () => player.effects.has('night_vision'),
+    set: (value) => runDevCommand(`dev nightvision ${value}`),
+  });
+
+  const DEV_PLAYER_NUMBER_FIELDS = [
+    { name: 'reach', field: 'devReach', label: 'Reach', min: 5, max: 128, step: 1, keywords: 'break place distance' },
+    { name: 'flyspeed', field: 'devFlySpeedMult', label: 'Fly speed', min: 0.5, max: 20, step: 0.1, keywords: 'flying multiplier' },
+    { name: 'flyvspeed', field: 'devFlyVerticalSpeedMult', label: 'Fly vertical speed', min: 0.5, max: 20, step: 0.1, keywords: 'flying up down multiplier' },
+    { name: 'walkspeed', field: 'devWalkSpeedMult', label: 'Walk speed', min: 0.1, max: 20, step: 0.1, keywords: 'movement multiplier' },
+    { name: 'sprintspeed', field: 'devSprintSpeedMult', label: 'Sprint speed', min: 0.1, max: 20, step: 0.1, keywords: 'movement multiplier' },
+    { name: 'jumpheight', field: 'devJumpMult', label: 'Jump height', min: 0.1, max: 10, step: 0.1, keywords: 'jump multiplier' },
+    { name: 'gravity', field: 'devGravityMult', label: 'Gravity', min: 0, max: 10, step: 0.1, keywords: 'gravity multiplier' },
+  ];
+  for (const { name, field, label, min, max, step, keywords } of DEV_PLAYER_NUMBER_FIELDS) {
+    devMenu.registerControl({
+      id: `player.${name}`,
+      tab: 'player',
+      type: 'slider',
+      label,
+      min,
+      max,
+      step,
+      keywords,
+      format: (v) => v.toFixed(step < 1 ? 1 : 0),
+      get: () => player[field],
+      set: (value) => runDevCommand(`dev ${name} ${value}`),
+    });
+  }
+
+  devMenu.registerControl({
+    id: 'player.gamemode',
+    tab: 'player',
+    type: 'select',
+    label: 'Game mode',
+    keywords: 'creative survival',
+    options: [
+      { value: 'survival', label: 'Survival' },
+      { value: 'creative', label: 'Creative' },
+    ],
+    get: () => player.gameMode,
+    set: (value) => runDevCommand(`gamemode ${value}`),
+  });
+
+  devMenu.registerControl({
+    id: 'player.health',
+    tab: 'player',
+    type: 'slider',
+    label: 'Health',
+    min: 0,
+    max: player.maxHealth,
+    step: 1,
+    keywords: 'hp',
+    get: () => player.health,
+    set: (value) => runDevCommand(`health set @s ${value}`),
+  });
+  devMenu.registerControl({
+    id: 'player.air',
+    tab: 'player',
+    type: 'slider',
+    label: 'Air',
+    min: 0,
+    max: player.maxBreath,
+    step: 1,
+    keywords: 'breath oxygen drowning',
+    get: () => player.breath,
+    set: (value) => runDevCommand(`air set @s ${value}`),
+  });
+  // "XP level" per the spec's own wording — this game only ever had a
+  // flat XP counter (see player.js's own note on player.xp: "a counter
+  // with nothing to spend it on yet — no levels/enchanting"), so there is
+  // no separate level-vs-points distinction to expose; this slider is the
+  // raw counter under the label the spec used.
+  devMenu.registerControl({
+    id: 'player.xp',
+    tab: 'player',
+    type: 'slider',
+    label: 'XP level',
+    min: 0,
+    max: 100,
+    step: 1,
+    keywords: 'experience points',
+    get: () => player.xp,
+    set: (value) => runDevCommand(`xp set @s ${value}`),
+  });
+
+  devMenu.registerControl({
+    id: 'player.action.healFull',
+    tab: 'player',
+    type: 'button',
+    label: 'Heal to full',
+    buttonText: 'Heal to full',
+    keywords: 'health max',
+    run: () => runDevCommand(`heal @s`),
+  });
+  devMenu.registerControl({
+    id: 'player.action.clearEffects',
+    tab: 'player',
+    type: 'button',
+    label: 'Clear status effects',
+    buttonText: 'Clear effects',
+    keywords: 'potion remove',
+    run: () => runDevCommand(`effect clear @s`),
+  });
+  devMenu.registerControl({
+    id: 'player.action.killSelf',
+    tab: 'player',
+    type: 'button',
+    label: 'Kill self',
+    buttonText: 'Kill self',
+    keywords: 'suicide die respawn',
+    run: () => runDevCommand(`kill @s --confirm`),
+  });
+
+  // Apply-status-effect: three linked controls (type/duration/apply)
+  // rather than one combined picker row — this codebase has no dialog
+  // abstraction (see the settings/inventory panels' own convention of
+  // plain in-panel controls), and the descriptor framework renders one
+  // row per control, so a multi-field picker is naturally three rows.
+  let devEffectPickerType = Object.keys(EFFECT_TYPES)[0];
+  let devEffectPickerDuration = 30;
+  devMenu.registerControl({
+    id: 'player.effectPickerType',
+    tab: 'player',
+    type: 'select',
+    label: 'Effect to apply',
+    presetable: false,
+    keywords: 'potion status effect type',
+    options: Object.entries(EFFECT_TYPES).map(([id, def]) => ({ value: id, label: def.name })),
+    get: () => devEffectPickerType,
+    set: (value) => {
+      devEffectPickerType = value;
+    },
+  });
+  devMenu.registerControl({
+    id: 'player.effectPickerDuration',
+    tab: 'player',
+    type: 'number',
+    label: 'Duration (seconds)',
+    presetable: false,
+    keywords: 'potion status effect seconds',
+    get: () => devEffectPickerDuration,
+    set: (value) => {
+      devEffectPickerDuration = Math.max(1, Math.min(3600, Math.round(value)));
+    },
+  });
+  devMenu.registerControl({
+    id: 'player.action.applyEffect',
+    tab: 'player',
+    type: 'button',
+    label: 'Apply effect',
+    buttonText: 'Apply effect',
+    keywords: 'potion status give',
+    run: () => runDevCommand(`effect give @s ${devEffectPickerType} ${devEffectPickerDuration}`),
+  });
+
   /** /schedule's fire callback — a scheduled command runs with a fresh root context (nothing chained it from /execute, so there's no derived context to reuse) and any failure is reported the same way a typed command's own failure is, rather than throwing out of the tick loop. */
   function runScheduledCommand(cmd) {
     const context = makeRootContext(cmdWorld, dispatcher);

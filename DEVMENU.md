@@ -10,7 +10,7 @@ and commit before moving on. Pushing to `origin/main` after every commit.
 ## Status
 
 - [x] Phase 1 — The panel (framework only — no real tabs' controls yet)
-- [ ] Phase 2 — Player tab
+- [x] Phase 2 — Player tab
 - [ ] Phase 3 — Items tab
 - [ ] Phase 4 — Teleport tab
 - [ ] Phase 5 — World tab
@@ -135,13 +135,85 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   that the world keeps running and control returns via a deliberate
   click on it, not an automatic side effect of the panel closing.
 
+## Architecture decisions (phase 2)
+
+- **Every new mechanic (noclip, invulnerable, instant mine, no fall
+  damage, liquid noclip, freeze, auto-heal, the five multipliers, reach)
+  is a plain `devXxx` field on `Player`, mutated only by the new `/dev`
+  command family (`src/commands/commands/devMenu.js`)** — never poked
+  directly by a devMenu control's own `set()`, per the spec's own
+  routing rule. Every control's `get()` reads the field straight off
+  `player` instead, since a read isn't a mutation and has nothing to
+  route through — `_afterControlChange`'s generic logging still fires
+  either way, off the control's own `get()`/label, not off the command
+  result.
+- **Noclip is a genuinely different movement mode (`Player._updateNoclip`),
+  not "fly with collision skipped"** — it shares `_updateFly`'s exact
+  move-vector/speed-multiplier logic for feel consistency, but integrates
+  position directly (`position += velocity*dt`) with no `sweepAABB` call
+  at all, the one place in this class that's true. Turning it back off
+  runs `_pushOutOfSolidBlocks`, an expanding-cube-shell search (radius
+  0-8) for the nearest spot the player's full AABB actually fits, since
+  noclip is the only way this codebase can put the player inside solid
+  geometry on purpose.
+- **Fly's vertical speed slider needed the normalize-then-scale order
+  changed, not the move vector's shape** — `_updateFly` normalizes the
+  combined move+vertical vector and scales by one speed value today;
+  `devFlySpeedMult` scales that shared speed (so it affects both axes
+  together, matching "fly speed"), and `devFlyVerticalSpeedMult` is
+  applied afterward to the resulting `velocity.y` only. At its default
+  of 1 this reproduces the pre-dev-menu fly feel exactly, byte for byte,
+  rather than restructuring how horizontal/vertical share one budget.
+- **Jump height is a real gameplay quantity (apex = v²/2g), so
+  `devJumpMult` is applied as its square root to `TUNING.JUMP_SPEED`**,
+  not directly — a mult of 4 means 4x the jump *height*, not 4x the
+  launch speed (which would be 16x the height). Verified in
+  `tools/test-devmenu-player.js` by comparing measured apex height
+  ratios, not by asserting an exact literal height (keeps the test
+  decoupled from `TUNING`'s own tuned numbers).
+- **Invulnerable has to guard four different places, not one** — this
+  class already had `takeDamage()` as the one gate for mob-attack damage,
+  but fall damage, drowning, and glide wall-impact damage were all
+  pre-existing bypasses of it (each applies `health -=` directly, per
+  their own long-standing comments). `devInvulnerable` is checked at
+  each of those call sites individually; fire/regen/decay damage already
+  route through `takeDamage()` so they needed no separate guard.
+- **"No clip through liquids" reads as "skip the swim state entirely,"
+  not "immune to drowning"** — the movement dispatch's swim branch now
+  requires `!player.devLiquidNoClip`, so a liquid-noclipping player falls
+  through to ordinary ground/fly movement instead of swimming, but
+  breath/drowning are untouched (they key off `headInWater`, which is
+  still computed normally). A narrow, deliberate scope: the toggle is
+  about movement mode, not amphibiousness.
+- **"Apply status effect" is three linked controls (type/duration/apply),
+  not one combined picker row** — the descriptor framework renders one
+  row per control and this codebase has no dialog abstraction (matches
+  the settings/inventory panels' own plain-controls convention), so a
+  multi-field picker naturally becomes three adjacent rows sharing two
+  small closure variables in main.js, the same pattern a "form" would
+  use if this app had one.
+
 ## Notable honesty calls
 
-- Phase 1 ships with zero real toggles in any of the five tabs — every
-  behavior the spec's own "definition of done" describes for Phase 1
-  specifically (drag/resize/collapse/layout-persistence/active-cheat-
-  strip/quick-binds/presets/search/keyboard-nav/message-log) is real and
-  tested, but only against synthetic test controls registered through
-  the debug hook, since Phase 1 has no gameplay mutations of its own
-  yet to hang real controls off of. Phase 2 is what actually makes the
-  Player tab do something.
+- Phase 1 shipped with zero real toggles in any of the five tabs — see
+  the phase 1 architecture notes above; Phase 2 is what actually makes
+  the Player tab do something.
+- **No hunger/saturation system exists in this codebase**, so "No
+  hunger," "Feed to full," and the hunger/saturation sliders the spec
+  asks for are not implemented — there is no underlying field for them
+  to control. Skipped rather than inventing a new game system to satisfy
+  one dev-tool control.
+- **No status-effect amplifier system exists** (`statusEffects.js`'s
+  `EFFECT_TYPES` has a duration only, no levels) — "apply status effect
+  with amplifier and duration" is implemented as duration only.
+- **No persistent "on fire" status separate from the lava/fire
+  contact-damage tick exists** — there's nothing for an "Extinguish"
+  action to clear, so it isn't implemented. Fire Resistance (an existing
+  status effect) already covers "make fire harmless" if a tester needs
+  that instead.
+- **"XP level" is the same flat XP counter `player.xp` already was**
+  (see that field's own long-standing comment: "a counter with nothing
+  to spend it on yet — no levels/enchanting") — there is no separate
+  level-vs-points concept in this game to expose two different sliders
+  for, so the one slider is labeled with the spec's wording but backs
+  the one real field.
