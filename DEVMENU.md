@@ -14,7 +14,7 @@ and commit before moving on. Pushing to `origin/main` after every commit.
 - [x] Phase 3 — Items tab
 - [x] Phase 4 — Teleport tab
 - [x] Phase 5 — World tab
-- [ ] Phase 6 — Debug tab
+- [x] Phase 6 — Debug tab
 - [ ] Phase 7 — Integration
 
 ## Architecture decisions (phase 1)
@@ -405,6 +405,67 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   the panel now shows the current value instead of a stale one either
   way.
 
+## Architecture decisions (phase 6)
+
+- **A new, dedicated `src/ui/debugRenderer.js` module owns every 3D
+  overlay** — `mesh/blockHighlight.js`'s own established pattern
+  (pre-allocate scene objects once, flip `.visible`/reposition them
+  cheaply per frame, early-return to near-zero cost when there's
+  nothing to show) is the template every overlay here follows, via a
+  small `Pool` helper that grows a set of same-shaped Object3Ds on
+  demand and never shrinks. Nothing is created or destroyed per frame;
+  toggling a feature off just stops repositioning/showing its already-
+  allocated objects.
+- **No new `/dev` commands for this tab at all** — every toggle here is
+  a plain property on `debugRenderer` (or, for wireframe, on the active
+  chunkManager's own shared materials), not routed through the
+  dispatcher. The dev menu's "route through the shared layer" rule
+  exists so the menu is never a *second way to write world state*; none
+  of these toggles write any game/world state, they're read-only
+  visualization of state the game already computes. The framework's own
+  generic `_afterControlChange` logging still fires for every toggle
+  regardless (that's driven by the control's descriptor type, not by
+  whether `set()` happened to call `runDevCommand`), so "every action
+  logs" still holds.
+- **`debugRenderer.update()` runs every frame unconditionally, not
+  gated on "is anything even enabled"** — a real bug caught while
+  testing this phase: an earlier version skipped the whole call when
+  `anyEnabled` was false, which seems like the obvious "costs nothing
+  when off" move, but it meant switching off the *last* active overlay
+  never got one more frame to actually hide what it had drawn — the
+  geometry (or, for Normals, the swapped-out terrain material) would
+  stay stuck on screen forever. Every individual `_update*()` method's
+  own early return is what actually keeps this cheap (a handful of
+  boolean checks and cheap `.visible = false` writes on already-hidden
+  pooled objects), not skipping the call entirely.
+- **Normals mode needed its own synchronous toggle path, not the
+  per-frame update loop** — turning it on/off swaps every currently-
+  loaded section mesh's `.material` reference (`chunkManager`'s three
+  shared atlas materials are what every section mesh actually points
+  at, confirmed by reading `chunkManager.js` — flipping `.wireframe` on
+  those same shared instances is a one-line, always-correct toggle for
+  wireframe, but a material *swap* has to happen exactly once per
+  edge, not be discovered lazily next tick). `debugRenderer.setNormals()`
+  does the sweep immediately when called; the per-frame path only
+  handles the "already on, periodically re-sweep so newly streamed-in
+  sections (always meshed with the real atlas material) get caught
+  too" case.
+- **Culling visualization needed one small, additive `chunkManager.js`
+  change** — `updateVisibility()` already computes the exact three
+  outcomes this overlay wants (occluded by the BFS, reached-by-BFS-but-
+  frustum-rejected, or actually visible) but discarded the distinction
+  the instant it finished, only keeping the final `.visible` boolean on
+  each mesh. A one-line addition (`entry.cullState = ...`) on the same
+  per-section mesh-entry object every other per-section bookkeeping
+  already lives on keeps that real, already-computed distinction around
+  for the overlay to read afterward, instead of needing to duplicate
+  the whole BFS/frustum test a second time.
+- **The worldgen inspector reuses the exact same standalone-callable
+  `climateGenerator.heightAndBiome()`/`sampleClimate()` `/locate biome`
+  and the F3 overlay's own biome readout already call** — real noise/
+  climate data, not an approximation, confirmed callable for any (x,z)
+  independent of whether that column has ever been generated.
+
 ## Notable honesty calls
 
 - Phase 1 shipped with zero real toggles in any of the five tabs — see
@@ -515,3 +576,35 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   the menu ever shows) to a part of the game far from the dev menu
   itself — an extra click to pick the world again from the menu is a
   smaller, safer cost than that.
+- **"Block hitbox" mostly shows what you'd expect (a full cube around
+  whatever's targeted), because that's genuinely what collision looks
+  like here** — this engine only ever collides a block as either "no
+  collision" or "a full 1x1x1 cube" (confirmed by reading every
+  collision routine in `physics.js` — no partial-height slab/stair
+  shape data exists anywhere). The one real, code-acknowledged exception
+  is `IRON_BARS`: it renders as a thin cross-plane but is still
+  `solid: true`, so this overlay will visibly disagree with the block's
+  own rendered shape there specifically — not a bug, the actual point of
+  the overlay.
+- **"Mob steering lines" are exactly that, not pathfinding** — this
+  codebase has no real pathfinding anywhere (confirmed by the engine's
+  own comment in `mob.js`: *"mob movement is still 'walk straight at
+  the target,' no route-finding around obstacles"*). The line drawn per
+  mob is its real, live `_moveDir` — the actual steering vector driving
+  its velocity this tick — not a planned route, and the toggle is
+  labeled "steering lines," not "pathfinding," so it doesn't claim to be
+  something it isn't.
+- **"Structure markers" are real anchor points, not bounding boxes** —
+  no structure placement code anywhere in this codebase retains a
+  footprint/extent record (confirmed: `spawnerRegistry.js`/
+  `containerRegistry.js`, the only structure-adjacent registries that
+  exist, store single `{x,y,z}` points, the same data `/locate structure`
+  itself searches). The markers show those real points; there is no
+  fabricated box pretending to be a footprint this engine never
+  recorded.
+- **The worldgen inspector only supports the Overworld** — Cinderdeep
+  uses a different climate sampler and Hollow Reach has no biome sampler
+  at all (deliberately: "the whole dimension is one uniform biome," per
+  that dimension's own long-standing design). The panel says so plainly
+  when you're in either of the other two rather than guessing at
+  internals it was never built to read.

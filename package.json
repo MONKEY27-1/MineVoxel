@@ -50,7 +50,8 @@
     "test:devmenu-player": "node tools/run-with-server.js tools/test-devmenu-player.js",
     "test:devmenu-items": "node tools/run-with-server.js tools/test-devmenu-items.js",
     "test:devmenu-teleport": "node tools/run-with-server.js tools/test-devmenu-teleport.js",
-    "test:devmenu-world": "node tools/run-with-server.js tools/test-devmenu-world.js"
+    "test:devmenu-world": "node tools/run-with-server.js tools/test-devmenu-world.js",
+    "test:devmenu-debug": "node tools/run-with-server.js tools/test-devmenu-debug.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

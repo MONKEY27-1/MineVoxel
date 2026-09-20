@@ -45,6 +45,7 @@ import { MOB_TYPES } from './entities/mobTypes.js';
 import { ProjectileManager } from './entities/projectile.js';
 import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
+import { DebugRenderer } from './ui/debugRenderer.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
 import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName, itemIconTile, getMaxStack, isBlockItem, GIVEABLE_ITEM_LIST, itemCategory } from './items/items.js';
@@ -421,6 +422,7 @@ function main() {
   const fluids = new FluidSimulator();
   const xpOrbs = new XPOrbManager(renderer.scene);
   const highlight = new BlockHighlight(renderer.scene);
+  const debugRenderer = new DebugRenderer(renderer.scene);
   const dayNight = new DayNightCycle({ cycleDuration: 300 });
   const debugOverlay = new DebugOverlay(debugEl);
   const hud = new Hud(atlasUV);
@@ -2393,6 +2395,147 @@ function main() {
     });
   }
 
+  // --- Dev Menu — Debug tab (phase 6) ---------------------------------
+  buildDebugTab();
+
+  /**
+   * Every toggle here is a plain read/write on `debugRenderer` (or, for
+   * wireframe, directly on the active chunkManager's shared materials)
+   * — not routed through a /dev command. Unlike every earlier tab,
+   * nothing here mutates game/world state; it's pure, read-only
+   * visualization of state the game already computes (or, for
+   * pathfinding/structures, an honestly-labeled substitute for data
+   * this engine doesn't actually have — see DEVMENU.md). The dev menu's
+   * "route through the shared layer" rule is about not opening a second
+   * way to *write* world state; there's nothing being written here, so
+   * there's nothing for a command to wrap. The framework's own generic
+   * `_afterControlChange` logging still fires for every toggle exactly
+   * like it would for a command-backed one, since that's driven by the
+   * descriptor type, not by whether set() happened to call
+   * runDevCommand.
+   */
+  function buildDebugTab() {
+    const boolToggles = [
+      { id: 'entityHitboxes', label: 'Entity hitboxes', field: 'showEntityHitboxes', keywords: 'aabb bounding box' },
+      { id: 'eyeLookVector', label: 'Eye/look vector', field: 'showEyeLookVector', keywords: 'look direction ray' },
+      { id: 'blockHitbox', label: 'Block hitbox (collision shape)', field: 'showBlockHitbox', keywords: 'collision aabb targeted block' },
+      { id: 'chunkBorders', label: 'Chunk borders', field: 'showChunkBorders', keywords: 'column boundary' },
+      { id: 'sectionBorders', label: 'Section borders', field: 'showSectionBorders', keywords: '16 cube boundary' },
+      { id: 'lightLevels', label: 'Light-level overlay', field: 'showLightLevels', keywords: 'brightness sky block' },
+      { id: 'spawnEligibility', label: 'Spawn eligibility', field: 'showSpawnEligibility', keywords: 'natural spawn dark floor' },
+      { id: 'pathfinding', label: 'Mob steering lines', field: 'showPathfinding', keywords: 'pathfinding ai movedir' },
+      { id: 'structureBoxes', label: 'Structure markers', field: 'showStructureBoxes', keywords: 'bounding box anchor point' },
+      { id: 'culling', label: 'Culling visualization', field: 'showCulling', keywords: 'occlusion frustum section' },
+      { id: 'entityLabels', label: 'Entity info labels', field: 'showEntityLabels', keywords: 'name health ai state' },
+      { id: 'normals', label: 'Normals view', field: 'showNormals', keywords: 'shading debug material' },
+    ];
+    for (const { id, label, field, keywords } of boolToggles) {
+      devMenu.registerControl({
+        id: `debug.${id}`,
+        tab: 'debug',
+        type: 'toggle',
+        label,
+        keywords,
+        cheatLabel: label,
+        get: () => debugRenderer[field],
+        // Normals mode swaps every loaded section's material reference,
+        // which has to happen the instant the toggle flips — leaving it
+        // to the next update() tick would strand every material on the
+        // normals debug material forever if normals was the very last
+        // debug overlay switched off (update() is skipped entirely once
+        // nothing is enabled — see the tick loop's own anyEnabled gate).
+        set: field === 'showNormals' ? (value) => debugRenderer.setNormals(chunkManager, value) : (value) => {
+          debugRenderer[field] = value;
+        },
+      });
+    }
+
+    devMenu.registerControl({
+      id: 'debug.lightLevelMode',
+      tab: 'debug',
+      type: 'select',
+      label: 'Light overlay mode',
+      keywords: 'sky block combined',
+      options: [
+        { value: 'combined', label: 'Combined (effective)' },
+        { value: 'sky', label: 'Sky only' },
+        { value: 'block', label: 'Block only' },
+      ],
+      get: () => debugRenderer.lightLevelMode,
+      set: (value) => {
+        debugRenderer.lightLevelMode = value;
+      },
+    });
+
+    devMenu.registerControl({
+      id: 'debug.wireframe',
+      tab: 'debug',
+      type: 'toggle',
+      label: 'Wireframe terrain',
+      cheatLabel: 'Wireframe',
+      keywords: 'mesh edges material',
+      get: () => chunkManager.materials.opaque.wireframe,
+      set: (value) => {
+        for (const category of ['opaque', 'transparent', 'cross']) chunkManager.materials[category].wireframe = value;
+      },
+    });
+
+    // Worldgen inspector: real, live noise/biome data for whatever
+    // block the crosshair is currently aimed at (falling back to the
+    // player's own feet when nothing's targeted) — climateGenerator's
+    // heightAndBiome()/sampleClimate() are the exact same standalone-
+    // callable functions /locate biome and the F3 overlay's own biome
+    // readout already use, not a fabricated approximation. Only
+    // meaningful in the overworld — Cinderdeep/Hollow Reach use a
+    // different climate sampler or (Hollow Reach) no biome sampler at
+    // all, so this is scoped to the overworld and says so plainly
+    // rather than guessing at the other two dimensions' own internals.
+    devMenu.registerControl({
+      id: 'debug.worldgenInspector',
+      tab: 'debug',
+      type: 'custom',
+      label: 'Worldgen inspector',
+      presetable: false,
+      keywords: 'noise biome climate height continentalness erosion temperature humidity weirdness',
+      build: (container) => {
+        const readout = document.createElement('pre');
+        readout.className = 'devmenu-debug-worldgen-readout';
+        container.appendChild(readout);
+        const REFRESH_MS = 200;
+        function refresh() {
+          if (activeDimension !== overworld) {
+            readout.textContent = `Only supported in the Overworld right now (currently in ${activeDimension.name ?? activeDimension.id}).`;
+            return;
+          }
+          const target = interaction.target;
+          const x = target ? target.blockPos[0] : Math.floor(player.position.x);
+          const z = target ? target.blockPos[2] : Math.floor(player.position.z);
+          const climate = climateGenerator.sampleClimate(x, z);
+          const hb = climateGenerator.heightAndBiome(x, z);
+          readout.textContent = [
+            `Position: (${x}, ${z})${target ? ' [targeted block]' : ' [feet]'}`,
+            `Height: ${hb.height}${hb.isOcean ? ' (ocean)' : ''}`,
+            `Biome: ${hb.dominant.id}`,
+            `Continentalness: ${climate.c.toFixed(3)}`,
+            `Erosion: ${climate.e.toFixed(3)}`,
+            `Temperature: ${climate.t.toFixed(3)}`,
+            `Humidity: ${climate.h.toFixed(3)}`,
+            `Weirdness: ${climate.w.toFixed(3)}`,
+          ].join('\n');
+        }
+        refresh();
+        // No dispose hook exists on 'custom' controls today (nothing
+        // else has needed one) — this interval is cheap (a handful of
+        // noise samples, 5x/sec, only while the panel is open) and
+        // lives for the rest of the page session either way, same as
+        // every other devMenu.registerControl() call in this file.
+        setInterval(() => {
+          if (devMenu.isOpen) refresh();
+        }, REFRESH_MS);
+      },
+    });
+  }
+
   /** /schedule's fire callback — a scheduled command runs with a fresh root context (nothing chained it from /execute, so there's no derived context to reuse) and any failure is reported the same way a typed command's own failure is, rather than throwing out of the tick loop. */
   function runScheduledCommand(cmd) {
     const context = makeRootContext(cmdWorld, dispatcher);
@@ -3826,6 +3969,17 @@ function main() {
 
     chunkManager.update(player.position);
     chunkManager.updateVisibility(player.camera);
+    // After updateVisibility (culling visualization reads the
+    // cullState it just computed) and before render() (so any debug
+    // geometry toggled on is part of this same frame's draw call).
+    // Always called, not gated on debugRenderer.anyEnabled — every
+    // individual update*() method inside already early-returns the
+    // instant its own toggle is off, which is what actually needs to
+    // run at least once *after* the last active overlay is switched off
+    // to hide what it drew (skipping this call entirely once nothing is
+    // enabled would strand that overlay's geometry on screen forever,
+    // since nothing else would ever set it invisible again).
+    debugRenderer.update(dt, { player, mobManager, chunkManager, interaction, dayNight, camera: player.camera, allSpawners, allPendingLootChests });
     renderer.render(player.camera);
     // Three.js's info.render is overwritten by the *next* render() call —
     // grab the world pass's numbers now, before the view-model overlay
@@ -3936,6 +4090,7 @@ function main() {
       endingSequence,
       devMenu,
       runDevCommand,
+      debugRenderer,
       closeContainerUIIfDestroyed,
       explode,
       getBlock,

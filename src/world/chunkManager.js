@@ -549,6 +549,13 @@ export class ChunkManager {
           if (entry[category]) entry[category].visible = show;
         }
         if (show) visibleSections++;
+        // Dev Menu Debug tab's "culling visualization" (phase 6) — the
+        // three real, already-computed outcomes this method's own BFS/
+        // frustum test produce, kept around for that overlay to read
+        // after the fact rather than recomputing them itself. A plain
+        // string field on the same mesh-entry object every other per-
+        // section bookkeeping here already lives on, not a new map.
+        entry.cullState = occluded ? 'occluded' : show ? 'visible' : 'frustum';
       }
     }
 

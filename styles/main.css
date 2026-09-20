@@ -2040,3 +2040,39 @@ html, body {
 .devmenu-world-gamerule-row {
   padding: 3px 6px;
 }
+
+/* Dev Menu — Debug tab (phase 6): per-entity screen-space labels — a
+   plain absolutely-positioned <div> per live mob inside #hud (already
+   `position: fixed; inset: 0`, so pixel left/top here line up with the
+   viewport directly), reprojected from world space every frame while
+   the toggle is on. Not a 3D scene object — this codebase has no
+   sprite/canvas-texture text precedent to reuse for that. */
+#debug-entity-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.debug-entity-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.devmenu-debug-worldgen-readout {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #e8e0f5;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
