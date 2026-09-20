@@ -70,7 +70,12 @@ export class EndingSequence {
     this._timer = 0;
     this._lastEscTime = 0;
     this._hintTimer = 0;
+    this.speedPercent = 100; // settings.controls.endingScrollSpeed — 100 = poem.txt's own literal timing
     this._onKeyDown = this._onKeyDown.bind(this);
+  }
+
+  setSpeed(percent) {
+    this.speedPercent = percent;
   }
 
   get active() {
@@ -120,7 +125,7 @@ export class EndingSequence {
       return;
     }
     if (item.type === 'beat') {
-      this._timer = BEAT_HOLD_MS;
+      this._timer = BEAT_HOLD_MS / (this.speedPercent / 100);
       return;
     }
     const el = document.createElement('div');
@@ -137,7 +142,7 @@ export class EndingSequence {
     while (this.linesEl.children.length > MAX_VISIBLE_LINES) {
       this.linesEl.removeChild(this.linesEl.firstChild);
     }
-    this._timer = lineHoldMs(item.text);
+    this._timer = lineHoldMs(item.text) / (this.speedPercent / 100);
   }
 
   _enterCredits() {

@@ -231,6 +231,20 @@ export default async function run(baseUrl) {
       assert(result.x === 12 && result.z === 34, `expected spawn (12, 34), got (${result.x}, ${result.z})`);
     });
 
+    await step('/hollowreach (phase 12 creative/testing shortcut) actually travels there', async () => {
+      const result = await page.evaluate(async () => {
+        const M = window.__minevoxel;
+        const before = M.activeDimension.id;
+        M.runCommand('/hollowreach');
+        for (let i = 0; i < 40 && M.activeDimension.id !== 'hollow_reach'; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return { before, after: M.activeDimension.id };
+      });
+      assert(result.before !== 'hollow_reach', 'test setup: expected to not already be in the Hollow Reach before running the command');
+      assert(result.after === 'hollow_reach', `expected /hollowreach to actually travel there, ended up in '${result.after}'`);
+    });
+
     await step('persistNow() saves command-system state, then a full reload + world reload restores it', async () => {
       await page.evaluate(() => window.__minevoxel.persistNow());
 

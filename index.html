@@ -18,6 +18,13 @@
 
   <div id="crosshair"></div>
   <div id="underwater-overlay" class="hidden"></div>
+  <!-- Hollow Reach phase 12: a proactive warning, not just VOID_Y's own
+       reactive safety net (main.js) — shown once falling well below the
+       active dimension's own floor, before the net actually catches you
+       several dozen blocks further down. -->
+  <div id="void-warning-overlay" class="hidden">
+    <div id="void-warning-text">Falling into the void&hellip;</div>
+  </div>
   <div id="fade-overlay"></div>
 
   <div id="hud">
@@ -220,6 +227,10 @@
           <input id="particle-density-slider" type="range" min="0" max="200" step="25" value="100" />
         </div>
         <div class="settings-row">
+          <label>Star density <span id="star-density-val" class="settings-val">100%</span></label>
+          <input id="star-density-slider" type="range" min="0" max="100" step="25" value="100" />
+        </div>
+        <div class="settings-row">
           <label>GUI scale <span id="gui-scale-val" class="settings-val">100%</span></label>
           <input id="gui-scale-slider" type="range" min="50" max="200" step="10" value="100" />
         </div>
@@ -287,6 +298,10 @@
           <label>Mouse sensitivity <span id="sensitivity-val" class="settings-val">1.0x</span></label>
           <input id="sensitivity-slider" type="range" min="0.2" max="3" step="0.1" value="1" />
         </div>
+        <div class="settings-row">
+          <label>Ending scroll speed <span id="ending-scroll-speed-val" class="settings-val">100%</span></label>
+          <input id="ending-scroll-speed-slider" type="range" min="50" max="300" step="25" value="100" />
+        </div>
         <div class="settings-row settings-checkbox-row">
           <label for="auto-jump-toggle">Auto-jump</label>
           <input id="auto-jump-toggle" type="checkbox" />
@@ -344,6 +359,18 @@
         <div class="settings-row settings-checkbox-row">
           <label for="captions-toggle">Sound captions (on-screen text for hits, breaks, explosions, etc.)</label>
           <input id="captions-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="boss-bar-toggle">Show boss health bar</label>
+          <input id="boss-bar-toggle" type="checkbox" checked />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="glide-third-person-toggle">Third-person camera while gliding</label>
+          <input id="glide-third-person-toggle" type="checkbox" />
+        </div>
+        <div class="settings-row settings-checkbox-row">
+          <label for="void-warning-toggle">Void warning (falling below the world)</label>
+          <input id="void-warning-toggle" type="checkbox" checked />
         </div>
         <div class="settings-row">
           <label>Keybinds</label>

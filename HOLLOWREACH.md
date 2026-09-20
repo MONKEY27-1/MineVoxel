@@ -23,7 +23,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 9 — Glidewings (the optional third-person pull-back camera while gliding is deferred to phase 12 — see below)
 - [x] Phase 10 — Rift Chest
 - [x] Phase 11 — The ending sequence
-- [ ] Phase 12 — Integration
+- [x] Phase 12 — Integration
 
 ## Architecture decisions (phases 1-2)
 
@@ -954,6 +954,67 @@ be rewritten) lives at `src/ending/poem.txt`.
   player is standing alone at overworld spawn at this point, so nothing
   meaningful can go wrong, and properly freezing movement would touch
   physics code this phase didn't otherwise need to.
+
+## Architecture decisions (phase 12)
+
+- **No `SCHEMA_VERSION` bump was needed, confirmed rather than assumed.**
+  Every phase from 1 through 11 added new save-record fields
+  (`riftwyrmState`'s own store; `blockEntities`' `vaultBoxes`/`riftChest`
+  fields) but every single one already defaults safely when missing
+  (`!!json?.field`, `json?.slots ?? [...]`) — a genuine, deliberate
+  pattern followed throughout, not an accident. `test-save-fuzz.js` now
+  has a dedicated step proving it: delete the `riftwyrmState` record
+  entirely and strip `riftChest`/`vaultBoxes` out of `blockEntities`,
+  then load the save and confirm it comes back with sane defaults and no
+  crash — the actual verification the "bump + test" task called for,
+  without inventing an unnecessary migration just to tick a box.
+- **The Hollow Reach's own starfield, called for back in phase 2's
+  `hollowReachDimension.js` comment but never actually built, was a real
+  gap this pass found and closed** — not a settings-only task. A new
+  `Dimension.showStars` config flag (not a `dimensionId` branch in
+  `sky.js`) gates it, since `hasSkylight: false` alone would also be true
+  for the Cinderdeep's own enclosed caverns, where a starfield would read
+  as a bug. `starDensity`'s "density" is real vertex-count scaling via
+  `BufferGeometry.setDrawRange` on a pre-shuffled point buffer, not just
+  an opacity fade — a lower setting actually draws fewer stars.
+- **The void warning indicator is a proactive check independent of
+  `VOID_Y`'s existing reactive safety net** — it reads relative to
+  whatever dimension is currently active (`activeDimension.minHeight`),
+  not a second hardcoded absolute Y, so it triggers at a sensible depth
+  in every dimension rather than only mattering near the Hollow Reach's
+  own void (where it's most likely to actually fire, but the check
+  itself is generic).
+- **The glide third-person camera (deferred from phase 9) never touches
+  `player.cameraMode` itself** — an `effectiveCameraMode` computed fresh
+  each frame from `player.gliding && player.glideThirdPerson && cameraMode === 'first'`,
+  exactly the design phase 9's own notes already settled on before
+  deferring the implementation. F5's own cycle, and whatever mode the
+  player resumes to once the glide ends, are both completely unaffected.
+- **The Hollow-Reach-specific settings (glide camera, ending scroll
+  speed, void warning) all live under Controls, not a new Hollow-Reach
+  settings tab** — this game's settings panel has never had a
+  per-dimension tab, and these are genuinely general controls/
+  accessibility preferences (one of them, the ending, isn't even
+  Hollow-Reach-exclusive once Replay Ending exists), not Hollow-Reach
+  configuration in the way graphics presets are graphics configuration.
+- **`/hollowreach` is a new creative/testing command, not a mirror of an
+  existing Cinderdeep shortcut** — confirmed before writing it that no
+  such shortcut exists for the Cinderdeep either (every dimension
+  transition today is gate-only); this was the specific, explicitly
+  requested gap, not a pattern this game already had twice over.
+  Fire-and-forget, matching `PORTAL_TRAVEL`'s own
+  `go: () => travelToHollowReach()` — the command dispatcher has no
+  existing precedent for awaiting an async command executor.
+- **Creative-tab placement needed no work at all, once actually
+  checked.** `ui/inventoryUI.js`'s `CREATIVE_ITEM_LIST` is built by
+  mapping the *entire* `BLOCK_LIST`/`NON_BLOCK_ITEM_LIST` registries
+  (minus a two-entry `NON_GIVEABLE_BLOCKS` exclusion set for air/water),
+  not a hand-curated list — every block/item defined via `define()`/
+  `defineNonBlock()` across all 11 prior phases was already
+  automatically available in creative mode the moment it was added. This
+  earlier session's own notes calling it out as pending Phase 12 work
+  were simply wrong about the architecture; verified directly against
+  the actual code before treating it as done.
 
 ## Notable honesty calls
 

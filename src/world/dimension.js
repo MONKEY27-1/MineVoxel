@@ -43,6 +43,12 @@ export class Dimension {
     // GRASS_BLOCK. A config value instead of a dimensionId check in
     // mobManager.js.
     passiveSpawnFloorId = null,
+    // Phase 12 (Hollow Reach integration pass): a real starfield behind
+    // the void, not just an absence of sun — but `hasSkylight: false`
+    // already means "no sun" for the Cinderdeep too, and an underground
+    // cavern showing stars would read as a bug, not atmosphere. A
+    // separate config flag, not a dimensionId branch in sky.js.
+    showStars = false,
   }) {
     this.id = id;
     this.name = name;
@@ -69,6 +75,7 @@ export class Dimension {
     this.lavaSpreadMultiplier = lavaSpreadMultiplier;
     this.evaporatesWater = evaporatesWater;
     this.passiveSpawnFloorId = passiveSpawnFloorId;
+    this.showStars = showStars;
 
     // Populated by chunkManager.js in phase 2; a dimension owns its own
     // manager instance so unloading a dimension unloads only its chunks.

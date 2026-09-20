@@ -33,5 +33,8 @@ export function createHollowReach() {
     lavaSpreadMultiplier: 1,
     evaporatesWater: false,
     passiveSpawnFloorId: null,
+    // Phase 12: the starfield this file's own older comment above already
+    // called for, actually built — see sky.js's SkyRenderer.
+    showStars: true,
   });
 }

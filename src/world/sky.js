@@ -18,6 +18,40 @@ import * as THREE from 'three';
 // opposite it), so this is honestly one glowing disc that warms up by day
 // and cools to a pale blue by night, not two separate celestial bodies.
 const GRADIENT_HEIGHT = 128;
+// Phase 12: the Hollow Reach's own "void-sky" was documented back in
+// phase 2 (see hollowReachDimension.js's older comment) but never
+// actually built — a real gap, not a settings gap, closed here. A
+// fixed-size point cloud built once at max density; "density" (the new
+// settings.graphics.starDensity slider) is real vertex-count scaling via
+// setDrawRange on a pre-shuffled buffer, not just an opacity fade, so a
+// lower setting actually reduces the star count, not just how bright
+// they read.
+const STAR_COUNT = 2200;
+const STAR_RADIUS = 480;
+
+function buildStarField() {
+  const geo = new THREE.BufferGeometry();
+  const positions = new Float32Array(STAR_COUNT * 3);
+  for (let i = 0; i < STAR_COUNT; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i * 3] = STAR_RADIUS * Math.sin(phi) * Math.cos(theta);
+    positions[i * 3 + 1] = STAR_RADIUS * Math.cos(phi);
+    positions[i * 3 + 2] = STAR_RADIUS * Math.sin(phi) * Math.sin(theta);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setDrawRange(0, STAR_COUNT);
+  const mat = new THREE.PointsMaterial({
+    color: 0xe8e0f5, // this game's own established Hollow Reach/Rift pale-purple, not plain white
+    size: 1.6,
+    sizeAttenuation: false,
+    transparent: true,
+    opacity: 0.8,
+    depthWrite: false,
+    fog: false,
+  });
+  return new THREE.Points(geo, mat);
+}
 
 function buildGlareTexture() {
   const size = 128;
@@ -58,6 +92,11 @@ export class SkyRenderer {
     this.glareSprite.scale.set(60, 60, 1);
     this.glareSprite.renderOrder = -1;
     scene.add(this.glareSprite);
+
+    this.starDensity = 100; // %, settings.graphics.starDensity
+    this.starsPoints = buildStarField();
+    this.starsPoints.visible = false; // main.js flips this per-dimension (Dimension.showStars), not every frame
+    scene.add(this.starsPoints);
   }
 
   /** `zenithColor`/`horizonColor` are THREE.Color; redraws the gradient canvas (cheap: 2x128 px). */
@@ -82,6 +121,19 @@ export class SkyRenderer {
       this.glareSprite.material.color.copy(warmth);
       this.glareSprite.material.opacity = 0.15 + sunIntensity * 0.6;
     }
+
+    if (this.starsPoints.visible) this.starsPoints.position.copy(camera.position);
+  }
+
+  /** main.js calls this once per dimension switch (Dimension.showStars), not every frame. */
+  setStarsVisible(value) {
+    this.starsPoints.visible = value;
+  }
+
+  setStarDensity(percent) {
+    this.starDensity = percent;
+    const count = Math.max(0, Math.min(STAR_COUNT, Math.round(STAR_COUNT * (percent / 100))));
+    this.starsPoints.geometry.setDrawRange(0, count);
   }
 
   setQuality(value) {
@@ -97,5 +149,8 @@ export class SkyRenderer {
     this.glareSprite.material.map.dispose();
     this.glareSprite.material.dispose();
     this._gradientTexture.dispose();
+    this.scene.remove(this.starsPoints);
+    this.starsPoints.geometry.dispose();
+    this.starsPoints.material.dispose();
   }
 }

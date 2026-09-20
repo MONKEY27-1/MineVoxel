@@ -36,6 +36,12 @@ export const DEFAULT_GRAPHICS = {
   // "config, not a dimensionId branch" rule everything else here follows.
   fogDensity: 100, // % — scales how far a dimension's own fogNear/fogFar sit from the camera; lower = clearer, higher = hazier
   particleDensity: 100, // % — scales spawnBurst's `count` argument everywhere (block break/place, mob hits, biome ambience, potion effects, explosions)
+  // Phase 12 (Hollow Reach integration pass): real vertex-count scaling
+  // on sky.js's own star-point buffer (setDrawRange), not just an
+  // opacity fade — only visible in dimensions with Dimension.showStars
+  // set (the Hollow Reach), same as fogDensity/particleDensity apply
+  // everywhere but only read meaningfully where there's fog/particles.
+  starDensity: 100,
   // Polish-pass tier-9 fix: confirmed fully absent (no scale slider, no
   // relative-unit CSS) — 50-200%, applied as a --hud-scale CSS custom
   // property that each HUD widget scales itself by (see main.css).
@@ -80,6 +86,32 @@ export const DEFAULT_CONTROLS = {
   // system (not a wiring fix) — see ui/captions.js and synth.js's
   // per-sound showCaption() calls.
   captionsEnabled: false,
+  // Phase 12: some players find a persistent on-screen boss bar
+  // distracting during a long fight (the Riftwyrm's own, currently the
+  // only boss) — a plain visibility toggle, not a health-hiding
+  // "immersive HUD" mode, since nothing else in this HUD has one either.
+  bossBarVisible: true,
+  // Phase 12: gliding always keeps the player's own chosen camera mode
+  // (cycleCameraMode's first/third-back/third-front) rather than forcing
+  // a view — this opts into temporarily showing third-back specifically
+  // while gliding, without changing what F5 cycles through or what mode
+  // it resumes to once the glide ends. See player.js's own cameraMode
+  // and main.js's per-frame camera sync for how the override is applied.
+  glideThirdPerson: false,
+  // Phase 12: scales the ending sequence's own per-line/beat hold times
+  // (endingSequence.js) — poem.txt's own literal ~2-second beats run
+  // long by design (see HOLLOWREACH.md's phase 11 notes on why that
+  // wasn't shortened to hit a specific runtime), so this gives players
+  // who've already seen it once (Replay Ending) a way to move through
+  // it faster without changing the poem's own text or beat structure.
+  endingScrollSpeed: 100,
+  // Phase 12: a proactive warning (a red screen vignette + text) shown
+  // once falling well below the active dimension's own floor, before
+  // VOID_Y's own reactive safety net (main.js) actually catches it many
+  // blocks further down — most relevant to the Hollow Reach's floating
+  // islands, but reads generically off whatever dimension is active
+  // rather than a Hollow-Reach-only check.
+  voidWarningEnabled: true,
 };
 
 export const DEFAULT_AUDIO = {

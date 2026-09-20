@@ -1037,26 +1037,29 @@ highlights below):
    (`collapseGateIfFrameBroken`, a flood-fill from the broken block
    looking for adjacent portal-surface blocks) and deregisters it.
 
-### Dimensions (updated — two now exist)
+### Dimensions (three now exist)
 
 A `Dimension` (`world/dimension.js`) carries its own sky/fog color,
 ambient/sun intensity, height range, gravity, spawn tables, terrain
 generator, **and** (added for the Cinderdeep) `ambientFloorLevel/Color`,
 `hasWeather`/`hasClouds`, `lavaSpreadMultiplier`, `evaporatesWater`, and
-`passiveSpawnFloorId` — every dimension *quirk* the spec asked for
-(beds explode, water evaporates, lava flows farther) is one of these
-config fields, never a `dimensionId` check in engine code. `World` tracks
-both registered dimensions (`overworldDimension.js`,
-`cinderdeepDimension.js`) in a `Map`; `main.js` keeps a mutable
+`passiveSpawnFloorId`, **plus** (added for the Hollow Reach) `showStars`
+— every dimension *quirk* the spec asked for (beds explode, water
+evaporates, lava flows farther, a void dimension has a real starfield
+but a dark cave doesn't) is one of these config fields, never a
+`dimensionId` check in engine code. `World` tracks all three registered
+dimensions (`overworldDimension.js`, `cinderdeepDimension.js`,
+`hollowReachDimension.js`) in a `Map`; `main.js` keeps a mutable
 `chunkManager`/`activeDimension` binding reassigned on travel, so the
 dozens of pre-existing call sites that already say `chunkManager.foo(...)`
 or `activeDimension.bar` automatically operate on whichever dimension is
 current without being touched individually.
 
-### How a third dimension would plug in
+### How a fourth dimension would plug in
 
-The steps below are exactly what building the Cinderdeep followed — a
-third dimension repeats the same seam, doesn't add a new one:
+The steps below are exactly what building the Cinderdeep, and later the
+Hollow Reach, both followed — confirmed twice now, not just a plan on
+paper. A fourth dimension repeats the same seam, doesn't add a new one:
 
 1. Write a `Dimension` config (`world/yourDimension.js`, mirroring
    `cinderdeepDimension.js`) — id, name, height range,
@@ -1081,6 +1084,160 @@ third dimension repeats the same seam, doesn't add a new one:
 5. If it needs new mobs/blocks/items/structures/loot, follow the
    existing "Adding a ___" sections below exactly as written — none of
    them assume a specific dimension, they just add to shared registries.
+
+## The Hollow Reach (dimension 3)
+
+A third, void-suspended dimension — reached not through a player-built
+gate frame but by finding **the Undervault**, a rare underground overworld
+structure whose portal room holds an unlit **Rift Gate**. The Hollow
+Reach is a single floating island (plus, once its guardian has died once,
+scattered outer islands reachable across the void) with no sky light, no
+day/night cycle, no weather, and its own boss, the **Riftwyrm**.
+`HOLLOWREACH.md` is the full 12-phase build log (architecture decisions
+and scope calls in the same detail `CINDERDEEP.md` uses) — this section
+is the short version plus the four things worth knowing before touching
+this code: **the Undervault's site-picking algorithm is deliberately
+different from every other structure's**, the Riftwyrm's boss state and
+the ending's own trigger flag both live on one small manager class (not
+folded into the generic mob/container systems), Glidewings is a real
+energy-exchange flight model (not a fixed descent rate), and the ending
+sequence is a real per-tick state machine (not a scripted cutscene).
+
+Built in 12 phases (all solid and tested — `HOLLOWREACH.md`'s own
+"Notable honesty calls" section lists every deliberate simplification,
+not just the highlights below):
+
+1. **The Undervault and the Rift Gate** — the structure and portal frame
+   that lead here; see the algorithm below.
+2. **The central island** — the Hollow Reach's own terrain generator
+   (`world/hollowReachGenerator.js`): a domed island (thicker/taller at
+   the center, eroded toward the edges by directional noise so it isn't
+   a perfect circle), a pillar ring of obsidian/bedrock/Spire Crystal
+   columns (some caged in iron bars), and a fountain landmark at the
+   exact center.
+3. **Mobs** — Hollowkin (teleports to close large gaps while chasing,
+   picks up and relocates carriable blocks while idle), Riftmite, and
+   Stoneskitter (burrows into stone while idle, alerts allies on being
+   struck regardless of their own aggro range).
+4. **The Riftwyrm** — a large, segmented flying boss (`entities/
+   riftwyrm.js`), deliberately *not* a `Mob` subclass (non-colliding,
+   waypoint-driven flight has little in common with `Mob`'s
+   gravity-affected box-limb shapes): a charge attack, a wing buffet, a
+   perched Rift Breath cloud, and healing from live Spire Crystals that
+   stops the instant the crystal it's channeling is destroyed.
+5. **Death, the exit gate, and rewards** — killing it opens a bedrock-
+   framed exit gate with a Wyrm Egg on it (infinite hardness like the
+   portal blocks themselves; an explosion is the only way to dislodge it
+   into a collectible item, this game's own stand-in for a piston-based
+   displacement puzzle — no piston block exists here). The first trip
+   home through the exit gate triggers the real ending (phase 11); every
+   trip after returns silently.
+6. **Respawning the Riftwyrm** — placing all 4 Spire Crystals on the exit
+   gate's own edge faces re-forms it, so the fight (and its loot) is
+   repeatable; a guard flag prevents a second one existing at once, and
+   XP is discounted on repeat kills.
+7. **Far Gates and the void crossing** — 6 fixed Far Gate blocks ring the
+   central island as real generated terrain (not a runtime spawn);
+   inert until the Riftwyrm has died once, then a thrown Riftpearl
+   activates one for real, one-way, void-crossing travel to a scattered
+   outer island.
+8. **Outer islands, Pale Spires, and Skyships** — smaller islands beyond
+   the Far Gate ring, each independently rolling a chance to also host a
+   **Pale Spire** (modeled on the Undervault's own "fixed sites, cached
+   blueprints, real branching layout" architecture, not the ordinary
+   per-region structure grid every other structure uses) or a Skyship
+   carrying a guaranteed Glidewings chest.
+9. **Glidewings** — see the flight model below.
+10. **Rift Chest** — crafted from Obsidian + a Rift Shard; every placed
+    instance opens the exact same shared inventory (the vanilla Ender
+    Chest idea), stored once per world (`items/riftChestRegistry.js`),
+    not per block position.
+11. **The ending sequence** — see below.
+12. **Integration** — settings (glide camera preference, fog/particle/
+    star density, boss bar visibility, ending scroll speed, a void-
+    falling warning, reduced-motion for the travel fade), a `/hollowreach`
+    creative/testing command, and confirming no save-schema migration was
+    actually needed (every phase's own new save fields already default
+    safely when missing — verified by `tools/test-save-fuzz.js` loading
+    a save with the Hollow Reach's own fields stripped out entirely).
+
+### The Undervault's site-placement algorithm
+
+`world/structures/undervault.js`'s `createUndervaultPlacer(seed)` — the
+one structure in this codebase that does *not* use
+`structures/placement.js`'s per-region grid (one roll per region, common
+enough to find several close together). A dungeon/village/gate is meant
+to be findable in a reasonable walk; the Undervault is meant to be a
+genuine, rare discovery, so it works differently on purpose:
+
+1. Roll a small, fixed count up front — 1 to 3 sites for the whole
+   world, decided once from the world seed, not per-chunk.
+2. Each site's origin is a random angle + a random distance **700-1600
+   blocks from spawn** (`MIN_DIST`/`MAX_DIST`) — a polar pick, not a grid
+   cell, so sites land at a genuine distance in an arbitrary direction
+   rather than snapping to some region boundary.
+3. Each site's entire multi-room blueprint (corridors, a spiral
+   staircase, a library, a storeroom, a prison block, a fountain room,
+   and the portal room — 9 rooms, ~34 blocks below the surface) is built
+   **once**, as a single flat block list in local coordinates translated
+   to world coordinates, then cached — the same "whole structure
+   precomputed, chunks just clip their own slice" contract every other
+   structure's blueprint already follows, just a much larger one. A
+   chunk asking "is a site near me?" is a cheap bounding-radius check
+   against the already-known site origins, not a search.
+4. The portal room holds a real, unlit 12-slot Rift Gate frame — filling
+   it (with a Rift Shard, crafted from a Riftpearl + Cinder Powder) and
+   igniting it is what actually opens the way to the Hollow Reach.
+
+### Glidewings' flight model
+
+`entities/player.js`'s `_updateGlide` — real energy-exchange flight, not
+a fixed descent rate, per the spec's own explicit requirement. Activated
+by jumping while falling with Glidewings equipped (the same
+double-toggle-safe `getPressTime()` pattern creative flight's own
+double-tap already uses). `glideSpeed` is one scalar along the look
+direction: diving (negative pitch) converts altitude into speed, climbing
+trades speed back for altitude, proportional drag bleeds speed toward a
+stall over time, and level flight still sinks at a fixed minimum rate
+rather than hovering — below a minimum speed the glide simply ends and
+falls through to normal gravity. Wall impacts reuse `sweepAABB`'s own
+collision flags for damage (the same mechanism fall damage already
+relies on), durability drains once a second in survival and breaks the
+item at zero, a Skyburst item gives a temporary forward boost, and a
+Riftstone right-click repairs it — deliberately requiring no block in
+view, since Riftstone is also a real placeable block and would otherwise
+place itself via the ordinary block-placement path before the repair
+check ever ran. Not a real lift/drag/angle-of-attack simulation — one
+scalar and a fixed sink rate was enough to satisfy "dive for speed, climb
+to lose it, can't just hover" without building an actual flight-dynamics
+model for one item.
+
+### The ending sequence's trigger and storage
+
+A single boolean, `RiftwyrmManager.hasSeenEnding`, persisted alongside
+the rest of the Riftwyrm's own boss state in the `riftwyrmState` save
+store (one flat record per world, the same "singleton, not a per-position
+registry" shape `gateRegistry`/`commandData` also use) — not a new save
+mechanism of its own. `main.js`'s `travelViaExitGate()` checks and flips
+it on the very first trip home; every later trip (and a **Replay Ending**
+button on the pause menu, once the flag is true) calls
+`ending/endingSequence.js`'s `start()` directly, bypassing the flag
+entirely. The sequence itself is a small per-tick state machine (`'poem'`
+→ `'credits'` → finished), advanced from the same fixed-timestep loop
+`titleDisplay` already uses — not a chain of `setTimeout`s or a CSS
+animation — so poem.txt's own blank-line "beats" and per-line reveal
+timing (scaled by word count) can both be real, pausable/skippable
+logic. A double Escape press (within 1.2s) jumps straight to credits;
+`main.js`'s own `onSuspend`/`onResume` callbacks explicitly suspend the
+ordinary pause overlay and fullscreen's tap-to-pause for the sequence's
+own duration rather than fighting DOM event-listener ordering (both of
+those listeners are registered at app startup, long before an ending
+sequence exists, so a later capture-phase `stopPropagation` can't undo
+what they already did for the same keypress). The ambient music
+(`audio/endingMusic.js`) is genuinely generative — a soft drone plus two
+independent voices, each scheduling its own next note at a random delay
+from a shared scale, so no fixed sequence exists anywhere and no two
+playthroughs sound the same.
 
 ## Architecture
 

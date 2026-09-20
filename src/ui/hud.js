@@ -24,6 +24,7 @@ export class Hud {
   constructor(atlasUV) {
     this.atlasUV = atlasUV;
     this.colorblindMode = false;
+    this.bossBarEnabled = true; // phase 12 setting — some players find a persistent boss bar distracting during a long fight
     this.vitalsEl = document.getElementById('vitals');
     this.healthFillEl = document.getElementById('health-fill');
     this.breathFillEl = document.getElementById('breath-fill');
@@ -137,7 +138,7 @@ export class Hud {
 
   /** `boss` is a live Riftwyrm (or any future boss with the same `{name, health, maxHealth}` shape) or null/undefined to hide the bar — no boss bar existed anywhere in this codebase before the Hollow Reach's Riftwyrm (phase 4). */
   updateBossBar(boss) {
-    this.bossBarEl.classList.toggle('hidden', !boss);
+    this.bossBarEl.classList.toggle('hidden', !boss || !this.bossBarEnabled);
     if (!boss) return;
     this.bossBarNameEl.textContent = boss.name ?? 'The Riftwyrm';
     this.bossBarFillEl.style.width = `${Math.max(0, boss.health / boss.maxHealth) * 100}%`;

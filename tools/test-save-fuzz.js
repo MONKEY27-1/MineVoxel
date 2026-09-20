@@ -48,6 +48,25 @@ async function idbPut(page, storeName, record) {
   );
 }
 
+async function idbDelete(page, storeName, key) {
+  return page.evaluate(
+    ({ storeName, key }) => {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('minevoxel');
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction([storeName], 'readwrite');
+          const r = tx.objectStore(storeName).delete(key);
+          r.onsuccess = () => resolve();
+          r.onerror = () => reject(r.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    },
+    { storeName, key }
+  );
+}
+
 export default async function run(baseUrl) {
   const browser = await launchBrowser();
   let context;
@@ -284,6 +303,46 @@ export default async function run(baseUrl) {
       if (!rawRec2 || rawRec2.schemaVersion !== current) {
         throw new Error(`expected listWorlds() to also persist the migrated record to storage, raw DB record has schemaVersion=${rawRec2?.schemaVersion}`);
       }
+    });
+
+    // Hollow Reach integration pass (phase 12): every phase from 1
+    // through 11 added new save-record fields (riftwyrmState's own
+    // store; blockEntities' vaultBoxes/riftChest fields) without ever
+    // needing a SCHEMA_VERSION bump — each one already defaults safely
+    // when missing (riftwyrmManager.fromJSON's own `!!json?.field`
+    // patterns, riftChestRegistry's `json?.slots ?? [...]`, etc.). This
+    // is the real, deliberate test of that claim: simulate a save that
+    // genuinely predates all of it (no riftwyrmState record at all, and
+    // a blockEntities record with those two fields stripped out) and
+    // confirm it still loads without crashing.
+    await step('a save from before the Hollow Reach existed (no riftwyrmState, no riftChest/vaultBoxes fields) still loads cleanly', async () => {
+      await idbDelete(page, 'riftwyrmState', record.id);
+      const blockEntitiesAll = await idbGetAll(page, 'blockEntities');
+      const be = blockEntitiesAll.find((r) => r.key === record.id);
+      if (be) {
+        delete be.riftChest;
+        delete be.vaultBoxes;
+        await idbPut(page, 'blockEntities', be);
+      }
+
+      const loaded = await page.evaluate(async (worldId) => {
+        const worldSave = await import('/src/persistence/worldSave.js');
+        const rec = await worldSave.getWorld(worldId);
+        await window.__minevoxel.startGame(rec, { isNew: false });
+        const M = window.__minevoxel;
+        const { getGlobalRiftChestInventory } = await import('/src/items/riftChestRegistry.js');
+        return {
+          hasSeenEnding: M.riftwyrmManager.hasSeenEnding,
+          timesKilled: M.riftwyrmManager.timesKilled,
+          riftChestSlots: getGlobalRiftChestInventory().slots.length,
+        };
+      }, record.id);
+      await waitForChunks(page, 15, 20000);
+
+      if (loaded.hasSeenEnding !== false) throw new Error(`expected a fresh riftwyrmManager (no saved state) to default hasSeenEnding to false, got ${loaded.hasSeenEnding}`);
+      if (loaded.timesKilled !== 0) throw new Error(`expected timesKilled to default to 0, got ${loaded.timesKilled}`);
+      if (loaded.riftChestSlots !== 27) throw new Error(`expected the shared Rift Chest inventory to default to a real 27-slot Inventory, got ${loaded.riftChestSlots} slots`);
+      assertNoErrors(errors, 'test:save-fuzz (pre-Hollow-Reach save)');
     });
 
     console.log('[test:save-fuzz] PASS');

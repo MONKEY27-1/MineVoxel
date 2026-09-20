@@ -135,6 +135,7 @@ function main() {
   const debugEl = document.getElementById('debug-overlay');
   const crosshairEl = document.getElementById('crosshair');
   const fadeOverlayEl = document.getElementById('fade-overlay');
+  const voidWarningEl = document.getElementById('void-warning-overlay');
 
   const renderer = new Renderer(canvas);
 
@@ -511,6 +512,7 @@ function main() {
   clouds.setSpeed(settings.graphics.cloudSpeed);
   sky.setQuality(settings.graphics.skyQuality);
   sky.setGlareEnabled(settings.graphics.sunGlare);
+  sky.setStarDensity(settings.graphics.starDensity);
   player.cameraBobStrength = settings.graphics.cameraBobStrength / 100;
   viewModel.bobStrength = settings.graphics.viewBobStrength / 100;
   viewModel.enabled = settings.graphics.viewmodelEnabled;
@@ -526,7 +528,9 @@ function main() {
   document.documentElement.style.setProperty('--hud-scale', settings.graphics.guiScale / 100);
   player.sensitivityScale = settings.controls.sensitivity;
   player.reducedMotion = settings.controls.reducedMotion;
+  player.glideThirdPerson = settings.controls.glideThirdPerson;
   hud.colorblindMode = settings.controls.colorblindMode;
+  hud.bossBarEnabled = settings.controls.bossBarVisible;
   setCaptionsEnabled(settings.controls.captionsEnabled);
   player.autoJumpEnabled = settings.controls.autoJump;
   player.doubleTapSprintEnabled = settings.controls.doubleTapSprint;
@@ -542,7 +546,21 @@ function main() {
   // stay dark. Reused as both "fade-in on load" and "fade on death" per
   // the polish-pass spec, since respawnPlayer() already covers both
   // (plus the void-fall recovery) — one hook, three matching UX moments.
+  // Phase 12: reducedMotion already suppresses damage camera-shake and
+  // sprint FOV widening (player.js's own _triggerDamageShake/_updateFov)
+  // — this is the same idea applied to the one remaining motion-heavy
+  // effect that wasn't gated yet: the instant snap-to-black this
+  // function otherwise does before its normal fade-out. A player with
+  // reducedMotion on gets the same gentle 0.6s fade in both directions
+  // (the CSS default transition, same as every other travel function's
+  // own fadeOverlayEl use) instead of a hard flash.
   function flashFadeOverlay(holdMs = 150) {
+    if (settings.controls.reducedMotion) {
+      fadeOverlayEl.style.transition = '';
+      fadeOverlayEl.classList.add('visible');
+      setTimeout(() => fadeOverlayEl.classList.remove('visible'), holdMs);
+      return;
+    }
     fadeOverlayEl.style.transition = 'none';
     fadeOverlayEl.classList.add('visible');
     void fadeOverlayEl.offsetHeight; // force layout so the instant opacity jump actually paints before re-enabling the transition
@@ -1061,6 +1079,7 @@ function main() {
     playMusic: startEndingMusic,
     stopMusic: stopEndingMusic,
   });
+  endingSequence.setSpeed(settings.controls.endingScrollSpeed);
 
   const dispatcher = createDispatcher();
 
@@ -1071,6 +1090,8 @@ function main() {
     get activeDimension() { return activeDimension; },
     overworld,
     cinderdeep,
+    hollowReach,
+    travelToHollowReach,
     get climateGenerator() { return climateGenerator; },
     get cinderdeepClimate() { return cinderdeepClimate; },
     dayNight,
@@ -1314,6 +1335,7 @@ function main() {
     settings,
     fullscreenController,
     particles,
+    endingSequence,
     onPlay: startGame,
     onShadowQualityChange: applyShadowQuality,
     onScreenshot: takeScreenshot,
@@ -2363,7 +2385,16 @@ function main() {
     const eyeY = ry + reyeH;
     const eyeZ = rz;
 
-    if (player.cameraMode === 'first') {
+    // Phase 12: an opt-in settings preference (glideThirdPerson), not a
+    // change to player.cameraMode itself — F5's own cycle and whatever
+    // mode the player resumes to once the glide ends are both untouched,
+    // this only overrides which mode gets *rendered* for the current
+    // frame while airborne on Glidewings in first-person specifically
+    // (already in a third-person mode means they can already see
+    // themselves gliding, nothing to override).
+    const effectiveCameraMode = player.gliding && player.glideThirdPerson && player.cameraMode === 'first' ? 'third-back' : player.cameraMode;
+
+    if (effectiveCameraMode === 'first') {
       player.camera.position.set(eyeX, eyeY, eyeZ);
       player.camera.rotation.set(0, 0, 0);
       player.camera.rotateY(ryaw);
@@ -2378,7 +2409,7 @@ function main() {
       // from the head's actual yaw/pitch regardless of camera mode, same
       // as vanilla Minecraft — only where the *camera* sits changes here.
       lookDirVec.set(-Math.sin(ryaw) * Math.cos(rpitch), Math.sin(rpitch), -Math.cos(ryaw) * Math.cos(rpitch));
-      const behind = player.cameraMode === 'third-back';
+      const behind = effectiveCameraMode === 'third-back';
       thirdPersonDir.copy(lookDirVec);
       if (behind) thirdPersonDir.negate();
       const hit = raycastVoxel(chunkManager, { x: eyeX, y: eyeY, z: eyeZ }, thirdPersonDir, THIRD_PERSON_DISTANCE);
@@ -2396,7 +2427,7 @@ function main() {
       else player.camera.lookAt(eyeX, eyeY, eyeZ);
     }
 
-    playerModel.setVisible(player.cameraMode !== 'first');
+    playerModel.setVisible(effectiveCameraMode !== 'first');
     playerModel.update(dt, {
       position: { x: rx, y: ry, z: rz },
       yaw: ryaw,
@@ -2495,6 +2526,13 @@ function main() {
     // alone (rather than overwriting it with a gradient every frame) is
     // exactly "no sun or moon, no sky".
     sky.glareSprite.visible = activeDimension.hasSkylight;
+    // The starfield (phase 12) follows the same "config, not a branch"
+    // rule as fogDensity/particleDensity above it, but its own position
+    // update can't live inside sky.update() below — that call is gated
+    // on hasDayNightCycle, and the Hollow Reach (the only dimension with
+    // showStars true) has none.
+    sky.setStarsVisible(activeDimension.showStars);
+    if (activeDimension.showStars) sky.starsPoints.position.set(rx, ry, rz);
     sunLight.visible = activeDimension.hasDayNightCycle;
     if (activeDimension.hasDayNightCycle) {
       dayNight.getSunDirection(sunDirVec);
@@ -2533,7 +2571,11 @@ function main() {
     const heldItemId = player.selectedItem && !inventoryUI.isOpen ? player.selectedItem.itemId : null;
     playerModel.setItem(heldItemId);
     playerModel.setArmor(player.armor);
-    if (player.cameraMode === 'first') {
+    // Same glideThirdPerson override as the camera-position sync above —
+    // recomputed here rather than shared, since this render() step and
+    // that interpolated-camera step aren't in the same function scope.
+    const viewModelVisible = !(player.gliding && player.glideThirdPerson) && player.cameraMode === 'first';
+    if (viewModelVisible) {
       viewModel.setItem(heldItemId);
       viewModel.update(dt, Math.hypot(player.velocity.x, player.velocity.z));
       renderer.renderOverlay(viewModel.scene, viewModel.camera);
@@ -2541,6 +2583,14 @@ function main() {
 
     hud.update(player, interaction, dt);
     hud.updateBossBar(activeDimension === hollowReach ? riftwyrmManager.current : null);
+
+    // Phase 12: proactive void warning — reads generically off the
+    // active dimension's own minHeight (VOID_Y's reactive safety net,
+    // above in the fixed-step loop, is a fixed absolute Y everywhere;
+    // this is relative to wherever "the floor" actually is for whatever
+    // dimension is active, so it triggers at a sensible depth in each).
+    const fallingIntoVoid = player.velocity.y < 0 && player.position.y < activeDimension.minHeight - 12;
+    voidWarningEl.classList.toggle('hidden', !fallingIntoVoid || !settings.controls.voidWarningEnabled);
 
     const stats = chunkManager.getStats();
     debugOverlay.update({

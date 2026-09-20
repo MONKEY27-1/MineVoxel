@@ -213,6 +213,10 @@ export class Player {
     // requiring the player to hand-tune strength sliders down to
     // approximate it; see _triggerDamageShake/_updateFov.
     this.reducedMotion = false;
+    // Phase 12: an opt-in preference main.js's own camera-sync reads to
+    // temporarily show third-back while gliding — see that file's own
+    // note on why this never touches cameraMode/cycleCameraMode itself.
+    this.glideThirdPerson = false;
   }
 
   get selectedItem() {

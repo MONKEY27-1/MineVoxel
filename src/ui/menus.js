@@ -74,6 +74,7 @@ const GRAPHICS_APPLIERS = {
   // directly), so it needs a real push.
   fogDensity: () => {},
   particleDensity: (v, ctx) => (ctx.particles.densityMultiplier = v / 100),
+  starDensity: (v, ctx) => ctx.sky.setStarDensity(v),
   guiScale: (v) => document.documentElement.style.setProperty('--hud-scale', v / 100),
 };
 
@@ -98,6 +99,10 @@ const CONTROLS_APPLIERS = {
   reducedMotion: (v, ctx) => (ctx.player.reducedMotion = v),
   colorblindMode: (v, ctx) => (ctx.hud.colorblindMode = v),
   captionsEnabled: (v) => setCaptionsEnabled(v),
+  bossBarVisible: (v, ctx) => (ctx.hud.bossBarEnabled = v),
+  glideThirdPerson: (v, ctx) => (ctx.player.glideThirdPerson = v),
+  endingScrollSpeed: (v, ctx) => ctx.endingSequence.setSpeed(v),
+  voidWarningEnabled: () => {}, // read straight off the live settings object every frame in main.js, like fogDensity above — nothing to push live
 };
 
 const AUDIO_APPLIERS = {
@@ -139,6 +144,7 @@ export class MenuController {
     atlasTexture,
     settings,
     fullscreenController,
+    endingSequence,
     onPlay,
     onShadowQualityChange,
     onScreenshot,
@@ -156,6 +162,7 @@ export class MenuController {
     this.renderer = renderer;
     this.atlasTexture = atlasTexture;
     this.fullscreenController = fullscreenController;
+    this.endingSequence = endingSequence;
     this.settings = settings; // the one loaded/mutated settings object — see settings/settings.js
     this.onPlay = onPlay; // (worldRecord, {isNew}) => void — main.js boots the actual game/world-load from this
     this.onShadowQualityChange = onShadowQualityChange; // (tier) => void — touches renderer.shadowMap + the sun light, both owned by main.js
@@ -393,6 +400,7 @@ export class MenuController {
     this._wireGraphicsChoice('sky-quality-choice', 'skyQuality');
     this._wireGraphicsSlider('fog-density-slider', 'fog-density-val', 'fogDensity', (v) => `${v}%`);
     this._wireGraphicsSlider('particle-density-slider', 'particle-density-val', 'particleDensity', (v) => `${v}%`);
+    this._wireGraphicsSlider('star-density-slider', 'star-density-val', 'starDensity', (v) => `${v}%`);
     this._wireGraphicsSlider('gui-scale-slider', 'gui-scale-val', 'guiScale', (v) => `${v}%`);
     this._wireGraphicsSlider('camera-bob-slider', 'camera-bob-val', 'cameraBobStrength', (v) => `${v}%`);
     this._wireGraphicsSlider('hand-bob-slider', 'hand-bob-val', 'viewBobStrength', (v) => `${v}%`);
@@ -443,6 +451,8 @@ export class MenuController {
     document.getElementById('fog-density-val').textContent = `${g.fogDensity}%`;
     document.getElementById('particle-density-slider').value = g.particleDensity;
     document.getElementById('particle-density-val').textContent = `${g.particleDensity}%`;
+    document.getElementById('star-density-slider').value = g.starDensity;
+    document.getElementById('star-density-val').textContent = `${g.starDensity}%`;
     document.getElementById('gui-scale-slider').value = g.guiScale;
     document.getElementById('gui-scale-val').textContent = `${g.guiScale}%`;
     document.getElementById('camera-bob-slider').value = g.cameraBobStrength;
@@ -507,6 +517,18 @@ export class MenuController {
       this._persist();
     });
 
+    const endingSpeed = document.getElementById('ending-scroll-speed-slider');
+    const endingSpeedVal = document.getElementById('ending-scroll-speed-val');
+    endingSpeed.value = this.settings.controls.endingScrollSpeed;
+    endingSpeedVal.textContent = `${this.settings.controls.endingScrollSpeed}%`;
+    endingSpeed.addEventListener('input', () => {
+      const v = Number(endingSpeed.value);
+      endingSpeedVal.textContent = `${v}%`;
+      this.settings.controls.endingScrollSpeed = v;
+      CONTROLS_APPLIERS.endingScrollSpeed(v, this);
+      this._persist();
+    });
+
     this._wireControlsCheckbox('auto-jump-toggle', 'autoJump');
     this._wireControlsCheckbox('double-tap-sprint-toggle', 'doubleTapSprint');
     this._wireControlsChoice('sneak-mode-choice', 'sneakMode');
@@ -517,6 +539,9 @@ export class MenuController {
     this._wireControlsCheckbox('reduced-motion-toggle', 'reducedMotion');
     this._wireControlsCheckbox('colorblind-mode-toggle', 'colorblindMode');
     this._wireControlsCheckbox('captions-toggle', 'captionsEnabled');
+    this._wireControlsCheckbox('boss-bar-toggle', 'bossBarVisible');
+    this._wireControlsCheckbox('glide-third-person-toggle', 'glideThirdPerson');
+    this._wireControlsCheckbox('void-warning-toggle', 'voidWarningEnabled');
 
     const holdEl = document.getElementById('fullscreen-hold-duration-choice');
     setChoiceSelected(holdEl, this.settings.controls.fullscreenHoldMs);
@@ -650,6 +675,8 @@ export class MenuController {
       this.settings.controls = structuredClone(DEFAULT_CONTROLS);
       for (const key of Object.keys(this.settings.controls)) CONTROLS_APPLIERS[key]?.(this.settings.controls[key], this);
       document.getElementById('sensitivity-slider').value = this.settings.controls.sensitivity;
+      document.getElementById('ending-scroll-speed-slider').value = this.settings.controls.endingScrollSpeed;
+      document.getElementById('ending-scroll-speed-val').textContent = `${this.settings.controls.endingScrollSpeed}%`;
       document.getElementById('sensitivity-val').textContent = `${Number(this.settings.controls.sensitivity).toFixed(1)}x`;
       document.getElementById('auto-jump-toggle').checked = this.settings.controls.autoJump;
       document.getElementById('double-tap-sprint-toggle').checked = this.settings.controls.doubleTapSprint;
@@ -661,6 +688,9 @@ export class MenuController {
       document.getElementById('reduced-motion-toggle').checked = this.settings.controls.reducedMotion;
       document.getElementById('colorblind-mode-toggle').checked = this.settings.controls.colorblindMode;
       document.getElementById('captions-toggle').checked = this.settings.controls.captionsEnabled;
+      document.getElementById('boss-bar-toggle').checked = this.settings.controls.bossBarVisible;
+      document.getElementById('glide-third-person-toggle').checked = this.settings.controls.glideThirdPerson;
+      document.getElementById('void-warning-toggle').checked = this.settings.controls.voidWarningEnabled;
       setChoiceSelected(document.getElementById('fullscreen-hold-duration-choice'), this.settings.controls.fullscreenHoldMs);
     } else if (tab === 'audio') {
       this.settings.audio = structuredClone(DEFAULT_AUDIO);

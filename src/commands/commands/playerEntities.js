@@ -55,6 +55,24 @@ export function register(dispatcher) {
       )
   );
 
+  // Phase 12: a creative/testing shortcut — the Hollow Reach otherwise
+  // requires finding or building a real Rift Gate (see the Undervault),
+  // same as every other dimension transition in this game (no existing
+  // /cinderdeep-equivalent shortcut exists either, but this one was the
+  // explicitly requested integration-pass gap to close). Fire-and-forget
+  // like PORTAL_TRAVEL's own `go: () => travelToHollowReach()` — the
+  // command dispatcher has no precedent for awaiting an async executor.
+  dispatcher.register(
+    literal('hollowreach')
+      .describes('Teleports you to the Hollow Reach without needing a real Rift Gate (creative/testing shortcut)')
+      .executes((context) => {
+        if (context.executor.kind !== 'player') throw new CommandExecutionError('Only a player can travel to the Hollow Reach.');
+        context.world.travelToHollowReach();
+        context.success('Traveling to the Hollow Reach...');
+        return { success: true };
+      })
+  );
+
   dispatcher.register(
     literal('spawnpoint')
       .describes("Sets a player's individual respawn point (not yet supported — this game only has a single world spawn)")
