@@ -41,6 +41,44 @@
     <div id="status-effects"></div>
     <div id="hotbar"></div>
     <div id="save-indicator">Saving world&hellip;</div>
+    <!-- Dev Menu: the active-cheat indicator. Visible with the panel
+         closed — the whole point is to make an active toggle impossible
+         to forget about (devMenu.js's own note on why this exists at
+         all). Click a chip to turn that toggle off directly. -->
+    <div id="active-cheats-strip" class="hidden"></div>
+  </div>
+
+  <!-- Dev Menu (F6 by default, rebindable) — a draggable/resizable
+       overlay, not a modal: the game keeps running underneath it. See
+       src/ui/devMenu.js for the full control-registration framework
+       every tab's real controls (Player/Items/Teleport/World/Debug)
+       plug into. -->
+  <div id="devmenu-panel" class="hidden">
+    <div id="devmenu-titlebar">
+      <span id="devmenu-title">Dev Menu</span>
+      <div id="devmenu-titlebar-actions">
+        <button id="devmenu-collapse-btn" type="button" title="Collapse">&ndash;</button>
+        <button id="devmenu-close-btn" type="button" title="Close">&times;</button>
+      </div>
+    </div>
+    <div id="devmenu-body">
+      <div id="devmenu-tabs" role="tablist"></div>
+      <div id="devmenu-search-row">
+        <input id="devmenu-search" type="text" placeholder="Search this tab&hellip;" autocomplete="off" />
+      </div>
+      <div id="devmenu-content"></div>
+      <div id="devmenu-preset-row">
+        <select id="devmenu-preset-select"><option value="">Presets&hellip;</option></select>
+        <button id="devmenu-preset-save-btn" type="button" class="menu-secondary-btn">Save preset</button>
+        <button id="devmenu-preset-delete-btn" type="button" class="menu-secondary-btn">Delete</button>
+      </div>
+    </div>
+    <div id="devmenu-resize-handle"></div>
+  </div>
+  <!-- Quick-bind right-click context menu — one shared element, repositioned/repurposed per control rather than built fresh each time. -->
+  <div id="devmenu-context-menu" class="hidden">
+    <button id="devmenu-quickbind-btn" type="button">Assign hotkey&hellip;</button>
+    <button id="devmenu-quickbind-clear-btn" type="button">Clear hotkey</button>
   </div>
 
   <div id="start-screen">

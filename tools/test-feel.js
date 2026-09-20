@@ -1,7 +1,7 @@
 // npm run test:feel — objectively-verifiable tier-5 game-feel mechanics
 // (jump arc math, coyote time, jump buffering). Subjective "does it feel
 // good" tuning needs a human at the debug tuning panel (see
-// window.__minevoxel.tuning / F6 in a debug build) — this only checks
+// window.__minevoxel.tuning / F7 in a debug build) — this only checks
 // the things that have a right answer regardless of taste.
 import { launchBrowser, newGamePage, createAndStartWorld, waitForChunks, assertNoErrors, closeAll } from './harness.js';
 
@@ -105,13 +105,13 @@ export default async function run(baseUrl) {
       }
     });
 
-    await step('debug tuning panel: F6 toggles it, and its sliders live-edit TUNING', async () => {
+    await step('debug tuning panel: F7 toggles it, and its sliders live-edit TUNING', async () => {
       const beforeVisible = await page.evaluate(() => window.__minevoxel.tuningPanel.visible);
       if (beforeVisible) throw new Error('setup assumption failed: tuning panel should start hidden');
 
-      await page.keyboard.press('F6');
+      await page.keyboard.press('F7');
       const afterOpenVisible = await page.evaluate(() => window.__minevoxel.tuningPanel.visible);
-      if (!afterOpenVisible) throw new Error('F6 did not open the tuning panel');
+      if (!afterOpenVisible) throw new Error('F7 did not open the tuning panel');
       const hiddenClassRemoved = await page.evaluate(() => !document.getElementById('tuning-panel').classList.contains('hidden'));
       if (!hiddenClassRemoved) throw new Error('tuning panel is marked visible=true but the DOM element is still .hidden');
 
@@ -137,9 +137,9 @@ export default async function run(baseUrl) {
       const afterReset = await page.evaluate(() => window.__minevoxel.TUNING.WALK_SPEED);
       if (afterReset === 9.5) throw new Error('reset button did not restore WALK_SPEED away from the slider-set value');
 
-      await page.keyboard.press('F6');
+      await page.keyboard.press('F7');
       const afterCloseVisible = await page.evaluate(() => window.__minevoxel.tuningPanel.visible);
-      if (afterCloseVisible) throw new Error('F6 did not close the tuning panel again');
+      if (afterCloseVisible) throw new Error('F7 did not close the tuning panel again');
     });
 
     await step('sprinting eases the FOV up, and it eases back down when sprint stops', async () => {

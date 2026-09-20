@@ -63,7 +63,7 @@ import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
 import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, saveRiftwyrmState, loadRiftwyrmState, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
-import { loadSettings } from './settings/settings.js';
+import { loadSettings, saveSettings } from './settings/settings.js';
 import { applyMipmapping } from './mesh/atlas.js';
 import { Clouds } from './world/clouds.js';
 import { SkyRenderer } from './world/sky.js';
@@ -78,6 +78,7 @@ import { loadGamerules } from './commands/gamerules.js';
 import { loadWorldState } from './commands/worldState.js';
 import { TitleDisplay } from './ui/titleDisplay.js';
 import { ConsoleUI } from './ui/console.js';
+import { DevMenu } from './ui/devMenu.js';
 import { EndingSequence } from './ending/endingSequence.js';
 import { startEndingMusic, stopEndingMusic } from './audio/endingMusic.js';
 
@@ -163,6 +164,11 @@ function main() {
 
   // --- Input --------------------------------------------------------
   const input = new Input(canvas);
+  // Rebinds were never actually persisted before this (confirmed by
+  // research before adding it, not assumed) — settings.keybinds is a
+  // sparse {action: keyCode} override map on top of input.js's own
+  // DEFAULT_BINDINGS, restored once here.
+  Object.assign(input.bindings, settings.keybinds);
 
   // The "Click to play" pause overlay should only appear when the player
   // actually pressed Escape — not for every way pointer lock can be lost
@@ -489,7 +495,10 @@ function main() {
   // menu-open player would be a real regression, not just a missed key.
   window.addEventListener('keydown', (e) => {
     if (e.code === input.bindings.cycleCamera) e.preventDefault();
-    if (e.code === 'F6' && tuningPanel) tuningPanel.toggle();
+    // Dev Menu: F6 is a real, rebindable Input binding now — moved the
+    // debug-only TuningPanel off F6 (now hardcoded F7, unrebindable, same
+    // as before) so both can coexist without a default-key collision.
+    if (e.code === 'F7' && tuningPanel) tuningPanel.toggle();
   });
   // Mute-on-blur: switching tabs/minimizing shouldn't keep playing audio
   // into a window the player isn't looking at. Suspending the whole
@@ -1130,6 +1139,52 @@ function main() {
   });
   consoleUI.setContextFactory(() => makeRootContext(cmdWorld, dispatcher));
 
+  /**
+   * The Dev Menu's own architectural rule: every action it performs
+   * routes through this — the exact same dispatcher.execute()/context
+   * path a typed chat command uses, just with commandsEnabled bypassed
+   * (context.js's own `bypass` field, checked by registerAll.js) since
+   * the spec requires the menu work regardless of "Allow Commands", and
+   * every result logged under the 'debug' message-log category. Returns
+   * true/false so a caller can react to failure (e.g. a bad teleport
+   * target) without the dev menu ever writing world state itself.
+   */
+  function runDevCommand(cmdText) {
+    const context = makeRootContext(cmdWorld, dispatcher, { bypass: { commands: true } });
+    try {
+      dispatcher.execute(cmdText, context);
+      return true;
+    } catch (e) {
+      cmdMessageLog.push({ source: 'system', category: 'debug', style: 'warning', segments: `[Dev Menu] /${cmdText} failed: ${e.message ?? String(e)}` });
+      return false;
+    }
+  }
+
+  const devMenu = new DevMenu({
+    layout: settings.devMenu.layout,
+    presets: settings.devMenu.presets,
+    quickBinds: settings.devMenu.quickBinds,
+    persist: () => saveSettings(settings),
+    logDebug: (text) => cmdMessageLog.debug(`[Dev Menu] ${text}`),
+    onOpenChange: (open) => {
+      if (open) exitLockForUI();
+      // Closing intentionally does NOT auto-relock — "moving the cursor
+      // off the panel returns control to the game cleanly" means a real
+      // click on the world does that (see the canvas listener below),
+      // not the panel silently grabbing the pointer back on its own.
+    },
+  });
+  // The dev menu is non-modal by design (spec: "does not pause the
+  // game"), so unlike every other UI here, it can stay open while the
+  // player is actively unlocked mid-interaction with it. This is what
+  // lets a click land back on the world and resume play without also
+  // registering as a mine/place click underneath — every world-
+  // interaction handler already requires input.pointerLocked to be true
+  // first, which it never is at the exact instant this fires.
+  canvas.addEventListener('click', () => {
+    if (devMenu.isOpen && !input.pointerLocked) input.requestLock();
+  });
+
   /** /schedule's fire callback — a scheduled command runs with a fresh root context (nothing chained it from /execute, so there's no derived context to reuse) and any failure is reported the same way a typed command's own failure is, rather than throwing out of the tick loop. */
   function runScheduledCommand(cmd) {
     const context = makeRootContext(cmdWorld, dispatcher);
@@ -1762,9 +1817,13 @@ function main() {
       // calling input.endFrame() at the bottom of it, ties consumption to
       // the fixed step instead.
       if (input.wasPressed('debugOverlay')) debugOverlay.toggle();
-      if (input.wasPressed('inventory')) toggleInventory();
+      // Dev Menu (its own Tab-cycles-focus keyboard nav would otherwise
+      // fight this exact binding — Tab is also the inventory key by
+      // default) and devMenu.toggle() itself both gated the same way.
+      if (input.wasPressed('inventory') && !devMenu.isOpen) toggleInventory();
       if (input.wasPressed('screenshot')) takeScreenshot(Number(settings.graphics.screenshotScale));
       if (input.wasPressed('cycleCamera')) player.cycleCameraMode();
+      if (input.wasPressed('devMenu')) devMenu.toggle();
       if (input.wasPressed('pause') && inventoryUI.isOpen) {
         inventoryUI.close();
         overlayEl.classList.remove('hidden');
@@ -2667,6 +2726,8 @@ function main() {
       toggleInventory,
       openContainer,
       endingSequence,
+      devMenu,
+      runDevCommand,
       closeContainerUIIfDestroyed,
       explode,
       getBlock,

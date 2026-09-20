@@ -811,6 +811,8 @@ export class MenuController {
       e.stopImmediatePropagation(); // don't let input.js's own listener also see this keypress
       window.removeEventListener('keydown', onKey, true);
       this.input.bindings[action] = e.code;
+      this.settings.keybinds[action] = e.code;
+      this._persist();
       btn.textContent = keyLabel(e.code);
       btn.classList.remove('listening');
       this._rebindingAction = null;

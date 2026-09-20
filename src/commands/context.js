@@ -13,7 +13,16 @@ export class CommandExecutionError extends Error {
   }
 }
 
-export function makeRootContext(world, dispatcher) {
+/**
+ * `bypass` (optional): flags a privileged caller's own root context so
+ * registerAll.js's `commandsEnabled` gate can wave it through regardless
+ * of the world's "Allow Commands" setting — used by the Dev Menu, which
+ * the spec requires works "regardless" of that setting, unlike the real
+ * chat console. Spread by deriveContext into every /execute-chained
+ * sub-context automatically, so a bypassed root context stays bypassed
+ * through the whole chain, not just its first subcommand.
+ */
+export function makeRootContext(world, dispatcher, { bypass } = {}) {
   return {
     world,
     dispatcher, // so /execute's "run <command>" can recurse back into the same dispatcher (see commands/scripting.js) without every argument type needing its own reference
@@ -21,6 +30,7 @@ export function makeRootContext(world, dispatcher) {
     position: null, // null = "use executor.position" — only set by /execute positioned
     rotation: null, // null = "use executor.yaw/pitch" — only set by /execute facing/align
     conditionResult: null, // set by /execute if/unless for the next chained subcommand to read
+    bypass,
     ...feedbackHelpers(world),
   };
 }

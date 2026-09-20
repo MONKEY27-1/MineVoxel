@@ -137,6 +137,24 @@ export const DEFAULT_CONSOLE = {
   categorySounds: false,
 };
 
+// Dev Menu (a new, separate feature from the settings panel above) —
+// panel layout and named presets are the two pieces explicitly specced
+// as global/cross-world, so they live here rather than in a per-world
+// save record. Toggle *states* are per-world instead (see
+// persistence/worldSave.js's own devMenuState field).
+export const DEFAULT_DEV_MENU = {
+  layout: {
+    x: null, // null = not yet placed; devMenu.js picks a sensible default centered offset the first time it opens
+    y: null,
+    width: 480,
+    height: 560,
+    collapsed: false,
+    lastTab: 'player',
+  },
+  presets: {}, // name -> { [toggleId]: value, ... } — an arbitrary key set, see deepMerge's own note on empty-default objects
+  quickBinds: {}, // toggleId -> keyCode, also a dynamic key set
+};
+
 export const DEFAULT_SETTINGS = {
   graphics: DEFAULT_GRAPHICS,
   performance: DEFAULT_PERFORMANCE,
@@ -144,6 +162,11 @@ export const DEFAULT_SETTINGS = {
   audio: DEFAULT_AUDIO,
   console: DEFAULT_CONSOLE,
   autosaveIntervalSec: 60,
+  // Rebind overrides only (a sparse {action: keyCode} map) — input.js's
+  // own DEFAULT_BINDINGS already supplies every action's real default,
+  // so this only needs to remember what actually changed.
+  keybinds: {},
+  devMenu: DEFAULT_DEV_MENU,
 };
 
 // Graphics-tab presets. Each is a *complete* graphics slice (not a diff)
@@ -228,7 +251,14 @@ function deepMerge(defaults, saved) {
     const dv = defaults[key];
     const sv = saved[key];
     if (sv === undefined) continue;
-    out[key] = typeof dv === 'object' && dv !== null && !Array.isArray(dv) ? deepMerge(dv, sv) : sv;
+    const isPlainObject = typeof dv === 'object' && dv !== null && !Array.isArray(dv);
+    // An empty-default object (keybinds' rebind overrides, dev-menu
+    // presets/named-widget-state) has no fixed key schema to merge key
+    // by key the way graphics/controls/audio do — recursing into it with
+    // the loop above would iterate zero keys and silently discard
+    // whatever was actually saved. Use the saved object wholesale in
+    // that case instead.
+    out[key] = isPlainObject ? (Object.keys(dv).length === 0 ? sv : deepMerge(dv, sv)) : sv;
   }
   return out;
 }

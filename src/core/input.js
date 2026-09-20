@@ -34,6 +34,11 @@ export const DEFAULT_BINDINGS = {
   hotbar9: 'Digit9',
   screenshot: 'F2',
   cycleCamera: 'F5',
+  // Dev Menu — F6 previously belonged to the debug-only TuningPanel
+  // (moved to F7, see main.js's own note) so this could be a real,
+  // always-available, rebindable action like every other binding here,
+  // not a hardcoded raw listener.
+  devMenu: 'F6',
 };
 
 export class Input {

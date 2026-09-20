@@ -1448,3 +1448,298 @@ html, body {
 #ending-hint.visible {
   opacity: 1;
 }
+
+/* ==================== Dev Menu ==================== */
+
+#active-cheats-strip {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--hud-scale, 1));
+  transform-origin: top center;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: 90vw;
+  pointer-events: none; /* the strip itself is inert; individual chips opt back in below */
+}
+
+.active-cheat-chip {
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(120, 20, 20, 0.75);
+  border: 1px solid rgba(255, 140, 140, 0.5);
+  color: #ffdede;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.active-cheat-chip:hover {
+  background: rgba(160, 30, 30, 0.9);
+}
+
+#devmenu-panel {
+  position: fixed;
+  z-index: 35; /* below the ending overlay (40) and above the settings panel (26) — a dev tool should never be hidden behind ordinary UI */
+  display: flex;
+  flex-direction: column;
+  background: rgba(18, 16, 26, 0.96);
+  border: 1px solid rgba(201, 167, 255, 0.35);
+  border-radius: 6px;
+  color: #e8e0f5;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  min-width: 320px;
+  min-height: 44px;
+  overflow: hidden;
+}
+
+#devmenu-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(74, 58, 110, 0.55);
+  cursor: move;
+  user-select: none;
+  flex: none;
+}
+
+#devmenu-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+
+#devmenu-titlebar-actions {
+  display: flex;
+  gap: 4px;
+}
+
+#devmenu-titlebar-actions button {
+  width: 22px;
+  height: 22px;
+  line-height: 20px;
+  padding: 0;
+  border: 1px solid rgba(201, 167, 255, 0.35);
+  background: rgba(0, 0, 0, 0.25);
+  color: #e8e0f5;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#devmenu-titlebar-actions button:hover {
+  background: rgba(201, 167, 255, 0.25);
+}
+
+#devmenu-panel.collapsed #devmenu-body,
+#devmenu-panel.collapsed #devmenu-resize-handle {
+  display: none;
+}
+
+#devmenu-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px 10px;
+  gap: 8px;
+}
+
+#devmenu-tabs {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.devmenu-tab-btn {
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(201, 167, 255, 0.25);
+  color: #cfc4e8;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.devmenu-tab-btn.active {
+  background: rgba(201, 167, 255, 0.3);
+  color: #fff;
+  border-color: #c9a7ff;
+}
+
+#devmenu-search-row {
+  flex: none;
+}
+
+#devmenu-search {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+#devmenu-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.devmenu-tab-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.devmenu-tab-section.hidden {
+  display: none;
+}
+
+.devmenu-empty-note {
+  font-size: 12px;
+  color: rgba(232, 224, 245, 0.5);
+  padding: 10px 4px;
+  text-align: center;
+}
+
+.devmenu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-row:hover,
+.devmenu-row:focus-within {
+  background: rgba(201, 167, 255, 0.12);
+}
+
+.devmenu-row.filtered-out {
+  display: none;
+}
+
+.devmenu-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.devmenu-row input[type='range'] {
+  flex: 1;
+  max-width: 140px;
+}
+
+.devmenu-row-value {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #c9a7ff;
+}
+
+.devmenu-row select,
+.devmenu-row input[type='text'],
+.devmenu-row input[type='number'] {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-row button.devmenu-action-btn {
+  background: rgba(201, 167, 255, 0.18);
+  border: 1px solid rgba(201, 167, 255, 0.4);
+  color: #e8e0f5;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.devmenu-row button.devmenu-action-btn:hover {
+  background: rgba(201, 167, 255, 0.32);
+}
+
+.devmenu-row .devmenu-quickbind-hint {
+  font-size: 10px;
+  color: rgba(201, 167, 255, 0.8);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+#devmenu-preset-row {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(201, 167, 255, 0.2);
+}
+
+#devmenu-preset-select {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+#devmenu-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(201, 167, 255, 0.5) 50%);
+}
+
+#devmenu-context-menu {
+  position: fixed;
+  z-index: 36;
+  background: rgba(18, 16, 26, 0.98);
+  border: 1px solid rgba(201, 167, 255, 0.4);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+#devmenu-context-menu button {
+  background: none;
+  border: none;
+  color: #e8e0f5;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+#devmenu-context-menu button:hover {
+  background: rgba(201, 167, 255, 0.2);
+}

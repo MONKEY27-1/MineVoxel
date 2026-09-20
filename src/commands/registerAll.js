@@ -29,7 +29,12 @@ export function createDispatcher() {
   for (const node of dispatcher.root.children) {
     if (ALWAYS_AVAILABLE.has(node.name)) continue;
     const existing = node.requirement;
-    node.requires((context) => context.world.commandsEnabled !== false && (!existing || existing(context)));
+    // context.bypass.commands (set only by makeRootContext's own
+    // privileged callers — the Dev Menu, see context.js's note) waves
+    // this through regardless of the world's "Allow Commands" setting.
+    // Never settable by anything a player types, so ordinary chat
+    // commands are completely unaffected.
+    node.requires((context) => context.bypass?.commands === true || (context.world.commandsEnabled !== false && (!existing || existing(context))));
   }
   return dispatcher;
 }
