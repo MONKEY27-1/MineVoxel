@@ -18,8 +18,8 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 4 — The Riftwyrm
 - [x] Phase 5 — Death, the exit gate, and rewards (the real ending sequence itself is a placeholder — see phase 11)
 - [x] Phase 6 — Respawning the Riftwyrm
-- [ ] Phase 7 — Far Gates and the void crossing
-- [ ] Phase 8 — Outer islands, Pale Spires, and Skyships
+- [x] Phase 7 — Far Gates and the void crossing (baseline outer-island terrain built here since phase 7 genuinely needs it — see below)
+- [ ] Phase 8 — Outer islands, Pale Spires, and Skyships (the base floating-island terrain and Far Gates themselves are already done — this phase layers Rift Bloom, Pale Spires, Skyships, and Vaultling onto that same terrain)
 - [ ] Phase 9 — Glidewings
 - [ ] Phase 10 — Rift Chest
 - [ ] Phase 11 — The ending sequence
@@ -517,6 +517,95 @@ be rewritten) lives at `src/ending/poem.txt`.
   the production interaction code (which already worked correctly the
   whole time — confirmed by direct reproduction before touching
   anything).
+
+## Architecture decisions (phase 7)
+
+- **Phase 7 pulled forward a slice of phase 8's own scope, deliberately
+  and visibly**: "throwing a Riftpearl into a Far Gate teleports ~1000
+  blocks outward" and "must generate destination terrain before
+  transfer" cannot be satisfied without *some* real terrain to arrive at
+  — and "the outer islands" is phase 8's own numbered item. Rather than
+  fake a destination (a single hand-placed platform with nothing beyond
+  it) or block on reordering the spec, this pass built the actual
+  base terrain phase 8 needs (scattered floating Palestone islands from
+  noise, with distance falloff) as phase 7's own infrastructure, leaving
+  Rift Bloom/Pale Spires/Skyships/Vaultling — everything phase 8 adds
+  *on top of* that same terrain — for phase 8 itself. A real dependency,
+  not scope creep; recorded here so it isn't mistaken for either.
+- **Outer islands use 2D noise + per-grid-cell placement, not true 3D
+  noise** — `NoiseField` (world/noise.js) has no 3D variant anywhere in
+  this codebase, and building one for this single use was judged out of
+  scope. `outerIslandAt(wx,wz)` hashes each `OUTER_ISLAND_CELL` grid cell
+  (same "deterministic from a hash of the cell, no shared rnd-stream"
+  discipline `structures/placement.js`'s own region placer already
+  established) to decide whether an island exists there at all, then a
+  2D height-noise field gives each one some varied surface — reads as
+  genuinely scattered floating islands with real distance falloff
+  (`OUTER_REGION_START` gates where they can begin at all) without
+  inventing a 3D noise primitive.
+- **Far Gates are real, fixed terrain from world generation — not built
+  dynamically once the wyrm dies.** "Dormant... active once the Riftwyrm
+  first dies" is satisfied purely at the *interaction* layer:
+  `throwRiftpearl`'s `onHit` checks `riftwyrmManager.hasEverDied` before
+  treating a Far Gate hit as a real activation, so an untouched, always-
+  present block does the whole job. This was a deliberate alternative to
+  a TNT/TNT_LIT-style dormant/active block swap (the established pattern
+  for "state visible via block swap" in this codebase) — rejected here
+  specifically because the Far Gate ring (radius ~118) sits well outside
+  normal render distance around the fountain where the wyrm dies, so a
+  "sweep and flip every gate the moment it dies" pass would hit the same
+  unloaded-column problem phase 4/5's own bugs already came from, for a
+  purely cosmetic distinction. No visual dormant/active difference exists
+  today — a real, documented simplification, not an oversight.
+- **A Far Gate is a thrown-at target, not a walk-through portal** — it
+  isn't a `PORTAL_TRAVEL` entry at all; `throwRiftpearl`'s own `onHit`
+  callback checks `findBlockNear` (a small bounded search around the
+  projectile's actual landing point — a real hit rarely lands in the
+  exact same cell as the solid block it stopped short of) for
+  `BLOCKS.FAR_GATE`/`FAR_GATE_RETURN` before falling through to the
+  ordinary shatter/Riftmite-spawn behavior.
+- **`FAR_GATE` and `FAR_GATE_RETURN` are two distinct block ids**, not
+  one block with per-instance state (this engine's blocks carry none,
+  an established fact from earlier phases) — an outbound gate must
+  teleport *away* from center along its own position's bearing, while a
+  return gate must always come *back* to the fixed, known-safe
+  `HOLLOW_ARRIVAL_POINT`; the same block computing both directions would
+  need to know which "kind" it currently is, which is exactly the state
+  this engine's blocks don't carry.
+- **Each outbound gate's destination is deterministic from its own fixed
+  position** (`angle = atan2(gate.z, gate.x)`, target = that bearing at
+  1000 blocks), not randomized per-throw and not persisted as a
+  "connection" — simpler than tracking gate-to-gate links, and still
+  gives 6 genuinely different outbound destinations (one per gate around
+  the ring) rather than one shared corridor.
+- **`findOuterLanding` probes `outerIslandAt` directly (a pure function
+  of world (x,z), no chunk dependency) in expanding rings BEFORE
+  committing to load any chunk** — the exact 1000-block target can
+  legitimately land in a gap between islands (real islands cover only
+  ~55% of grid cells), and "must never drop the player into the void"
+  means finding real ground has to happen before `ensureChunkLoadedAt`
+  is ever called, not after.
+- **Real bug found by `tools/test-far-gates.js`, not by eye:** the return
+  Far Gate was originally placed at the exact same `(x,y,z)` the player's
+  own feet land on — meaning a successful trip landed the player standing
+  *inside* the block just placed. Fixed by offsetting the return gate's
+  own little bedrock-plus-marker foundation one cell over from the
+  player's own landing column, the same "don't put the reward exactly
+  where the player already is" reasoning phase 5's own Wyrm Egg placement
+  (offset from the exit portal's own center) already used.
+- **A second real bug, this one in the test itself, not the game:** an
+  early version of the throw-activation test read a thrown projectile's
+  outcome after a fixed, too-short tick count; a miss (which still
+  resolves eventually via the projectile's own `maxLifetime` timeout)
+  looked identical to "hasn't resolved yet" within that window,
+  producing a hang rather than a clear pass/fail. Fixed by ticking
+  comfortably past `maxLifetime` before reading the result, and by
+  tuning the test's own throw geometry (aim point/distance) so the shot
+  reliably lands in the gate's own block cell instead of drifting past it
+  under gravity — a good reminder that "the projectile eventually times
+  out and calls onHit anyway" is easy to forget when *tuning* a test's
+  own throw trajectory, since a plausible-looking near-miss and a not-
+  yet-resolved shot are indistinguishable without ticking far enough.
 
 ## Notable honesty calls
 

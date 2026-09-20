@@ -19,6 +19,44 @@ const PILLAR_COUNT = 11;
 const PILLAR_RING_RADIUS = 100;
 const FOUNTAIN_RADIUS = 5;
 
+// Phase 7: small dormant Far Gates ringing the central island, just
+// outside the Spire Crystal pillars — physically present from world
+// generation (real, fixed terrain, like the pillar ring itself), but
+// functionally inert until the Riftwyrm first dies (main.js checks
+// riftwyrmManager.hasEverDied at throw-time rather than swapping the
+// block's own appearance — see HOLLOWREACH.md's own note on why a
+// visual dormant/active distinction was judged not worth the added
+// complexity of sweeping possibly-unloaded columns the moment the wyrm
+// dies).
+const FAR_GATE_COUNT = 6;
+const FAR_GATE_RING_RADIUS = 118;
+
+// Phase 7/8: the outer islands a Far Gate actually leads to — "scattered
+// floating Palestone islands from 3D noise with distance falloff" per
+// spec. True 3D value noise has no precedent anywhere in this codebase
+// (NoiseField is 2D-only); approximated instead with a per-grid-cell
+// island placement (deterministic from a hash of the cell, same
+// placement-without-a-shared-rnd-stream discipline
+// structures/placement.js's makeRegionPlacer already established) plus a
+// 2D height-noise field for each island's own varied surface — reads as
+// genuinely scattered floating islands without inventing a 3D noise
+// primitive for this one use.
+const OUTER_REGION_START = 140; // just past the Far Gate ring
+const OUTER_ISLAND_CELL = 40;
+const OUTER_ISLAND_CHANCE = 0.55;
+const OUTER_ISLAND_MIN_RADIUS = 8;
+const OUTER_ISLAND_MAX_RADIUS = 22;
+const OUTER_ISLAND_MIN_Y = 60;
+const OUTER_ISLAND_MAX_Y = 140;
+
+function hashCoords(seed, a, b) {
+  let h = (seed ^ 0x9e3779b9) | 0;
+  h = Math.imul(h ^ a, 0x85ebca6b);
+  h = Math.imul(h ^ b, 0xc2b2ae35);
+  h ^= h >>> 15;
+  return h >>> 0;
+}
+
 // Where the Rift Gate (main.js) lands a player: directly above the
 // fountain, comfortably clear of ISLAND_CENTER_Y's own +/-5 noise
 // wobble (islandTopAt), so arrival never lands inside solid terrain
@@ -70,6 +108,60 @@ export function createHollowReachGenerator(seed) {
       // landing on "all caged" or "none caged".
       caged: i % 3 === 0,
     });
+  }
+
+  // Far Gate ring — computed once, same "fixed list, checked for
+  // membership every generateColumn call" story as the pillar ring.
+  const farGateRnd = mulberry32(s ^ 0x40110005);
+  const farGates = [];
+  for (let i = 0; i < FAR_GATE_COUNT; i++) {
+    const angle = (i / FAR_GATE_COUNT) * Math.PI * 2 + farGateRnd() * 0.2;
+    const radius = FAR_GATE_RING_RADIUS + (farGateRnd() - 0.5) * 6;
+    farGates.push({
+      x: Math.round(ISLAND_CENTER_X + Math.cos(angle) * radius),
+      z: Math.round(ISLAND_CENTER_Z + Math.sin(angle) * radius),
+      angle,
+    });
+  }
+
+  const outerHeightNoise = new NoiseField(s ^ 0x40110006, { octaves: 2, frequency: 0.03, persistence: 0.5 });
+
+  /**
+   * Pure function of world (x,z) — no chunk/rnd-stream dependency, so
+   * main.js's Far Gate travel can cheaply probe candidate landing spots
+   * before committing to actually loading any chunk there (see
+   * travelViaFarGate's own search). Returns {top, thickness} or null if
+   * this column isn't over any outer island at all.
+   */
+  function outerIslandAt(wx, wz) {
+    const dist = Math.hypot(wx - ISLAND_CENTER_X, wz - ISLAND_CENTER_Z);
+    if (dist < OUTER_REGION_START) return null;
+    const cellX = Math.floor(wx / OUTER_ISLAND_CELL);
+    const cellZ = Math.floor(wz / OUTER_ISLAND_CELL);
+    const cellRnd = mulberry32(hashCoords(s ^ 0x40110007, cellX, cellZ));
+    if (cellRnd() >= OUTER_ISLAND_CHANCE) return null;
+    const centerX = cellX * OUTER_ISLAND_CELL + OUTER_ISLAND_CELL / 2 + (cellRnd() - 0.5) * OUTER_ISLAND_CELL * 0.5;
+    const centerZ = cellZ * OUTER_ISLAND_CELL + OUTER_ISLAND_CELL / 2 + (cellRnd() - 0.5) * OUTER_ISLAND_CELL * 0.5;
+    const radius = OUTER_ISLAND_MIN_RADIUS + cellRnd() * (OUTER_ISLAND_MAX_RADIUS - OUTER_ISLAND_MIN_RADIUS);
+    const centerY = OUTER_ISLAND_MIN_Y + cellRnd() * (OUTER_ISLAND_MAX_Y - OUTER_ISLAND_MIN_Y);
+    const d = Math.hypot(wx - centerX, wz - centerZ);
+    if (d > radius) return null;
+    const t = d / radius;
+    const top = Math.round(centerY - t * t * 6 + outerHeightNoise.sample(wx, wz) * 3);
+    const thickness = Math.max(3, Math.round(6 * (1 - t) + 2));
+    return { top, thickness };
+  }
+
+  function buildFarGate(setBlock, cx, cz, gate) {
+    const setIfInChunk = (wx, wy, wz, id) => {
+      if (Math.floor(wx / 16) !== cx || Math.floor(wz / 16) !== cz) return;
+      setBlock(wx - cx * 16, wy, wz - cz * 16, id);
+    };
+    const y = ISLAND_EDGE_Y; // a fixed, always-solid-enough height near the island's own outer rim
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) setIfInChunk(gate.x + dx, y, gate.z + dz, BLOCKS.BEDROCK);
+    }
+    setIfInChunk(gate.x, y + 1, gate.z, BLOCKS.FAR_GATE);
   }
 
   function islandRadiusAt(wx, wz) {
@@ -150,6 +242,16 @@ export function createHollowReachGenerator(seed) {
           const bottom = Math.max(1, top - thickness);
           for (let wy = bottom; wy <= top; wy++) setBlock(lx, wy, lz, BLOCKS.PALESTONE);
           buildFountain(setBlock, lx, lz, wx, wz, top);
+        } else {
+          // Phase 7/8: the outer islands, everywhere the central island
+          // itself doesn't already cover — outerIslandAt returns null for
+          // the vast majority of columns (that's what makes the void read
+          // as a void), and a real hit for a scattered floating island.
+          const outer = outerIslandAt(wx, wz);
+          if (outer) {
+            const bottom = Math.max(1, outer.top - outer.thickness);
+            for (let wy = bottom; wy <= outer.top; wy++) setBlock(lx, wy, lz, BLOCKS.PALESTONE);
+          }
         }
       }
     }
@@ -162,6 +264,11 @@ export function createHollowReachGenerator(seed) {
       const nearZ = Math.abs(Math.floor(pillar.z / 16) - cz) <= 1;
       if (nearX && nearZ) buildPillar(setBlock, cx, cz, pillar);
     }
+    for (const gate of farGates) {
+      const nearX = Math.abs(Math.floor(gate.x / 16) - cx) <= 1;
+      const nearZ = Math.abs(Math.floor(gate.z / 16) - cz) <= 1;
+      if (nearX && nearZ) buildFarGate(setBlock, cx, cz, gate);
+    }
     return { chests: [], spawners: [] };
   }
 
@@ -171,5 +278,11 @@ export function createHollowReachGenerator(seed) {
   // crystal itself is just BLOCKS.SPIRE_CRYSTAL at `(x, height+2, z)`,
   // already the single source of truth for "is this crystal still
   // alive," so nothing else needs to be exported alongside it.
-  return { generateColumn, pillars };
+  //
+  // farGates/outerIslandAt (phase 7): main.js's travelViaFarGate needs
+  // the fixed gate ring to compute each gate's own outward bearing from
+  // center, and outerIslandAt as a cheap, chunk-independent way to probe
+  // candidate landing spots before committing to actually loading a
+  // chunk there.
+  return { generateColumn, pillars, farGates, outerIslandAt };
 }

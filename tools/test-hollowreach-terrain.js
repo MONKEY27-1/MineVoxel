@@ -66,12 +66,51 @@ function run() {
     assert(centerThickness > farThickness, `expected the center column (thickness ${centerThickness}) to be thicker than a column near the edge (${farThickness})`);
   }
 
-  console.log('  - well outside the island radius, generation produces genuinely nothing (a real void, not a floor/ceiling shell)...');
+  console.log('  - just past the island/pillar/Far-Gate rings but before the outer-island region, generation produces genuinely nothing...');
   {
-    // 40 chunks out = 640 blocks, far past the ~90-108 block island
-    // radius and past the ~100-114 block pillar ring too.
-    const placed = generateChunk(gen, 40, 40);
-    assert(placed.size === 0, `expected an empty chunk far outside the island, found ${placed.size} placed blocks`);
+    // A single exact column at distance ~130 — past the Far Gate ring's
+    // own max radius (~121) but short of OUTER_REGION_START (140), where
+    // phase 7's own outer islands start appearing. A whole-chunk check
+    // isn't safe this close to that boundary (a chunk's far corner could
+    // already dip into outer-island territory), so this checks one exact
+    // column the same way the thickness test above does.
+    const ys = [];
+    gen.generateColumn(
+      (lx, y, lz) => {
+        if (Math.floor(130 / 16) * 16 + lx === 130 && lz === 0) ys.push(y);
+      },
+      Math.floor(130 / 16),
+      0,
+      () => 0.5
+    );
+    assert(ys.length === 0, `expected a genuine void gap between the Far Gate ring and the outer islands, found ${ys.length} blocks at (130,*,0)`);
+  }
+
+  console.log('  - past OUTER_REGION_START, scattered outer islands and their Far Gates actually appear (phase 7)...');
+  {
+    let outerIslandBlocks = 0;
+    let farGateBlocks = 0;
+    // A full square of chunks covering both the Far Gate ring (radius
+    // ~115-121, at every angle around the circle, not just +x) and the
+    // outer-island region beyond OUTER_REGION_START (140) out to ~480
+    // blocks — real islands cover only ~55% of grid cells, so this needs
+    // enough area to be confident of finding several.
+    for (let cx = -30; cx <= 30; cx++) {
+      for (let cz = -30; cz <= 30; cz++) {
+        const placed = generateChunk(gen, cx, cz);
+        for (const [key, id] of placed) {
+          const [x, , z] = key.split(',').map(Number);
+          const dist = Math.hypot(x, z);
+          // Excludes the central island's own Palestone (dist <= ~108) —
+          // this is specifically checking the SCATTERED outer islands,
+          // not just "Palestone exists somewhere in this huge scan".
+          if (id === BLOCKS.PALESTONE && dist > 140) outerIslandBlocks++;
+          if (id === BLOCKS.FAR_GATE) farGateBlocks++;
+        }
+      }
+    }
+    assert(outerIslandBlocks > 500, `expected real scattered outer-island terrain past OUTER_REGION_START, found only ${outerIslandBlocks} Palestone blocks in the scanned range`);
+    assert(farGateBlocks >= 1, `expected at least one Far Gate block in the ring near the central island, found ${farGateBlocks}`);
   }
 
   console.log('  - the erosion noise actually varies the island radius by direction (not a perfect circle)...');

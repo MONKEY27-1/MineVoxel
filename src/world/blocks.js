@@ -375,6 +375,20 @@ export const BLOCKS = {
   // explosion is the in-spirit displacement solution instead (see
   // main.js's TNT-detonation handling and HOLLOWREACH.md's own note).
   WYRM_EGG: define({ name: 'wyrm_egg', texture: { all: 'wyrm_egg' }, hardness: Infinity, drops: null, blastResistance: 4, lightEmission: 3 }),
+  // Phase 7: the dormant Far Gates ringing the central island — always
+  // present from generation (never a block-swap between "dormant" and
+  // "active"; main.js checks riftwyrmManager.hasEverDied at throw-time
+  // instead, see HOLLOWREACH.md), and genuinely permanent (never minable
+  // or explosion-destructible — the whole point is a fixed target to
+  // throw a Riftpearl at, not something a player could accidentally
+  // break the connection by digging out).
+  FAR_GATE: define({ name: 'far_gate', texture: { all: 'far_gate' }, hardness: Infinity, drops: null, blastResistance: Infinity, lightEmission: 6 }),
+  // The matching return gate generated at an outer-island landing spot
+  // the instant a player first arrives there (main.js's travelViaFarGate)
+  // — a distinct block id (not the same FAR_GATE) since it needs to
+  // teleport back toward the central island instead of further outward
+  // along its own position's bearing from center.
+  FAR_GATE_RETURN: define({ name: 'far_gate_return', texture: { all: 'far_gate_return' }, hardness: Infinity, drops: null, blastResistance: Infinity, lightEmission: 6 }),
 };
 
 export function getBlock(id) {

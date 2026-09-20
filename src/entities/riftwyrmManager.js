@@ -34,6 +34,12 @@ export class RiftwyrmManager {
     this.justDied = false; // one-shot flag, read+cleared by main.js to build the exit gate + Wyrm Egg exactly once, and to roll boss loot
     this.lastDeathPosition = null; // read by main.js's justDied handler — this.current is already gone by the time that flag is seen
     this.timesKilled = 0; // phase 6: every respawn-ritual completion increments this, main.js uses it to scale down repeat-fight XP
+    // Phase 7: distinct from timesKilled — set the instant the FIRST
+    // death happens (before any respawn ritual could ever run), since
+    // "active once the Riftwyrm first dies" needs to stay true forever
+    // after, through every later respawn/death cycle, not just while the
+    // exit gate happens to be open.
+    this.hasEverDied = false;
   }
 
   spawn(position, pillars, fountain, health, xpMultiplier = 1) {
@@ -51,6 +57,7 @@ export class RiftwyrmManager {
         this.current.dispose();
         this.current = null;
         this.justDied = true;
+        this.hasEverDied = true;
       }
     }
     this._updateClouds(dt, player, dimension);
@@ -98,6 +105,7 @@ export class RiftwyrmManager {
       eggPresent: this.eggPresent,
       hasSeenEnding: this.hasSeenEnding,
       timesKilled: this.timesKilled,
+      hasEverDied: this.hasEverDied,
     };
   }
 
@@ -110,6 +118,7 @@ export class RiftwyrmManager {
     manager.eggPresent = !!json.eggPresent;
     manager.hasSeenEnding = !!json.hasSeenEnding;
     manager.timesKilled = json.timesKilled ?? 0;
+    manager.hasEverDied = !!json.hasEverDied;
     if (json.alive && json.health > 0) {
       manager.current = new Riftwyrm(scene, { x: json.x, y: json.y, z: json.z }, { health: json.health, pillars, arrivalPoint: { y: json.y }, fountain });
     }

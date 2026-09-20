@@ -1374,12 +1374,149 @@ function main() {
       damage: 0,
       dimensionId: activeDimension.id,
       onHit: (hitPos) => {
+        // Phase 7: a Far Gate is a thrown-at target, not a walk-through
+        // portal — checked here rather than as a PORTAL_TRAVEL entry
+        // since a projectile hit is what activates it, not standing on
+        // top of anything.
+        const farGateHit = findBlockNear(hitPos, BLOCKS.FAR_GATE, 2);
+        if (farGateHit && riftwyrmManager.hasEverDied) {
+          travelViaFarGate(farGateHit);
+          return;
+        }
+        const farGateReturnHit = findBlockNear(hitPos, BLOCKS.FAR_GATE_RETURN, 2);
+        if (farGateReturnHit) {
+          travelViaFarGateReturn();
+          return;
+        }
         particles.spawnBurst(hitPos, 0x8a6ab0, 8, 2.5);
         if (Math.random() < RIFTMITE_SPAWN_CHANCE) {
           mobManager.spawn('riftmite', { x: hitPos.x, y: hitPos.y, z: hitPos.z });
         }
       },
     });
+  }
+
+  /** A small bounded search for a specific block id near a projectile's own landing point — a real hit rarely lands in the exact same cell as the solid block it stopped short of. */
+  function findBlockNear(pos, blockId, radius) {
+    const cx = Math.floor(pos.x);
+    const cy = Math.floor(pos.y);
+    const cz = Math.floor(pos.z);
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+          if (chunkManager.getBlock(cx + dx, cy + dy, cz + dz) === blockId) return { x: cx + dx, y: cy + dy, z: cz + dz };
+        }
+      }
+    }
+    return null;
+  }
+
+  const FAR_GATE_TRAVEL_DISTANCE = 1000;
+  const FAR_GATE_LANDING_SEARCH_RINGS = [0, 20, 40, 60, 80, 100, 140, 180, 220];
+
+  /**
+   * Probes outerIslandAt (a pure, chunk-independent function of world
+   * (x,z) — see hollowReachGenerator.js) in expanding rings around the
+   * target point until a real island turns up, so a Far Gate throw never
+   * commits to loading (and dropping the player into) an empty patch of
+   * void just because its exact 1000-block target happened to land in a
+   * gap between islands.
+   */
+  function findOuterLanding(targetX, targetZ) {
+    for (const ringRadius of FAR_GATE_LANDING_SEARCH_RINGS) {
+      const points = ringRadius === 0 ? [[0, 0]] : Array.from({ length: 8 }, (_, i) => {
+        const a = (i / 8) * Math.PI * 2;
+        return [Math.round(Math.cos(a) * ringRadius), Math.round(Math.sin(a) * ringRadius)];
+      });
+      for (const [ox, oz] of points) {
+        const x = targetX + ox;
+        const z = targetZ + oz;
+        const info = hollowReachClimate.outerIslandAt(x, z);
+        if (info) return { x, z, top: info.top };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Phase 7: throwing a Riftpearl into a Far Gate — a real position
+   * teleport within the SAME Hollow Reach chunk manager (the outer
+   * islands are just far-away terrain in the same dimension, not a
+   * separate one), so this needs no dimension swap at all, just "find
+   * real ground out there, load it, stand on it."
+   */
+  async function travelViaFarGate(gatePos) {
+    if (isTraveling) return;
+    isTraveling = true;
+    fadeOverlayEl.style.transition = '';
+    fadeOverlayEl.classList.add('visible');
+    try {
+      const angle = Math.atan2(gatePos.z, gatePos.x);
+      const targetX = Math.round(Math.cos(angle) * FAR_GATE_TRAVEL_DISTANCE);
+      const targetZ = Math.round(Math.sin(angle) * FAR_GATE_TRAVEL_DISTANCE);
+      const landing = findOuterLanding(targetX, targetZ);
+      if (!landing) {
+        cmdMessageLog.push({ source: 'system', category: 'warning', style: 'warning', segments: 'The Far Gate flickers and fails to connect.' });
+        return;
+      }
+      await ensureChunkLoadedAt(chunkManager, landing.x, landing.z);
+      // Re-derived from the real generated blocks, not the noise
+      // estimate alone — outerIslandAt's own `top` is a close guide for
+      // where to start scanning, not a guarantee (rounding/noise-sample
+      // drift), and this is the one placement that must never be wrong.
+      let landY = null;
+      for (let y = Math.min(200, landing.top + 10); y >= 1; y--) {
+        if (isSolid(chunkManager.getBlock(landing.x, y, landing.z))) {
+          landY = y;
+          break;
+        }
+      }
+      if (landY === null) {
+        cmdMessageLog.push({ source: 'system', category: 'warning', style: 'warning', segments: 'The Far Gate flickers and fails to connect.' });
+        return;
+      }
+      player.position.x = landing.x + 0.5;
+      player.position.y = landY + 1;
+      player.position.z = landing.z + 0.5;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      // A return Far Gate generates at the destination — the whole point
+      // of throwing a Riftpearl into one in the first place, not a
+      // one-way trip into the unknown. Offset one cell over from the
+      // player's own landing column (not directly at their feet) — this
+      // used to sit exactly where the player's own feet land, which
+      // meant they arrived standing inside the very block just placed.
+      chunkManager.setBlock(landing.x + 1, landY, landing.z, BLOCKS.BEDROCK);
+      chunkManager.setBlock(landing.x + 1, landY + 1, landing.z, BLOCKS.FAR_GATE_RETURN);
+      cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'A Far Gate hurls you far out over the void.' });
+      travelCooldown = 3;
+    } finally {
+      setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
+      isTraveling = false;
+    }
+  }
+
+  /** The return half of a Far Gate trip — always back to the same fixed, known-safe spot above the central island's own fountain (HOLLOW_ARRIVAL_POINT), not back toward whichever outer island the player is currently on. */
+  async function travelViaFarGateReturn() {
+    if (isTraveling) return;
+    isTraveling = true;
+    fadeOverlayEl.style.transition = '';
+    fadeOverlayEl.classList.add('visible');
+    try {
+      await ensureChunkLoadedAt(chunkManager, HOLLOW_ARRIVAL_POINT.x, HOLLOW_ARRIVAL_POINT.z);
+      player.position.x = HOLLOW_ARRIVAL_POINT.x;
+      player.position.y = HOLLOW_ARRIVAL_POINT.y;
+      player.position.z = HOLLOW_ARRIVAL_POINT.z;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'The Far Gate returns you to the central island.' });
+      travelCooldown = 3;
+    } finally {
+      setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
+      isTraveling = false;
+    }
   }
 
   const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer, player });
@@ -2278,6 +2415,10 @@ function main() {
       buildExitGate,
       checkRiftwyrmRitual,
       HOLLOW_FOUNTAIN_POINT,
+      get hollowReachClimate() { return hollowReachClimate; },
+      travelViaFarGate,
+      travelViaFarGateReturn,
+      findOuterLanding,
       interaction,
       dayNight,
       itemDrops,

@@ -1469,3 +1469,26 @@ painters.wyrm_egg = (ctx, ox, oy) => {
   ctx.quadraticCurveTo(ox + 7, oy + 10, ox + 10, oy + 15);
   ctx.stroke();
 };
+
+// Phase 7: the Far Gate — a small dark stone marker ringed with a pale
+// void-blue glow, distinct from every other gate/portal block's own
+// palette (warm violet for the Rift Portal, cool blue-black for the
+// Exit Portal) so it reads as its own, separate kind of landmark.
+painters.far_gate = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#1a1a24', ['#242432', '#101018'], 0.2, 910);
+  ctx.strokeStyle = '#6ab0e8';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox + 2.5, oy + 2.5, 11, 11);
+  ctx.fillStyle = '#a8d4f2';
+  ctx.fillRect(ox + 7, oy + 7, 2, 2);
+};
+// The matching return gate — the same marker with a warmer amber glow,
+// reading as "the way back" against the outbound gate's cool blue.
+painters.far_gate_return = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#1a1a24', ['#242432', '#101018'], 0.2, 911);
+  ctx.strokeStyle = '#e8a848';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox + 2.5, oy + 2.5, 11, 11);
+  ctx.fillStyle = '#f2d4a8';
+  ctx.fillRect(ox + 7, oy + 7, 2, 2);
+};
