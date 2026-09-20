@@ -145,6 +145,16 @@ export const RECIPES = [
     outputId: BLOCKS.SMITHING_TABLE,
     outputCount: 1,
   },
+  // The Hollow Reach (dimension 3), phase 1: items.js's own RIFT_SHARD
+  // comment already claimed "crafted from a Riftpearl + Cinder Powder,"
+  // but no recipe actually existed anywhere — a real gap, closed here
+  // rather than left for whenever someone next touched this file.
+  { id: 'rift_shard', shapeless: true, ingredients: [item(ITEMS.RIFTPEARL.id), item(ITEMS.CINDER_POWDER.id)], outputId: ITEMS.RIFT_SHARD.id, outputCount: 1 },
+  // Phase 6: how a player crafts the 4 Spire Crystals the Riftwyrm's
+  // respawn ritual needs — glass (already a real block) + a Rift Shard +
+  // a bottle of Rift Breath (BOTTLED_RIFT_BREATH, filled by standing in
+  // an active Rift Breath cloud with a Glass Bottle held — see main.js).
+  { id: 'spire_crystal', shapeless: true, ingredients: [item(BLOCKS.GLASS), item(ITEMS.RIFT_SHARD.id), item(ITEMS.BOTTLED_RIFT_BREATH.id)], outputId: BLOCKS.SPIRE_CRYSTAL, outputCount: 1 },
 ];
 
 function toolFamily(toolType, template) {

@@ -54,9 +54,12 @@ export default async function run(baseUrl) {
         return { orbCountBefore: M.xpOrbs.orbs.length };
       });
       // Real wall-clock ticking (the actual game loop, not a manually
-      // driven update() loop) — DEATH_DURATION is 10s, with several XP
-      // bursts spread across the middle third of it per riftwyrm.js.
-      await page.waitForTimeout(11500);
+      // driven update() loop) — DEATH_DURATION is 10s of fixed-timestep
+      // game time, which can lag behind real time under load (a busy
+      // headless tab occasionally stalls a frame), so this polls for the
+      // real outcome instead of guessing a fixed delay long enough to
+      // "probably" cover it.
+      await page.waitForFunction(() => !window.__minevoxel.riftwyrmManager.current, { timeout: 25000 });
       const after = await page.evaluate(() => ({
         orbCount: window.__minevoxel.xpOrbs.orbs.length,
         wyrmGone: !window.__minevoxel.riftwyrmManager.current,

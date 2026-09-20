@@ -112,11 +112,15 @@ function pointBeam(mesh, from, to) {
 }
 
 export class Riftwyrm {
-  constructor(scene, position, { health = RIFTWYRM_MAX_HEALTH, pillars, arrivalPoint, fountain } = {}) {
+  constructor(scene, position, { health = RIFTWYRM_MAX_HEALTH, pillars, arrivalPoint, fountain, xpMultiplier = 1 } = {}) {
     this.scene = scene;
     this.name = 'The Riftwyrm'; // Hud.updateBossBar's name label
     this.pillars = pillars;
     this.fountain = fountain; // {x,y,z} — the island-center landing spot (phase 5's exit gate frame lands here too, but that's not this file's concern)
+    // Phase 6: "repeat fights give reduced XP" — scaled here rather than
+    // at the xpOrbs.spawn() call sites, so the death sequence's own logic
+    // stays untouched and this is the only place the discount applies.
+    this.xpMultiplier = xpMultiplier;
     this.health = health;
     this.maxHealth = RIFTWYRM_MAX_HEALTH;
     this.dead = false;
@@ -227,7 +231,7 @@ export class Riftwyrm {
           const burstIndex = Math.min(DEATH_XP_BURST_COUNT - 1, Math.floor(phaseT * DEATH_XP_BURST_COUNT));
           if (burstIndex !== this._lastXpBurstIndex) {
             this._lastXpBurstIndex = burstIndex;
-            xpOrbs?.spawn({ ...this.position }, Math.round(DEATH_XP_TOTAL / DEATH_XP_BURST_COUNT));
+            xpOrbs?.spawn({ ...this.position }, Math.max(1, Math.round((DEATH_XP_TOTAL * this.xpMultiplier) / DEATH_XP_BURST_COUNT)));
           }
         }
       } else if (!this._finalBurstDone) {
@@ -235,7 +239,8 @@ export class Riftwyrm {
         // large burst the instant this phase begins.
         this._finalBurstDone = true;
         particles?.spawnBurst({ ...this.position }, 0xc9a7ff, 60, 8);
-        xpOrbs?.spawn({ ...this.position }, DEATH_XP_TOTAL - Math.round(DEATH_XP_TOTAL / DEATH_XP_BURST_COUNT) * DEATH_XP_BURST_COUNT);
+        const perBurst = Math.max(1, Math.round((DEATH_XP_TOTAL * this.xpMultiplier) / DEATH_XP_BURST_COUNT));
+        xpOrbs?.spawn({ ...this.position }, Math.max(1, Math.round(DEATH_XP_TOTAL * this.xpMultiplier) - perBurst * DEATH_XP_BURST_COUNT));
       }
 
       if (t >= DEATH_BURST_END) {

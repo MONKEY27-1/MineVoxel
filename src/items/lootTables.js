@@ -145,6 +145,20 @@ export const LOOT_TABLES = {
       { itemId: ITEMS.STICK.id, weight: 6, min: 2, max: 8 },
     ],
   },
+  // Phase 6: rolled once per Riftwyrm kill (first and every repeat) — not
+  // tied to any chest/tile-entity, so main.js rolls this directly off a
+  // per-kill seed rather than through the chest-open pipeline every
+  // other table here goes through.
+  riftwyrm: {
+    rolls: [4, 7],
+    entries: [
+      { itemId: ITEMS.DIAMOND.id, weight: 5, min: 1, max: 3 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 8, min: 2, max: 5 },
+      { itemId: ITEMS.IRON_INGOT.id, weight: 8, min: 3, max: 6 },
+      { itemId: ITEMS.RIFTPEARL.id, weight: 6, min: 1, max: 2 },
+      { itemId: ITEMS.RIFT_SHARD.id, weight: 4, min: 1, max: 1 },
+    ],
+  },
 };
 
 /** Deterministic given the same seed — used once, at first-open, per chest. */

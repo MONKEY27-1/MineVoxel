@@ -10,7 +10,7 @@ import { createCinderdeep } from './world/cinderdeepDimension.js';
 import { createHollowReach } from './world/hollowReachDimension.js';
 import { HOLLOW_ARRIVAL_POINT, HOLLOW_FOUNTAIN_POINT, createHollowReachGenerator } from './world/hollowReachGenerator.js';
 import { findRiftGateFrame, isRiftFrameComplete, igniteRiftGate } from './world/riftGate.js';
-import { RiftwyrmManager } from './entities/riftwyrmManager.js';
+import { RiftwyrmManager, BREATH_CLOUD_RADIUS } from './entities/riftwyrmManager.js';
 import { RIFTWYRM_MAX_HEALTH } from './entities/riftwyrm.js';
 import { createCinderdeepGenerator } from './world/cinderdeepGenerator.js';
 import { ChunkManager } from './world/chunkManager.js';
@@ -45,6 +45,7 @@ import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
 import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName } from './items/items.js';
+import { rollLoot } from './items/lootTables.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests } from './items/containerRegistry.js';
 import { allSpawners } from './world/structures/spawnerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
@@ -819,6 +820,62 @@ function main() {
   }
 
   /**
+   * Phase 6: the Riftwyrm's respawn ritual. The 4 "edge faces" are the
+   * blocks standing on top of the exit gate's own 4 non-corner bedrock
+   * cells (an ordinary block placement, not a bespoke interaction — see
+   * the justPlaced hook above) — checked directly against live block
+   * state, the same "the block IS the state" pattern the Spire Crystal
+   * healing check (riftwyrm.js's _aliveCrystals) already established, so
+   * there's no separate "ritual progress" to lose or desync on reload.
+   * Guarded so this can never run with a wyrm already alive or the gate
+   * already closed — "never two wyrms at once" and "never a ritual that
+   * fires twice" are the same guard.
+   */
+  function checkRiftwyrmRitual() {
+    if (!riftwyrmManager.exitGateOpen || riftwyrmManager.current) return;
+    const fx = Math.floor(HOLLOW_FOUNTAIN_POINT.x);
+    const fy = Math.floor(HOLLOW_FOUNTAIN_POINT.y);
+    const fz = Math.floor(HOLLOW_FOUNTAIN_POINT.z);
+    const edgeFaces = [
+      [fx, fz - 1],
+      [fx, fz + 1],
+      [fx - 1, fz],
+      [fx + 1, fz],
+    ];
+    const allPlaced = edgeFaces.every(([x, z]) => chunkManager.getBlock(x, fy + 1, z) === BLOCKS.SPIRE_CRYSTAL);
+    if (!allPlaced) return;
+
+    for (const [x, z] of edgeFaces) chunkManager.setBlock(x, fy + 1, z, BLOCKS.AIR);
+    chunkManager.setBlock(fx, fy, fz, BLOCKS.AIR); // the exit portal itself closes
+    if (riftwyrmManager.eggPresent) chunkManager.setBlock(fx - 1, fy + 1, fz - 1, BLOCKS.AIR); // an uncollected egg is spent as ritual fuel, not preserved
+    riftwyrmManager.exitGateOpen = false;
+    riftwyrmManager.eggPresent = false;
+
+    // "Pillars regenerate with fresh crystals" — restores any Spire
+    // Crystal destroyed during the previous fight, leaving caged/
+    // obsidian/bedrock structure alone (only the crystal itself needs
+    // restoring, per spec's own wording).
+    const pillars = hollowReachClimate.pillars;
+    for (const pillar of pillars) {
+      if (!chunkManager.isColumnLoaded(pillar.x, pillar.z)) continue;
+      if (chunkManager.getBlock(pillar.x, pillar.height + 2, pillar.z) !== BLOCKS.SPIRE_CRYSTAL) {
+        chunkManager.setBlock(pillar.x, pillar.height + 2, pillar.z, BLOCKS.SPIRE_CRYSTAL);
+      }
+    }
+
+    // Repeat fights give reduced XP (but always some loot — the loot
+    // roll itself lives in the death-sequence completion, not here, and
+    // isn't scaled down).
+    riftwyrmManager.timesKilled = (riftwyrmManager.timesKilled ?? 0) + 1;
+    const xpMultiplier = Math.max(0.25, 1 - riftwyrmManager.timesKilled * 0.25);
+    riftwyrmManager.spawn({ x: pillars[0].x, y: HOLLOW_FOUNTAIN_POINT.y + 25, z: pillars[0].z }, pillars, HOLLOW_FOUNTAIN_POINT, RIFTWYRM_MAX_HEALTH, xpMultiplier);
+
+    particles.spawnBurst({ x: fx + 0.5, y: fy + 1.5, z: fz + 0.5 }, 0xc9a7ff, 50, 7);
+    playExplosion();
+    cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'The ritual completes. The Riftwyrm reforms.' });
+  }
+
+  /**
    * Phase 5's one-way return trip — a fixed destination (the world's own
    * overworld spawn point) with no gate search/build, the same
    * "deliberately simpler than travelToDimension" reasoning
@@ -1588,6 +1645,14 @@ function main() {
             chunkManager.setBlock(px, py, pz, BLOCKS.AIR);
             particles.spawnBlockBreak(interaction.justPlaced.position, BLOCKS.WATER);
           }
+
+          // Phase 6: placing a Spire Crystal is ordinary block placement
+          // (no bespoke interaction hook needed — it's already a normal
+          // placeable block) — this just checks, after every one, whether
+          // it happened to complete the respawn ritual.
+          if (interaction.justPlaced.blockId === BLOCKS.SPIRE_CRYSTAL && activeDimension === hollowReach) {
+            checkRiftwyrmRitual();
+          }
         }
         if (interaction.wantsOpenContainer) {
           openContainer(interaction.wantsOpenContainer);
@@ -1648,6 +1713,24 @@ function main() {
           if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
           player.inventory.addItem(ITEMS.WATER_BOTTLE.id, 1);
           playUIClick();
+        }
+
+        // Bottling Rift Breath (phase 6): right-clicking with a Glass
+        // Bottle held while standing inside an active Rift Breath cloud
+        // — no block target needed (a cloud is a hazard zone, not a
+        // block), so this checks player position against
+        // riftwyrmManager.clouds directly instead of interaction.target.
+        if (input.wasMousePressed(2) && player.selectedItem?.itemId === ITEMS.GLASS_BOTTLE.id) {
+          const inCloud = riftwyrmManager.clouds.some(
+            (c) => Math.hypot(player.position.x - c.x, player.position.y - c.y, player.position.z - c.z) < BREATH_CLOUD_RADIUS
+          );
+          if (inCloud) {
+            const held = player.selectedItem;
+            held.count -= 1;
+            if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+            player.inventory.addItem(ITEMS.BOTTLED_RIFT_BREATH.id, 1);
+            playUIClick();
+          }
         }
 
         // The Rift Gate frame (phase 1): right-clicking one of its 12
@@ -1836,6 +1919,13 @@ function main() {
         if (riftwyrmManager.justDied) {
           cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'The Riftwyrm falls.' });
           pendingExitGateBuild = true;
+          // Phase 6: "repeat fights... always some loot" — rolled on
+          // every kill, first included, not scaled down the way XP is
+          // (the discount is specifically an XP thing per spec).
+          const deathPos = riftwyrmManager.lastDeathPosition ?? HOLLOW_FOUNTAIN_POINT;
+          for (const { itemId, count } of rollLoot('riftwyrm', Date.now() ^ Math.floor(deathPos.x * 31 + deathPos.z))) {
+            itemDrops.spawn({ x: deathPos.x, y: deathPos.y, z: deathPos.z }, itemId, count);
+          }
         }
         // Retried every tick rather than attempted once — the fountain's
         // own column isn't guaranteed loaded the exact tick the wyrm
@@ -2185,6 +2275,9 @@ function main() {
       throwRiftShard,
       throwRiftpearl,
       get riftwyrmManager() { return riftwyrmManager; },
+      buildExitGate,
+      checkRiftwyrmRitual,
+      HOLLOW_FOUNTAIN_POINT,
       interaction,
       dayNight,
       itemDrops,

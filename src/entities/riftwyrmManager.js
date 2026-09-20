@@ -9,7 +9,7 @@ import { Riftwyrm } from './riftwyrm.js';
 // "singleton owned directly by main.js" pattern gateRegistry already
 // uses for the Cinder Gate's own per-world state.
 
-const BREATH_CLOUD_RADIUS = 3;
+export const BREATH_CLOUD_RADIUS = 3; // exported so main.js's bottle-filling interaction checks the exact same radius, not a duplicated magic number
 const BREATH_CLOUD_DURATION = 6;
 const BREATH_CLOUD_DAMAGE_PER_TICK = 2;
 const BREATH_CLOUD_TICK_INTERVAL = 1;
@@ -31,11 +31,13 @@ export class RiftwyrmManager {
     this.eggPresent = false;
     this.hasSeenEnding = false;
     this.clouds = []; // active Rift Breath hazards: {x,y,z,remaining,tickTimer}
-    this.justDied = false; // one-shot flag, read+cleared by main.js to build the exit gate + Wyrm Egg exactly once
+    this.justDied = false; // one-shot flag, read+cleared by main.js to build the exit gate + Wyrm Egg exactly once, and to roll boss loot
+    this.lastDeathPosition = null; // read by main.js's justDied handler — this.current is already gone by the time that flag is seen
+    this.timesKilled = 0; // phase 6: every respawn-ritual completion increments this, main.js uses it to scale down repeat-fight XP
   }
 
-  spawn(position, pillars, fountain, health) {
-    this.current = new Riftwyrm(this.scene, position, { health, pillars, arrivalPoint: position, fountain });
+  spawn(position, pillars, fountain, health, xpMultiplier = 1) {
+    this.current = new Riftwyrm(this.scene, position, { health, pillars, arrivalPoint: position, fountain, xpMultiplier });
     this.spawned = true;
   }
 
@@ -45,6 +47,7 @@ export class RiftwyrmManager {
       this.current.update(dt, chunkManager, player, this.particles, this.projectiles, dimension.id, this.xpOrbs);
       if (this.current.justBreathed) this._spawnBreathCloud(this.current.justBreathed);
       if (this.current.dead) {
+        this.lastDeathPosition = { ...this.current.position };
         this.current.dispose();
         this.current = null;
         this.justDied = true;
@@ -94,6 +97,7 @@ export class RiftwyrmManager {
       exitGateOpen: this.exitGateOpen,
       eggPresent: this.eggPresent,
       hasSeenEnding: this.hasSeenEnding,
+      timesKilled: this.timesKilled,
     };
   }
 
@@ -105,6 +109,7 @@ export class RiftwyrmManager {
     manager.exitGateOpen = !!json.exitGateOpen;
     manager.eggPresent = !!json.eggPresent;
     manager.hasSeenEnding = !!json.hasSeenEnding;
+    manager.timesKilled = json.timesKilled ?? 0;
     if (json.alive && json.health > 0) {
       manager.current = new Riftwyrm(scene, { x: json.x, y: json.y, z: json.z }, { health: json.health, pillars, arrivalPoint: { y: json.y }, fountain });
     }

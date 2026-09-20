@@ -17,7 +17,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 3 — Mobs (Hollowkin, Riftmite, Stoneskitter; Vaultling is its own phase 8 item per spec)
 - [x] Phase 4 — The Riftwyrm
 - [x] Phase 5 — Death, the exit gate, and rewards (the real ending sequence itself is a placeholder — see phase 11)
-- [ ] Phase 6 — Respawning the Riftwyrm
+- [x] Phase 6 — Respawning the Riftwyrm
 - [ ] Phase 7 — Far Gates and the void crossing
 - [ ] Phase 8 — Outer islands, Pale Spires, and Skyships
 - [ ] Phase 9 — Glidewings
@@ -445,6 +445,78 @@ be rewritten) lives at `src/ending/poem.txt`.
   a placeholder version now risked being thrown away or fought against
   once phase 7's real design exists. Recorded here as a deliberate
   boundary, not an oversight.
+
+## Architecture decisions (phase 6)
+
+- **The ritual's 4 "edge faces" are checked against live block state, not
+  a separately tracked "ritual progress"** — the exact same "the block
+  IS the state" pattern phase 4's own Spire Crystal healing already
+  established (`_aliveCrystals`). The 4 positions are simply the blocks
+  standing on top of the exit gate's own 4 non-corner bedrock cells, so
+  placing a Spire Crystal there is ordinary block placement (no bespoke
+  interaction hook needed — SPIRE_CRYSTAL was already a normal placeable
+  block from phase 2); `main.js`'s existing `interaction.justPlaced`
+  handler just checks, after every placement, whether it happened to be
+  the 4th one. This means a save/reload mid-ritual can never lose or
+  duplicate progress — there's nothing but real blocks to lose.
+- **`checkRiftwyrmRitual()` is exposed on the debug hook** (alongside
+  `buildExitGate`), the same testability precedent every prior phase's
+  action functions already set (`throwRiftShard`, `igniteRiftGate`,
+  `travelToHollowReach`, …) — `tools/test-riftwyrm-respawn.js` calls it
+  directly after placing real blocks rather than simulating a full
+  raycast-and-click placement end to end, the same reasoning
+  `test-hollowreach.js`'s own Rift Gate frame test already used.
+- **"Never two wyrms at once" and "never a ritual that double-fires" are
+  the same guard**: `checkRiftwyrmRitual()` returns immediately unless
+  `exitGateOpen` is true AND no wyrm is currently alive. There's no
+  separate "ritual in progress" flag to get out of sync — the moment a
+  fresh Riftwyrm exists, the guard alone makes every future call a
+  guaranteed no-op regardless of what blocks happen to be sitting at the
+  (now-closed) gate.
+- **"Pillars regenerate with fresh crystals" restores only the crystal
+  block itself**, not the whole pillar (obsidian shaft/bedrock cap/cage
+  bars are left exactly as the fight left them) — matches the spec's own
+  narrower wording, and reuses the exact same live-block scan style as
+  everything else here rather than needing a stored "original pillar
+  state" snapshot.
+- **Repeat-fight XP reduction lives on the `Riftwyrm` instance itself
+  (`xpMultiplier`, applied inside its own death-sequence XP math)**, not
+  as a separate multiplier applied afterward by whatever kills it —
+  `RiftwyrmManager.spawn()` just passes the value through from
+  `riftwyrmManager.timesKilled`, incremented once per completed ritual
+  and persisted alongside the rest of the boss-arc state.
+  Diminishing-but-floored (`Math.max(0.25, 1 - timesKilled * 0.25)`) so
+  repeat fights are worth progressively less XP without ever hitting
+  zero.
+- **"Always some loot" is a real loot-table roll (`LOOT_TABLES.riftwyrm`,
+  `rollLoot`), separate from XP and not scaled down by `timesKilled`** —
+  rolled once per actual kill (first included) in `main.js`'s `justDied`
+  handler, reusing `rollLoot`/`itemDrops.spawn` exactly as chest-opening
+  already does elsewhere, rather than inventing a second loot mechanism
+  for a boss.
+- **No piston-adjacent mechanic was needed for crafting the ritual's own
+  Spire Crystals** — `RIFT_SHARD` (needed as an ingredient) turned out to
+  have no crafting recipe at all despite `items.js`'s own comment
+  claiming one existed ("crafted from a Riftpearl + Cinder Powder"); a
+  real, if narrow, phase 1 gap, closed here since this pass was already
+  touching `recipes.js` for the Spire Crystal recipe itself. Bottled Rift
+  Breath (the crystal recipe's last ingredient) reuses the exact
+  GLASS_BOTTLE-fill interaction pattern already established for water
+  bottles, just checking proximity to a live `riftwyrmManager.clouds`
+  entry instead of a targeted WATER block (a cloud is a hazard zone, not
+  a block, so it has no `interaction.target` to check against).
+- **Real bug found by `tools/test-riftwyrm-respawn.js`, not by eye:** a
+  bottle-filling interaction test structured as one `page.evaluate` call
+  with an internal `await new Promise(setTimeout...)` between dispatching
+  a mousedown and checking its effect passed inconsistently, while the
+  identical logic split into separate `page.evaluate`/`page.waitForFunction`
+  round trips passed reliably — `input.js`'s `_justPressedMouse` flag is
+  cleared once per rendered frame (`endFrame()`), and an in-page await
+  doesn't reliably interleave with that frame boundary the way separate
+  Playwright-level round trips do. Fixed by restructuring the test, not
+  the production interaction code (which already worked correctly the
+  whole time — confirmed by direct reproduction before touching
+  anything).
 
 ## Notable honesty calls
 

@@ -163,6 +163,10 @@ export const ITEMS = {
   // Undervault (main.js's throwRiftShard) — a real navigation aid, not
   // just another material.
   RIFT_SHARD: defineMaterial('rift_shard'),
+  // Phase 6: filled by standing in an active Rift Breath cloud with a
+  // Glass Bottle held (main.js) — the last ingredient the respawn
+  // ritual's own Spire Crystal recipe needs (recipes.js).
+  BOTTLED_RIFT_BREATH: defineMaterial('bottled_rift_breath'),
 };
 
 const byId = new Map(nonBlockItems.map((i) => [i.id, i]));

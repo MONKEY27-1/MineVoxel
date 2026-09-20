@@ -1255,6 +1255,13 @@ painters.water_bottle = (ctx, ox, oy) => {
   ctx.fillStyle = 'rgba(58,125,214,0.6)';
   ctx.fillRect(ox + 5, oy + 9, 6, 3);
 };
+// Phase 6: bottled Rift Breath — the last ingredient the Spire Crystal
+// recipe needs, filled from an active Rift Breath cloud (main.js).
+painters.bottled_rift_breath = (ctx, ox, oy) => {
+  painters.glass_bottle(ctx, ox, oy);
+  ctx.fillStyle = 'rgba(106,58,138,0.65)';
+  ctx.fillRect(ox + 5, oy + 9, 6, 3);
+};
 painters.awkward_potion = (ctx, ox, oy) => {
   painters.glass_bottle(ctx, ox, oy);
   ctx.fillStyle = 'rgba(180,110,214,0.6)';
