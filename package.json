@@ -44,7 +44,8 @@
     "test:pale-spire": "node tools/test-pale-spire.js",
     "test:pale-spire-live": "node tools/run-with-server.js tools/test-pale-spire-live.js",
     "test:glidewings": "node tools/run-with-server.js tools/test-glidewings.js",
-    "test:rift-chest": "node tools/run-with-server.js tools/test-rift-chest.js"
+    "test:rift-chest": "node tools/run-with-server.js tools/test-rift-chest.js",
+    "test:ending": "node tools/run-with-server.js tools/test-ending.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

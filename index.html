@@ -76,6 +76,7 @@
       <button id="fullscreen-btn" class="menu-secondary-btn">Fullscreen (F11)</button>
       <button id="pause-settings-btn" class="menu-secondary-btn">Settings</button>
       <button id="save-quit-btn" class="menu-secondary-btn">Save and Quit</button>
+      <button id="replay-ending-btn" class="menu-secondary-btn hidden">Replay Ending</button>
     </div>
   </div>
 
@@ -98,6 +99,23 @@
       <p>Left fullscreen</p>
       <button id="fullscreen-resume-btn" class="menu-primary-btn">Click to resume</button>
     </div>
+  </div>
+
+  <!-- Hollow Reach phase 11: the ending sequence. Poem lines scroll in
+       #ending-lines (newest at the bottom, oldest fading/pruned off the
+       top); #ending-credits replaces it once the poem finishes or is
+       skipped. #ending-hint shows the "press Esc again to skip" prompt,
+       only during the poem phase. -->
+  <div id="ending-overlay" class="hidden">
+    <div id="ending-poem">
+      <div id="ending-lines"></div>
+    </div>
+    <div id="ending-credits" class="hidden">
+      <div id="ending-credits-title">MineVoxel</div>
+      <div id="ending-credits-subtitle">The Hollow Reach</div>
+      <div id="ending-credits-thanks">Thank you for playing.</div>
+    </div>
+    <div id="ending-hint" class="hidden">Press Esc again to skip</div>
   </div>
 
   <div id="settings-panel" class="hidden">

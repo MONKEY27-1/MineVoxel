@@ -78,6 +78,8 @@ import { loadGamerules } from './commands/gamerules.js';
 import { loadWorldState } from './commands/worldState.js';
 import { TitleDisplay } from './ui/titleDisplay.js';
 import { ConsoleUI } from './ui/console.js';
+import { EndingSequence } from './ending/endingSequence.js';
+import { startEndingMusic, stopEndingMusic } from './audio/endingMusic.js';
 
 const WORLD_SEED = 1337; // matches genWorker.js until the world-creation menu (phase 9) picks one
 const FIXED_DT = 1 / 60;
@@ -244,6 +246,24 @@ function main() {
   document.getElementById('fullscreen-resume-btn').addEventListener('click', (e) => {
     e.stopPropagation();
     fullscreenController.resume();
+  });
+
+  // Hollow Reach phase 11: only shown once the player has actually seen
+  // the real ending (riftwyrmManager.hasSeenEnding) — visibility is
+  // refreshed on world load and again once the ending finishes, not
+  // just once here, since a save with the flag already true can be
+  // loaded straight into a pause without ever passing through
+  // travelViaExitGate() first. endingSequence itself is declared further
+  // down this same setup function — safe to reference here since this
+  // handler only ever runs later, from a real click, well after setup
+  // finished (the same forward-reference pattern menuController.onSaveAndQuit
+  // and friends already rely on throughout this file).
+  const replayEndingBtnEl = document.getElementById('replay-ending-btn');
+  replayEndingBtnEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    playUIClickSafe();
+    overlayEl.classList.add('hidden');
+    endingSequence.start();
   });
   window.addEventListener('keydown', (e) => {
     if (e.code === 'F11') {
@@ -885,11 +905,11 @@ function main() {
    * overworld spawn point) with no gate search/build, the same
    * "deliberately simpler than travelToDimension" reasoning
    * travelToHollowReach's own note gives for the Rift Gate. The first
-   * trip through is meant to trigger the full ending sequence (poem,
-   * music, credits) — that UI doesn't exist yet (phase 11's own scope),
-   * so this shows a placeholder title/message instead of leaving the
-   * moment silent, and records hasSeenEnding so a real phase 11 pass has
-   * a flag to hook into rather than needing to invent one later.
+   * trip through triggers the real ending sequence (phase 11:
+   * endingSequence.start() — poem, generative music, credits), and
+   * records hasSeenEnding so it never replays automatically again
+   * (still available afterward from the pause menu's own Replay Ending
+   * button).
    */
   async function travelViaExitGate() {
     if (isTraveling) return;
@@ -910,12 +930,11 @@ function main() {
       player.velocity.x = 0;
       player.velocity.y = 0;
       player.velocity.z = 0;
-      if (!riftwyrmManager.hasSeenEnding) {
-        riftwyrmManager.hasSeenEnding = true;
-        titleDisplay.showTitle('The Hollow Reach falls silent.', 'You have returned home.', 6);
-      }
+      const firstTime = !riftwyrmManager.hasSeenEnding;
+      if (firstTime) riftwyrmManager.hasSeenEnding = true;
       cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'You return from the Hollow Reach.' });
       travelCooldown = 3;
+      if (firstTime) endingSequence.start();
     } finally {
       setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
       isTraveling = false;
@@ -1016,6 +1035,33 @@ function main() {
   let cmdGamerules = loadGamerules();
   let cmdWorldState = loadWorldState();
   const titleDisplay = new TitleDisplay();
+
+  // Hollow Reach phase 11: the two real conflicts a full-screen Escape-
+  // driven overlay has with existing systems — the ordinary pause
+  // overlay (exitLockForUI already exists for exactly this: drop
+  // pointer lock without popping it) and fullscreen's own tap-to-pause
+  // (FullscreenController.tapOpensPause, restored to whatever the
+  // player's own setting was, not hardcoded back to true).
+  let savedTapOpensPause = fullscreenController.tapOpensPause;
+  const endingSequence = new EndingSequence({
+    overlayEl: document.getElementById('ending-overlay'),
+    linesEl: document.getElementById('ending-lines'),
+    creditsEl: document.getElementById('ending-credits'),
+    hintEl: document.getElementById('ending-hint'),
+    onSuspend: () => {
+      savedTapOpensPause = fullscreenController.tapOpensPause;
+      fullscreenController.tapOpensPause = false;
+      exitLockForUI();
+    },
+    onResume: () => {
+      fullscreenController.tapOpensPause = savedTapOpensPause;
+      input.requestLock();
+      replayEndingBtnEl?.classList.remove('hidden');
+    },
+    playMusic: startEndingMusic,
+    stopMusic: stopEndingMusic,
+  });
+
   const dispatcher = createDispatcher();
 
   const cmdWorld = {
@@ -1182,6 +1228,7 @@ function main() {
         hollowReachClimate.pillars,
         HOLLOW_FOUNTAIN_POINT
       );
+      replayEndingBtnEl.classList.toggle('hidden', !riftwyrmManager.hasSeenEnding);
       const savedDimensionId = (await getPlayerDimensionId(worldRecord.id)) ?? 'overworld';
       const savedDimension = world.get(savedDimensionId);
       if (savedDimension && savedDimension !== overworld) {
@@ -1676,6 +1723,7 @@ function main() {
       if (consoleUI.open && settings.console.pauseGame) {
         cmdScheduler.update(FIXED_DT, runScheduledCommand);
         titleDisplay.update(FIXED_DT);
+        endingSequence.update(FIXED_DT);
         accumulator -= FIXED_DT;
         input.endFrame();
         continue;
@@ -2290,6 +2338,7 @@ function main() {
 
       cmdScheduler.update(FIXED_DT, runScheduledCommand);
       titleDisplay.update(FIXED_DT);
+      endingSequence.update(FIXED_DT);
 
       biomeCheckTimer -= FIXED_DT;
       if (biomeCheckTimer <= 0) {
@@ -2554,6 +2603,7 @@ function main() {
       get hollowReachClimate() { return hollowReachClimate; },
       travelViaFarGate,
       travelViaFarGateReturn,
+      travelViaExitGate,
       findOuterLanding,
       interaction,
       dayNight,
@@ -2566,6 +2616,7 @@ function main() {
       inventoryUI,
       toggleInventory,
       openContainer,
+      endingSequence,
       closeContainerUIIfDestroyed,
       explode,
       getBlock,

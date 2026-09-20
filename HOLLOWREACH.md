@@ -22,7 +22,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 8 — Outer islands, Pale Spires, and Skyships
 - [x] Phase 9 — Glidewings (the optional third-person pull-back camera while gliding is deferred to phase 12 — see below)
 - [x] Phase 10 — Rift Chest
-- [ ] Phase 11 — The ending sequence
+- [x] Phase 11 — The ending sequence
 - [ ] Phase 12 — Integration
 
 ## Architecture decisions (phases 1-2)
@@ -853,6 +853,108 @@ be rewritten) lives at `src/ending/poem.txt`.
   test is the shared-inventory semantics, not the click-to-open wiring
   (already covered generically by every other `CONTAINER_BLOCKS` member).
 
+## Architecture decisions (phase 11)
+
+- **poem.txt is fetched at runtime, not inlined or bundled** — this is a
+  no-bundler, plain-ES-modules project, and nothing before this phase
+  ever loaded a text asset (confirmed by research before writing any
+  code: not one `fetch()` of a non-code file existed anywhere in `src/`).
+  `endingSequence.js` resolves it via `new URL('./poem.txt', import.meta.url)`
+  so it works the same whether the module is served from `/src/ending/`
+  in dev or wherever a real deploy puts it, and caches the parsed result
+  after the first load (module-level `cachedPoem`) so Replay Ending
+  never re-fetches.
+- **A small state machine (`'poem'` → `'credits'` → finished), not a CSS
+  animation timeline** — poem.txt's own beats (blank lines, "hold
+  roughly two seconds each") and its per-line pacing both need real
+  branching logic (skip, replay, a variable per-line hold based on word
+  count), which a fixed-duration CSS animation can't express. Advanced
+  from the fixed-timestep loop via `endingSequence.update(FIXED_DT)` —
+  the same real, drift-free per-tick timer `titleDisplay.update()`
+  already uses, not a chain of `setTimeout`s that would need their own
+  pause/cancel bookkeeping.
+- **Beats are pure timing, lines are the only thing rendered** — every
+  blank line in poem.txt becomes a 2-second pause with no DOM element of
+  its own; only `A:`/`B:` lines get appended to `#ending-lines`. Per-line
+  hold time is scaled by word count (clamped) rather than being uniform,
+  since a one-word line ("No.") and a 24-word line need very different
+  reading time — poem.txt's own instruction was "tune per-line delay,
+  not scroll speed, and let the beats hold," which is exactly this.
+- **Total runtime was not forced to hit the "~8 minutes" target exactly.**
+  Counting the poem's own beats alone (nearly every line pairs with at
+  least one blank line, and stanza breaks double up) already totals
+  several minutes at a flat 2 seconds each — hitting 8 minutes on the
+  nose would have meant cutting per-line reveal time to near zero, which
+  reads as rushed against the poem's own quiet, reflective voice. Kept
+  beats at their literal instructed 2 seconds and let the real total run
+  longer (very roughly 10-14 minutes for a full, unskipped playthrough)
+  — a deliberate scope call favoring the poem's own pacing over a
+  specific runtime number, and it's skippable at will regardless (double
+  Escape, at any point, jumps straight to credits).
+- **The `.ending-line` transition trick (`el.offsetHeight` read between
+  appending an element and adding its `.in` class) is a real, necessary
+  forced-reflow, not defensive over-caution** — without it, a freshly
+  appended element's initial styles and the class that changes them
+  would sometimes land in the same paint, and the fade-in transition
+  would never actually play (the line would just appear already
+  settled). Confirmed visually before deciding to keep it, not assumed.
+- **Credits deliberately don't hide the poem panel underneath them** — a
+  discovered-not-planned outcome of `#ending-overlay` being a plain flex
+  column with `#ending-poem` and `#ending-credits` as siblings: entering
+  the credits phase just stops feeding new lines into the poem panel
+  and fades the credits card in below it, so the last few lines linger
+  on screen rather than being hard-cut away. Looked genuinely better
+  than an explicit hide once seen, so it was kept rather than "fixed."
+- **Escape is owned entirely by `EndingSequence`'s own listener while
+  active, but the real fix for its two conflicts with existing systems
+  is explicit suspend/resume, not event-propagation tricks.** The
+  ordinary pause overlay and `FullscreenController`'s own tap-to-pause
+  (`tapOpensPause`) both have listeners registered at app startup, long
+  before an ending sequence ever exists — a capture-phase listener added
+  later, calling `stopImmediatePropagation()`, cannot undo effects an
+  earlier-registered listener already produced for the same event
+  (confirmed by reasoning through actual DOM event-listener ordering
+  semantics before writing this, not discovered by trial and error).
+  `main.js`'s own `onSuspend`/`onResume` callbacks passed into
+  `EndingSequence` instead explicitly set `fullscreenController.tapOpensPause = false`
+  (restored to whatever the player's own setting was, not hardcoded back
+  to `true`) and call the existing `exitLockForUI()`/`input.requestLock()`
+  pair every other full-screen UI (inventory, containers, the console)
+  already uses — no new suppression mechanism was added to
+  `FullscreenController` itself, since it already exposed the one flag
+  needed.
+- **Generative ambient music (`audio/endingMusic.js`) is the first
+  actual note-sequencing audio in this codebase** — confirmed by
+  research that every existing `synth.js` sound is a single fire-and-
+  forget envelope, and phase 9's own wind sound (the only prior
+  "continuous" sound) is one parameter-modulated drone, not multiple
+  voices independently deciding notes and timing. This is a small
+  Eno-style generative system instead: a soft continuous low drone plus
+  two independent voices, each scheduling its own next note at a random
+  delay from a shared low-register scale, so no fixed sequence exists
+  anywhere and no two playthroughs sound the same. Reuses the existing
+  `ambient` category (added in phase 9 for glide wind) rather than
+  adding a new `music` one — the two never actually play at once, so a
+  second settings-panel volume slider was judged out of scope for this
+  phase specifically.
+- **"Replay it later from a menu" has no existing UI convention to slot
+  into** (confirmed by research: no "credits"/"replay" menu-list pattern
+  existed anywhere before this) — added as a plain `#replay-ending-btn`
+  on the existing pause overlay, next to Fullscreen/Settings/Save-and-Quit
+  (the only precedent for "a list of buttons," as opposed to the
+  sliders/toggles everywhere else in the settings panel), hidden until
+  `riftwyrmManager.hasSeenEnding` is true and re-checked on world load
+  too (a loaded save can already have the flag set without this session
+  ever having called `travelViaExitGate()` itself).
+- **Gameplay keeps running underneath the ending overlay, matching phase
+  5's own placeholder** — the world doesn't pause, mobs/physics/day-night
+  keep ticking, and the player's own keyboard input isn't explicitly
+  frozen (WASD could still, in principle, move them around off-screen
+  during the sequence). A deliberate, minor scope simplification: the
+  player is standing alone at overworld spawn at this point, so nothing
+  meaningful can go wrong, and properly freezing movement would touch
+  physics code this phase didn't otherwise need to.
+
 ## Notable honesty calls
 
 - Pale Spire loot calls for "enchanted gear," but this game has no
@@ -904,3 +1006,10 @@ be rewritten) lives at `src/ending/poem.txt`.
   other movement mode this game has). Good enough to satisfy the spec's
   own "dive to gain speed, climb to lose it, can't just hover" behavior
   without building an actual flight-dynamics model for one item.
+- The ending's credits are a short, purely thematic card (the game's own
+  name, its subtitle, "Thank you for playing.") rather than a real
+  scrolling contributor roster — there is no actual team/credit list
+  anywhere in this project's own history to draw one from, and inventing
+  fictional names for a "credits" screen felt worse than just being
+  honest that this is a small, single-developer project with nothing
+  else true to say there.
