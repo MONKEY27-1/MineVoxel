@@ -15,7 +15,8 @@ import { RIFTWYRM_MAX_HEALTH } from './entities/riftwyrm.js';
 import { createCinderdeepGenerator } from './world/cinderdeepGenerator.js';
 import { ChunkManager } from './world/chunkManager.js';
 import { createOverworldGenerator } from './world/generator.js';
-import { OCEAN_BIOME } from './world/biomes.js';
+import { BIOMES, OCEAN_BIOME } from './world/biomes.js';
+import { CINDERDEEP_BIOME_LIST } from './world/cinderdeepBiomes.js';
 import {
   findGateFrame,
   igniteGateFrame,
@@ -47,10 +48,10 @@ import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
 import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName, itemIconTile, getMaxStack, isBlockItem, GIVEABLE_ITEM_LIST, itemCategory } from './items/items.js';
 import { rollLoot } from './items/lootTables.js';
-import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests } from './items/containerRegistry.js';
+import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests, registerLootChest } from './items/containerRegistry.js';
 import { getVault } from './items/vaultBoxRegistry.js';
 import { getGlobalRiftChestInventory } from './items/riftChestRegistry.js';
-import { allSpawners } from './world/structures/spawnerRegistry.js';
+import { allSpawners, registerSpawner } from './world/structures/spawnerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
 import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash, playDrip, playSkyburst, playGlideImpact, startWindSound, updateWindSound, stopWindSound } from './audio/synth.js';
@@ -76,6 +77,7 @@ import { FunctionStore } from './commands/functions.js';
 import { Scheduler } from './commands/scheduler.js';
 import { loadGamerules } from './commands/gamerules.js';
 import { loadWorldState } from './commands/worldState.js';
+import { allEntities } from './commands/selectors.js';
 import { TitleDisplay } from './ui/titleDisplay.js';
 import { ConsoleUI } from './ui/console.js';
 import { DevMenu } from './ui/devMenu.js';
@@ -631,6 +633,23 @@ function main() {
     return false;
   }
 
+  /**
+   * Dev Menu Teleport tab's "Locate Structure" search (phase 4): streams
+   * toward every column in one ring at once (letting the generation
+   * workers run them in parallel) instead of ensureChunkLoadedAt's own
+   * one-at-a-time polling loop, which would make searching a whole ring
+   * of unexplored chunks needlessly serial.
+   */
+  async function ensureColumnsLoaded(cm, columns, timeoutMs = 8000) {
+    const start = performance.now();
+    for (const { cx, cz } of columns) cm.update({ x: cx * 16 + 8, z: cz * 16 + 8 });
+    while (performance.now() - start < timeoutMs) {
+      if (columns.every(({ cx, cz }) => cm.columns.get(`${cx},${cz}`)?.state === 'generated')) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  }
+
   let isTraveling = false;
   let travelCooldown = 0; // seconds — set after arriving, so stepping back into the destination portal doesn't immediately bounce you again
   let portalStandTime = 0;
@@ -1101,6 +1120,7 @@ function main() {
     cinderdeep,
     hollowReach,
     travelToHollowReach,
+    travelToDimension,
     get climateGenerator() { return climateGenerator; },
     get cinderdeepClimate() { return cinderdeepClimate; },
     dayNight,
@@ -1633,6 +1653,370 @@ function main() {
         refreshSnapshotOptions();
         snapshotRow.append(nameInput, saveBtn, select, restoreBtn, deleteBtn);
         container.appendChild(snapshotRow);
+      },
+    });
+  }
+
+  // --- Dev Menu — Teleport tab (phase 4) ------------------------------
+  buildTeleportTab();
+
+  /**
+   * Coordinate entry (absolute/relative via ~, same syntax /tp itself
+   * accepts) + a safe-landing toggle, an instant dimension switcher,
+   * Locate Biome (wraps the existing /locate biome command directly —
+   * it's already a bounded, fast ring search with nothing async to add),
+   * Locate Structure (a genuinely new async/cancelable/progress-reporting
+   * chunk-by-chunk search — see ensureColumnsLoaded above — since the
+   * existing /locate structure command only ever checks structures that
+   * have *already* generated near the player), per-world waypoints, a
+   * session-only teleport history with undo, and a live "teleport to
+   * entity" list. Only the actual position-changing moment (the final
+   * teleport) routes through the shared /dev tp command; the structure
+   * search's own chunk-streaming is read-only world exploration, not a
+   * second way to write world state, so it isn't routed through a
+   * command the way an actual mutation would be.
+   */
+  function buildTeleportTab() {
+    const teleportHistory = []; // [{x,y,z}] — most recent last, capped at 20
+    function recordHistory(pos) {
+      teleportHistory.push({ x: pos.x, y: pos.y, z: pos.z });
+      if (teleportHistory.length > 20) teleportHistory.shift();
+      refreshHistoryList?.();
+    }
+    /** Every coordinate-producing teleport in this tab funnels through here so history/undo stay accurate no matter which control triggered it. */
+    function teleportTo(x, y, z, safe) {
+      const before = { ...player.position };
+      const ok = runDevCommand(`dev tp ${x} ${y} ${z} ${safe}`);
+      if (ok) {
+        recordHistory(before);
+        devMenu.logDebug?.(`Teleported to (${x}, ${y}, ${z})`);
+      }
+      return ok;
+    }
+
+    let refreshHistoryList = null;
+
+    devMenu.registerControl({
+      id: 'teleport.browser',
+      tab: 'teleport',
+      type: 'custom',
+      label: 'Teleport',
+      presetable: false,
+      keywords: 'coordinates dimension waypoint locate structure biome history undo entity',
+      build: (container) => {
+        // --- Coordinate entry ------------------------------------------------
+        const coordRow = document.createElement('div');
+        coordRow.className = 'devmenu-tp-row';
+        const coordInputs = ['x', 'y', 'z'].map((axis) => {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.placeholder = axis.toUpperCase();
+          input.className = 'devmenu-tp-coord';
+          input.value = axis === 'y' ? String(Math.floor(player.position.y)) : '~';
+          coordRow.appendChild(input);
+          return input;
+        });
+        const safeLabel = document.createElement('label');
+        const safeToggle = document.createElement('input');
+        safeToggle.type = 'checkbox';
+        safeToggle.checked = true;
+        safeLabel.appendChild(safeToggle);
+        safeLabel.appendChild(document.createTextNode(' Safe landing'));
+        coordRow.appendChild(safeLabel);
+        const goBtn = document.createElement('button');
+        goBtn.type = 'button';
+        goBtn.textContent = 'Teleport';
+        goBtn.addEventListener('click', () => {
+          const [x, y, z] = coordInputs.map((i) => i.value.trim() || '~');
+          teleportTo(x, y, z, safeToggle.checked);
+        });
+        coordRow.appendChild(goBtn);
+        container.appendChild(coordRow);
+        const coordHint = document.createElement('div');
+        coordHint.className = 'devmenu-items-hint devmenu-tp-coord-hint';
+        coordHint.textContent = '~ or ~5 for relative, same as typing /tp';
+        container.appendChild(coordHint);
+
+        // --- Dimension switcher ------------------------------------------------
+        const dimRow = document.createElement('div');
+        dimRow.className = 'devmenu-tp-row';
+        const dimSelect = document.createElement('select');
+        for (const [value, label] of [['overworld', 'Overworld'], ['cinderdeep', 'Cinderdeep'], ['hollow_reach', 'Hollow Reach']]) {
+          const o = document.createElement('option');
+          o.value = value;
+          o.textContent = label;
+          dimSelect.appendChild(o);
+        }
+        const dimBtn = document.createElement('button');
+        dimBtn.type = 'button';
+        dimBtn.textContent = 'Switch dimension';
+        dimBtn.addEventListener('click', () => {
+          if (runDevCommand(`dev dimension ${dimSelect.value}`)) devMenu.logDebug?.(`Switched dimension to ${dimSelect.value}`);
+        });
+        dimRow.append(dimSelect, dimBtn);
+        container.appendChild(dimRow);
+
+        // --- Locate biome (existing, synchronous /locate biome) ---------------
+        const biomeRow = document.createElement('div');
+        biomeRow.className = 'devmenu-tp-row';
+        const biomeSelect = document.createElement('select');
+        const biomeIds = [...Object.values(BIOMES), OCEAN_BIOME, ...CINDERDEEP_BIOME_LIST].map((b) => b.id);
+        for (const id of biomeIds) {
+          const o = document.createElement('option');
+          o.value = id;
+          o.textContent = id.replace(/_/g, ' ');
+          biomeSelect.appendChild(o);
+        }
+        const biomeBtn = document.createElement('button');
+        biomeBtn.type = 'button';
+        biomeBtn.textContent = 'Locate Biome';
+        const biomeResult = document.createElement('span');
+        biomeResult.className = 'devmenu-items-hint devmenu-tp-biome-result';
+        biomeBtn.addEventListener('click', () => {
+          const before = cmdMessageLog.entries.length;
+          runDevCommand(`locate biome ${biomeSelect.value}`);
+          const last = cmdMessageLog.entries[cmdMessageLog.entries.length - 1];
+          biomeResult.textContent = last && cmdMessageLog.entries.length > before ? last.segments.map((s) => s.text).join('') : '';
+        });
+        biomeRow.append(biomeSelect, biomeBtn);
+        container.appendChild(biomeRow);
+        container.appendChild(biomeResult);
+
+        // --- Locate structure (new: async, chunk-by-chunk, cancelable) --------
+        const structRow = document.createElement('div');
+        structRow.className = 'devmenu-tp-row';
+        const structSelect = document.createElement('select');
+        for (const id of ['emberhold', 'ashkin_bastion', 'ruined_gate']) {
+          const o = document.createElement('option');
+          o.value = id;
+          o.textContent = id.replace(/_/g, ' ');
+          structSelect.appendChild(o);
+        }
+        const structBtn = document.createElement('button');
+        structBtn.type = 'button';
+        structBtn.textContent = 'Locate Structure';
+        const structCancelBtn = document.createElement('button');
+        structCancelBtn.type = 'button';
+        structCancelBtn.textContent = 'Cancel';
+        structCancelBtn.hidden = true;
+        structRow.append(structSelect, structBtn, structCancelBtn);
+        container.appendChild(structRow);
+        const structStatus = document.createElement('div');
+        structStatus.className = 'devmenu-items-hint devmenu-tp-struct-status';
+        container.appendChild(structStatus);
+        const structTeleportBtn = document.createElement('button');
+        structTeleportBtn.type = 'button';
+        structTeleportBtn.textContent = 'Teleport to result';
+        structTeleportBtn.hidden = true;
+        container.appendChild(structTeleportBtn);
+
+        let structCancelled = false;
+        const STRUCTURE_MATCHERS = {
+          emberhold: () => [...allSpawners()].filter((s) => s.mobType === 'cinder_wraith'),
+          ashkin_bastion: () => allPendingLootChests().filter((c) => c.tableId.startsWith('bastion_')),
+          ruined_gate: () => allPendingLootChests().filter((c) => c.tableId === 'ruined_gate'),
+        };
+        const STRUCTURE_MAX_RING = 10; // 10 chunks (~160 blocks) — bounds worst-case search time; a dev tool, not a guaranteed-to-find-anything oracle
+        let lastStructureFound = null;
+
+        function nearestMatch(matches, originX, originZ) {
+          let best = null;
+          let bestDist = Infinity;
+          for (const m of matches) {
+            const d = Math.hypot(m.x - originX, m.z - originZ);
+            if (d < bestDist) {
+              bestDist = d;
+              best = m;
+            }
+          }
+          return best ? { ...best, distance: bestDist } : null;
+        }
+
+        structBtn.addEventListener('click', async () => {
+          structCancelled = false;
+          structBtn.hidden = true;
+          structCancelBtn.hidden = false;
+          structTeleportBtn.hidden = true;
+          lastStructureFound = null;
+          const id = structSelect.value;
+          const matcher = STRUCTURE_MATCHERS[id];
+          const originX = player.position.x;
+          const originZ = player.position.z;
+          const baseCx = Math.floor(originX / 16);
+          const baseCz = Math.floor(originZ / 16);
+
+          let result = null;
+          const already = nearestMatch(matcher(), originX, originZ);
+          if (already) {
+            result = already;
+          } else {
+            for (let ring = 1; ring <= STRUCTURE_MAX_RING && !structCancelled; ring++) {
+              structStatus.textContent = `Searching ring ${ring}/${STRUCTURE_MAX_RING}…`;
+              const columns = [];
+              for (let dcx = -ring; dcx <= ring; dcx++) {
+                for (let dcz = -ring; dcz <= ring; dcz++) {
+                  if (Math.max(Math.abs(dcx), Math.abs(dcz)) !== ring) continue;
+                  columns.push({ cx: baseCx + dcx, cz: baseCz + dcz });
+                }
+              }
+              await ensureColumnsLoaded(chunkManager, columns);
+              if (structCancelled) break;
+              const found = nearestMatch(matcher(), originX, originZ);
+              if (found) {
+                result = found;
+                break;
+              }
+            }
+          }
+
+          structBtn.hidden = false;
+          structCancelBtn.hidden = true;
+          if (structCancelled) {
+            structStatus.textContent = 'Search cancelled.';
+          } else if (result) {
+            lastStructureFound = result;
+            structStatus.textContent = `Found ${id.replace(/_/g, ' ')} at (${result.x}, ${result.y}, ${result.z}), ${Math.round(result.distance)} blocks away.`;
+            structTeleportBtn.hidden = false;
+            devMenu.logDebug?.(`Located ${id} at (${result.x}, ${result.y}, ${result.z})`);
+          } else {
+            structStatus.textContent = `No ${id.replace(/_/g, ' ')} found within ${STRUCTURE_MAX_RING * 16} blocks.`;
+          }
+        });
+        structCancelBtn.addEventListener('click', () => {
+          structCancelled = true;
+        });
+        structTeleportBtn.addEventListener('click', () => {
+          if (!lastStructureFound) return;
+          teleportTo(lastStructureFound.x, lastStructureFound.y + 1, lastStructureFound.z, safeToggle.checked);
+        });
+
+        // --- Waypoints (per-world) ---------------------------------------------
+        const waypointRow = document.createElement('div');
+        waypointRow.className = 'devmenu-tp-row';
+        const wpNameInput = document.createElement('input');
+        wpNameInput.type = 'text';
+        wpNameInput.placeholder = 'Waypoint name…';
+        const wpSaveBtn = document.createElement('button');
+        wpSaveBtn.type = 'button';
+        wpSaveBtn.textContent = 'Save here';
+        const wpSelect = document.createElement('select');
+        const wpGoBtn = document.createElement('button');
+        wpGoBtn.type = 'button';
+        wpGoBtn.textContent = 'Go';
+        const wpDeleteBtn = document.createElement('button');
+        wpDeleteBtn.type = 'button';
+        wpDeleteBtn.textContent = 'Delete';
+        waypointRow.append(wpNameInput, wpSaveBtn, wpSelect, wpGoBtn, wpDeleteBtn);
+        container.appendChild(waypointRow);
+
+        function refreshWaypointOptions() {
+          wpSelect.innerHTML = '';
+          const blank = document.createElement('option');
+          blank.value = '';
+          blank.textContent = 'Waypoints…';
+          wpSelect.appendChild(blank);
+          for (const [name, wp] of Object.entries(cmdWorld.worldState.waypoints)) {
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = wp.dimensionId === cmdWorld.activeDimension.id ? name : `${name} (${wp.dimensionId})`;
+            wpSelect.appendChild(o);
+          }
+        }
+        wpSaveBtn.addEventListener('click', () => {
+          const name = wpNameInput.value;
+          if (!name) return;
+          if (runDevCommand(`dev waypointsave ${name}`)) {
+            devMenu.logDebug?.(`Saved waypoint "${name}"`);
+            wpNameInput.value = '';
+            refreshWaypointOptions();
+          }
+        });
+        wpGoBtn.addEventListener('click', () => {
+          const name = wpSelect.value;
+          if (!name) return;
+          const before = { ...player.position };
+          if (runDevCommand(`dev waypointgo ${name}`)) {
+            recordHistory(before);
+            devMenu.logDebug?.(`Went to waypoint "${name}"`);
+          }
+        });
+        wpDeleteBtn.addEventListener('click', () => {
+          const name = wpSelect.value;
+          if (!name) return;
+          if (runDevCommand(`dev waypointdelete ${name}`)) {
+            devMenu.logDebug?.(`Deleted waypoint "${name}"`);
+            refreshWaypointOptions();
+          }
+        });
+        refreshWaypointOptions();
+
+        // --- Teleport to entity (live list) -------------------------------------
+        const entityHeader = document.createElement('div');
+        entityHeader.textContent = 'Teleport to entity';
+        entityHeader.className = 'devmenu-tp-section-label';
+        container.appendChild(entityHeader);
+        const entityList = document.createElement('div');
+        entityList.className = 'devmenu-tp-entity-list';
+        container.appendChild(entityList);
+        function refreshEntityList() {
+          entityList.innerHTML = '';
+          const p = player.position;
+          for (const e of allEntities(cmdWorld)) {
+            if (e.kind === 'player') continue; // no point offering "teleport to yourself"
+            const dist = Math.hypot(e.position.x - p.x, e.position.y - p.y, e.position.z - p.z);
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'devmenu-tp-entity-row';
+            row.textContent = `${e.name.replace(/_/g, ' ')} — ${Math.round(dist)}m`;
+            row.addEventListener('click', () => {
+              teleportTo(e.position.x.toFixed(2), e.position.y.toFixed(2), e.position.z.toFixed(2), safeToggle.checked);
+            });
+            entityList.appendChild(row);
+          }
+          if (!entityList.children.length) {
+            const note = document.createElement('div');
+            note.className = 'devmenu-empty-note';
+            note.textContent = 'No other entities loaded right now.';
+            entityList.appendChild(note);
+          }
+        }
+        const refreshEntityBtn = document.createElement('button');
+        refreshEntityBtn.type = 'button';
+        refreshEntityBtn.textContent = 'Refresh list';
+        refreshEntityBtn.addEventListener('click', refreshEntityList);
+        container.appendChild(refreshEntityBtn);
+        refreshEntityList();
+
+        // --- Teleport history (last 20) + undo ----------------------------------
+        const historyHeader = document.createElement('div');
+        historyHeader.textContent = 'Teleport history';
+        historyHeader.className = 'devmenu-tp-section-label';
+        container.appendChild(historyHeader);
+        const undoBtn = document.createElement('button');
+        undoBtn.type = 'button';
+        undoBtn.textContent = 'Undo last teleport';
+        undoBtn.addEventListener('click', () => {
+          const prev = teleportHistory.pop();
+          if (!prev) return;
+          runDevCommand(`dev tp ${prev.x} ${prev.y} ${prev.z} false`);
+          devMenu.logDebug?.('Undid last teleport');
+          refreshHistoryList();
+        });
+        container.appendChild(undoBtn);
+        const historyList = document.createElement('div');
+        historyList.className = 'devmenu-tp-history-list';
+        container.appendChild(historyList);
+        refreshHistoryList = () => {
+          historyList.innerHTML = '';
+          for (let i = teleportHistory.length - 1; i >= 0; i--) {
+            const h = teleportHistory[i];
+            const row = document.createElement('div');
+            row.className = 'devmenu-tp-history-row';
+            row.textContent = `(${h.x.toFixed(1)}, ${h.y.toFixed(1)}, ${h.z.toFixed(1)})`;
+            historyList.appendChild(row);
+          }
+        };
+        refreshHistoryList();
       },
     });
   }
@@ -3189,6 +3573,11 @@ function main() {
       GIVEABLE_ITEM_LIST,
       getMaxStack,
       itemCategory,
+      registerSpawner,
+      registerLootChest,
+      allSpawners,
+      allPendingLootChests,
+      allEntities: () => allEntities(cmdWorld),
       mobManager,
       projectiles,
       respawnPlayer,

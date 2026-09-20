@@ -12,7 +12,7 @@ and commit before moving on. Pushing to `origin/main` after every commit.
 - [x] Phase 1 — The panel (framework only — no real tabs' controls yet)
 - [x] Phase 2 — Player tab
 - [x] Phase 3 — Items tab
-- [ ] Phase 4 — Teleport tab
+- [x] Phase 4 — Teleport tab
 - [ ] Phase 5 — World tab
 - [ ] Phase 6 — Debug tab
 - [ ] Phase 7 — Integration
@@ -270,6 +270,77 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   option list from scratch on every save/delete), just per-world and
   over raw inventory slots instead of control state.
 
+## Architecture decisions (phase 4)
+
+- **Only the actual position-changing moment routes through a command —
+  the Locate Structure search's own chunk-streaming does not.** The
+  dev menu's architectural rule is about not writing world state a
+  second way; forcing chunks to generate by calling `chunkManager.update`
+  (the same streaming every player already triggers just by walking
+  around) is read-side exploration, not a mutation, so it runs directly
+  in main.js's UI code. Only the final "teleport to what was found"
+  click calls `/dev tp`.
+- **`/dev tp` is a new command, not an extension of `/tp`** — it reuses
+  `/tp`'s exact `blockPos()` argument (so `~`/`~5` work identically) and
+  the exact `resolvePosition`/`requireWithinHeight` calls `/tp` itself
+  uses, but adds a `safe` argument `/tp` was never meant to carry.
+  Safe-landing search reuses `gate.js`'s existing `findSafePortalSite`
+  as-is (a portal's own landing requirements — solid non-lava floor
+  under a 1×3×2 clear footprint — are a strict superset of "safe for one
+  entity"); if the target's already-loaded terrain doesn't have a
+  qualifying spot nearby, this falls back to the raw coordinates with a
+  warning rather than refusing the teleport outright, matching every
+  other dev-menu action's "still do something reasonable, don't just
+  block" spirit.
+- **"Locate Structure" is genuinely new async/cancelable/progress code**
+  — the existing `/locate structure` command (worldBlocks.js) is
+  synchronous and only ever finds structures that happened to generate
+  near the player already; it has nothing to wrap. The Teleport tab's
+  version expands outward one ring of chunk *columns* at a time
+  (`ensureColumnsLoaded`, streaming toward every column in a ring at
+  once rather than one-at-a-time so the generation workers run them in
+  parallel), checking the same real registries (`spawnerRegistry`'s
+  `allSpawners`, `containerRegistry`'s `allPendingLootChests`) after each
+  ring — "query the structure placement system rather than brute-force"
+  taken literally, since those registries fill in as chunks generate,
+  not from block-by-block scanning. Capped at a 10-ring (~160 block)
+  radius to bound worst-case search time for a dev tool, not a
+  guaranteed-to-find-anything oracle.
+- **The dimension switcher deliberately does not offer a way to leave
+  the Hollow Reach.** `/dev dimension` calls the same `travelToDimension`/
+  `travelToHollowReach` functions the existing gate system and the
+  `/hollowreach` "creative/testing shortcut" command already use — fire-
+  and-forget, matching that command's own established precedent that
+  "the dispatcher has no precedent for awaiting an async executor." The
+  Hollow Reach's *only* existing return path (`travelViaExitGate`)
+  deliberately triggers the game's one-time ending sequence; reusing it
+  as a casual dev-menu teleport would misfire that. "Kill self" (Player
+  tab) already sends the player back to the overworld unconditionally
+  (`respawnPlayer`'s own long-standing behavior, verified in this
+  phase's own test), so that's the documented way out instead of
+  building a second, redundant, and riskier exit path.
+- **Waypoints refuse (warn, don't throw or auto-travel) when the current
+  dimension doesn't match the waypoint's saved one**, rather than trying
+  to chain an async dimension switch and a synchronous position write
+  together. `travelToDimension`/`travelToHollowReach` are fire-and-forget
+  by the same established precedent noted above, so there's no clean,
+  reliable moment to know "the switch finished, now move to the exact
+  waypoint coordinates" from inside a synchronous command. Switching
+  dimension first (one extra click, the dimension switcher is right
+  there in the same tab), then going to the waypoint, is a small UX cost
+  for not building something fragile.
+- **Waypoints are per-world** (like phase 3's inventory snapshots) —
+  `worldState.js` gained a `waypoints` field the same way, with the same
+  "no generic deep-merge here, wire the new field into `loadWorldState`
+  by hand or it's silently dropped on load" caution phase 3 already
+  documented.
+- **Teleport history is session-only, not persisted** — a plain array
+  living in the Teleport tab's own closure, capped at 20 entries. Unlike
+  waypoints/snapshots (explicitly named, deliberately kept), a teleport
+  history is closer in spirit to the existing block-edit undo stack
+  (`cmdUndoStack`), which also isn't persisted across a reload — an
+  ephemeral "what did I just do" aid, not a saved record.
+
 ## Notable honesty calls
 
 - Phase 1 shipped with zero real toggles in any of the five tabs — see
@@ -321,3 +392,23 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   matching its pre-existing, unrelated-to-this-phase behavior rather
   than quietly changing what `/clear` does. "Clear Armor" is a
   separate, explicit action for exactly that reason.
+- **No general-purpose "safe landing anywhere" system existed before
+  this phase** — `findSafePortalSite` (gate.js) was gate-placement-
+  specific in name only; its actual requirements already generalize
+  cleanly, so this phase reuses it rather than writing a second,
+  parallel safe-spot search.
+- **The dimension switcher can't offer "leave the Hollow Reach"** — see
+  this phase's architecture notes above; the only existing return path
+  deliberately triggers the game's ending sequence. "Kill self" is the
+  documented, tested way out instead.
+- **Waypoint "go" across dimensions isn't automatic** — see this phase's
+  architecture notes on why chaining an async dimension switch with a
+  synchronous coordinate move isn't something this command architecture
+  supports cleanly. A waypoint in another dimension still shows in the
+  list (labeled with its dimension), it just refuses to travel until
+  you're already there.
+- **Teleport history only tracks teleports made through this tab** —
+  typing `/tp` directly in the console, or a scripted `/execute ... /tp`,
+  doesn't get recorded. The history exists to let dev-menu experimentation
+  be undone, not to be a complete log of every position change from every
+  source.

@@ -8,13 +8,15 @@
 // reuse, so this is genuinely "add it to the shared layer," not a
 // wrapper around something that already existed.
 import { literal, argument } from '../commandTree.js';
-import { bool, float, integer, itemId, literalSet, string, entitySelector } from '../argumentTypes.js';
-import { requireOneEntity } from '../commandHelpers.js';
+import { bool, float, integer, itemId, literalSet, string, entitySelector, blockPos } from '../argumentTypes.js';
+import { requireOneEntity, requireWithinHeight } from '../commandHelpers.js';
+import { resolvePosition } from '../coordinates.js';
 import { CommandExecutionError } from '../context.js';
 import { INDEFINITE_DURATION } from '../../entities/statusEffects.js';
 import { itemDisplayName, isBlockItem, GIVEABLE_ITEM_LIST, itemCategory, ITEMS, ARMOR_SLOTS } from '../../items/items.js';
 import { getBlock, BLOCKS } from '../../world/blocks.js';
 import { getOrCreateChest } from '../../items/containerRegistry.js';
+import { findSafePortalSite } from '../../world/gate.js';
 import { formatCount } from '../operations.js';
 
 function itemLabel(id) {
@@ -207,6 +209,133 @@ export function register(dispatcher) {
         if (!snapshots[args.name]) throw new CommandExecutionError(`No inventory snapshot named "${args.name}".`);
         delete snapshots[args.name];
         context.success(`Deleted inventory snapshot "${args.name}".`);
+        return { success: true };
+      })
+    )
+  );
+
+  // /dev tp <pos> <safe> — the Teleport tab's coordinate-entry control.
+  // `pos` reuses the exact same blockPos() argument /tp itself uses, so
+  // absolute/relative (~) entry works identically; a separate command
+  // (rather than extending /tp) is what lets `safe` exist without
+  // touching /tp's own established argument shape. `safe` searches with
+  // gate.js's findSafePortalSite (a solid-floor, lava-free, 1x3x2 clear
+  // footprint — a portal's own landing requirements are a strict
+  // superset of "safe for one entity to stand in") over whatever terrain
+  // is already loaded; if nothing loaded nearby qualifies, this falls
+  // back to the raw coordinates with a warning rather than blocking the
+  // teleport outright — the same "still do something reasonable, don't
+  // just refuse" spirit as every other dev-menu action's "fires
+  // immediately" rule.
+  dev.then(
+    literal('tp').then(
+      argument('pos', blockPos()).then(
+        argument('safe', bool()).executes((context, args) => {
+          const player = devPlayer(context);
+          const origin = { x: player.position.x, y: player.position.y, z: player.position.z, yaw: player.yaw, pitch: player.pitch };
+          let pos = resolvePosition(args.pos, origin, { floor: false });
+          requireWithinHeight(context, pos);
+          let usedFallback = false;
+          if (args.safe) {
+            const cm = context.world.chunkManager;
+            const spot = findSafePortalSite(cm, Math.floor(pos.x), Math.floor(pos.z), cm.minHeight, cm.maxHeight);
+            if (spot) pos = { x: spot.x + 0.5, y: spot.y, z: spot.z + 0.5 };
+            else usedFallback = true;
+          }
+          player.position = pos;
+          player.velocity = { x: 0, y: 0, z: 0 };
+          const coordText = `(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`;
+          if (usedFallback) context.warn(`No safe landing spot found nearby — teleported to the raw coordinates ${coordText}.`);
+          else context.success(`Teleported to ${coordText}.`);
+          return { success: true, position: pos };
+        })
+      )
+    )
+  );
+
+  // /dev dimension <target> — an instant switcher, deliberately not
+  // built on the player-driven gate flow at all (matches the existing
+  // /hollowreach command's own precedent: "phase 12 creative/testing
+  // shortcut", fire-and-forget since the dispatcher has no precedent for
+  // awaiting an async executor). Leaving the Hollow Reach isn't offered
+  // here — the only existing return path (travelViaExitGate) deliberately
+  // triggers the game's one-time ending sequence, and reusing it as a
+  // casual dev-menu teleport would misfire that. "Kill self" (Player
+  // tab) already sends the player back to the overworld unconditionally
+  // (respawnPlayer's own long-standing behavior), so that's the
+  // documented way out instead of building a second, redundant exit.
+  dev.then(
+    literal('dimension').then(
+      argument('target', literalSet(['overworld', 'cinderdeep', 'hollow_reach'])).executes((context, args) => {
+        const world = context.world;
+        const targetDim = args.target === 'hollow_reach' ? world.hollowReach : world[args.target];
+        if (world.activeDimension === targetDim) {
+          context.warn('Already in that dimension.');
+          return { success: false };
+        }
+        if (world.activeDimension === world.hollowReach) {
+          throw new CommandExecutionError(
+            'Leaving the Hollow Reach isn\'t supported here — its only real exit triggers the game\'s ending sequence. Use "Kill self" on the Player tab instead.'
+          );
+        }
+        if (args.target === 'hollow_reach') world.travelToHollowReach();
+        else world.travelToDimension(world.activeDimension, targetDim);
+        context.success(`Traveling to ${args.target.replace('_', ' ')}...`);
+        return { success: true };
+      })
+    )
+  );
+
+  // /dev waypointsave|waypointgo|waypointdelete <name> — per-world named
+  // teleport targets (worldState.js's own `waypoints`), storing the
+  // dimension a waypoint was recorded in alongside its coordinates since
+  // a bare {x,y,z} means nothing across dimensions. "Go" deliberately
+  // refuses (warns, doesn't throw or auto-travel) when the player is in
+  // a different dimension than the waypoint — chaining an async
+  // dimension switch and a synchronous position write together reliably
+  // isn't something this command architecture supports cleanly (see the
+  // /dev dimension note above on fire-and-forget travel); switching
+  // dimension first, then going to the waypoint, is one extra click, not
+  // a broken feature.
+  dev.then(
+    literal('waypointsave').then(
+      argument('name', string('greedy')).executes((context, args) => {
+        const player = devPlayer(context);
+        context.world.worldState.waypoints[args.name] = {
+          x: player.position.x,
+          y: player.position.y,
+          z: player.position.z,
+          dimensionId: context.world.activeDimension.id,
+        };
+        context.success(`Saved waypoint "${args.name}".`);
+        return { success: true };
+      })
+    )
+  );
+  dev.then(
+    literal('waypointgo').then(
+      argument('name', string('greedy')).executes((context, args) => {
+        const wp = context.world.worldState.waypoints[args.name];
+        if (!wp) throw new CommandExecutionError(`No waypoint named "${args.name}".`);
+        if (wp.dimensionId !== context.world.activeDimension.id) {
+          context.warn(`Waypoint "${args.name}" is in a different dimension — switch dimension first, then go to it.`);
+          return { success: false };
+        }
+        const player = devPlayer(context);
+        player.position = { x: wp.x, y: wp.y, z: wp.z };
+        player.velocity = { x: 0, y: 0, z: 0 };
+        context.success(`Teleported to waypoint "${args.name}".`);
+        return { success: true };
+      })
+    )
+  );
+  dev.then(
+    literal('waypointdelete').then(
+      argument('name', string('greedy')).executes((context, args) => {
+        const waypoints = context.world.worldState.waypoints;
+        if (!waypoints[args.name]) throw new CommandExecutionError(`No waypoint named "${args.name}".`);
+        delete waypoints[args.name];
+        context.success(`Deleted waypoint "${args.name}".`);
         return { success: true };
       })
     )

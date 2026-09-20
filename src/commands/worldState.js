@@ -29,7 +29,11 @@ export function defaultWorldState() {
   // the same shape player.inventory.slots already is (see
   // src/persistence/worldSave.js's own player-inventory save/load, which
   // persists that array just as directly with no per-slot wrapper class).
-  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0, invSnapshots: {} };
+  // waypoints: Dev Menu phase 4's named teleport targets — per-world for
+  // the same reason invSnapshots (phase 3) is: a coordinate triple is
+  // only meaningful against the world (and, here, the specific
+  // dimension) it was recorded in. Keyed by name -> {x,y,z,dimensionId}.
+  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0, invSnapshots: {}, waypoints: {} };
 }
 
 export function loadWorldState(saved) {
@@ -47,6 +51,7 @@ export function loadWorldState(saved) {
     // is copied over by hand, so a field left out here would be silently
     // dropped on every load even though defaultWorldState() has it.
     if (saved.invSnapshots && typeof saved.invSnapshots === 'object' && !Array.isArray(saved.invSnapshots)) out.invSnapshots = saved.invSnapshots;
+    if (saved.waypoints && typeof saved.waypoints === 'object' && !Array.isArray(saved.waypoints)) out.waypoints = saved.waypoints;
   }
   return out;
 }

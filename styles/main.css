@@ -1917,3 +1917,107 @@ html, body {
 .devmenu-items-snapshots button:hover {
   background: rgba(201, 167, 255, 0.32);
 }
+
+/* Dev Menu — Teleport tab (phase 4): shares the Items tab's own button/
+   input styling conventions, just under its own class prefix. */
+.devmenu-tp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.devmenu-tp-coord {
+  width: 56px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-tp-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.devmenu-tp-row select {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  border-radius: 3px;
+  font-size: 12px;
+  padding: 3px 4px;
+}
+
+.devmenu-tp-row input[type='text'] {
+  flex: 1;
+  min-width: 90px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-tp-row button,
+.devmenu-tp-section-label ~ button {
+  background: rgba(201, 167, 255, 0.18);
+  border: 1px solid rgba(201, 167, 255, 0.4);
+  color: #e8e0f5;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.devmenu-tp-row button:hover {
+  background: rgba(201, 167, 255, 0.32);
+}
+
+.devmenu-tp-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c9a7ff;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(201, 167, 255, 0.2);
+}
+
+.devmenu-tp-entity-list,
+.devmenu-tp-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 100px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.devmenu-tp-entity-row {
+  background: none;
+  border: none;
+  color: #e8e0f5;
+  text-align: left;
+  padding: 3px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.devmenu-tp-entity-row:hover {
+  background: rgba(201, 167, 255, 0.2);
+}
+
+.devmenu-tp-history-row {
+  font-size: 11px;
+  color: rgba(232, 224, 245, 0.7);
+  padding: 2px 6px;
+  font-variant-numeric: tabular-nums;
+}
