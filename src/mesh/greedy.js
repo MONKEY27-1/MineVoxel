@@ -17,10 +17,15 @@ const FACE_DIR = {
   1: { 1: 'top', [-1]: 'bottom' },
   2: { 1: 'south', [-1]: 'north' },
 };
-const SHADE = { top: 1.0, bottom: 0.45, east: 0.65, west: 0.65, south: 0.8, north: 0.8 };
+// Brightness pass: flattened per-face directional shading and softened
+// AO (both used to swing much darker — bottom faces at 0.45, AO's
+// darkest corner at 0.45) toward a brighter, flatter look closer to
+// bloxd.io's — strong enough to still read as real shading/occlusion,
+// not so strong that undersides/corners go near-black.
+const SHADE = { top: 1.0, bottom: 0.65, east: 0.78, west: 0.78, south: 0.88, north: 0.88 };
 // Ambient occlusion level (0=fully occluded corner .. 3=fully open) -> brightness
 // multiplier. Kept off pure black so occluded corners read as shadowed, not lit-out.
-const BASE_AO_LEVELS = [0.45, 0.65, 0.8, 1.0];
+const BASE_AO_LEVELS = [0.6, 0.75, 0.88, 1.0];
 
 /**
  * Revision-pass section 8's "smooth lighting strength" setting: 0 lerps
@@ -60,14 +65,35 @@ function makeAccessor(blocks, borders) {
   };
 }
 
-// Sky light has no cross-section border data (see lighting.js's
-// column-local tradeoff note), so a sample that lands outside this
-// section returns null; callers fall back to "assume lit" rather than
-// spuriously darkening the one row of vertices right at a section seam.
-function makeLightAccessor(light) {
+// Mirrors makeAccessor's block-border handling: a sample landing one
+// axis outside this section reads the real neighbor's light data
+// (chunkManager.js's own _gatherLightBorders) instead of guessing. Only
+// a true 2-or-3-axis-out diagonal corner (no border data exists for
+// that — same "cosmetically negligible" case makeAccessor's own comment
+// already accepts for block AO) or a genuinely missing neighbor
+// (unloaded chunk at the render-distance edge, or above the world's
+// very top) falls back to null, which sampleCorner treats as "assume
+// lit" — that fallback used to be the *only* path, silently wrong at
+// every ordinary in-bounds seam, which is what produced a visible
+// bright patch redrawn across a whole column on every single block edit
+// (chunkManager.js's setBlock marks every section in the column dirty).
+function makeLightAccessor(light, borders) {
+  const { negX, posX, negY, posY, negZ, posZ } = borders ?? {};
   return function getLight(x, y, z) {
-    if (x < 0 || x >= SIZE || y < 0 || y >= SIZE || z < 0 || z >= SIZE) return null;
-    return light[x + z * SIZE + y * SIZE * SIZE];
+    const outX = x < 0 ? -1 : x >= SIZE ? 1 : 0;
+    const outY = y < 0 ? -1 : y >= SIZE ? 1 : 0;
+    const outZ = z < 0 ? -1 : z >= SIZE ? 1 : 0;
+
+    if (outX === 0 && outY === 0 && outZ === 0) return light[x + z * SIZE + y * SIZE * SIZE];
+    if ((outX !== 0) + (outY !== 0) + (outZ !== 0) > 1) return null;
+
+    if (outX === -1) return negX ? negX[y * SIZE + z] : null;
+    if (outX === 1) return posX ? posX[y * SIZE + z] : null;
+    if (outZ === -1) return negZ ? negZ[y * SIZE + x] : null;
+    if (outZ === 1) return posZ ? posZ[y * SIZE + x] : null;
+    if (outY === -1) return negY ? negY[x * SIZE + z] : null;
+    if (outY === 1) return posY ? posY[x * SIZE + z] : null;
+    return null;
   };
 }
 
@@ -303,14 +329,19 @@ function mergeMask(mask, axis, plane, sign, bucket, blockAt, getSkyLight, getBlo
  * @param skyLight Uint8Array(4096) — this section's own sky light (0-15)
  * @param blockLight Uint8Array(4096) — this section's own block light (0-15)
  * @param borders { negX,posX,negY,posY,negZ,posZ: Uint8Array(256) } — 1-block
- *   neighbor slices (see chunkManager.js for how these are gathered)
+ *   neighbor block-id slices (see chunkManager.js for how these are gathered)
+ * @param skyLightBorders { negX,posX,negY,posY,negZ,posZ: Uint8Array(256)|null } —
+ *   same layout as `borders`, but sky-light values; a direction is null when
+ *   that neighbor genuinely doesn't exist (see chunkManager.js's
+ *   _gatherLightBorders)
+ * @param blockLightBorders same shape as `skyLightBorders`, for block light
  * @param atlasUV Map<tileName, {u0,v0,u1,v1}>
  * @param aoStrength 0..1, defaults to full AO — see computeAoLevels()
  */
-export function greedyMeshSection(blocks, skyLight, blockLight, borders, atlasUV, aoStrength = 1) {
+export function greedyMeshSection(blocks, skyLight, blockLight, borders, skyLightBorders, blockLightBorders, atlasUV, aoStrength = 1) {
   const blockAt = makeAccessor(blocks, borders);
-  const getSkyLight = makeLightAccessor(skyLight);
-  const getBlockLight = makeLightAccessor(blockLight);
+  const getSkyLight = makeLightAccessor(skyLight, skyLightBorders);
+  const getBlockLight = makeLightAccessor(blockLight, blockLightBorders);
   const aoLevels = computeAoLevels(aoStrength);
   const buckets = { opaque: new Bucket(aoLevels), transparent: new Bucket(aoLevels) };
 

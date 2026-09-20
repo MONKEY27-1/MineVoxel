@@ -4,12 +4,20 @@ import * as THREE from 'three';
 // day. dayFactor scales sky light in the atlas shader (mesh/atlasMaterial.js's
 // dayFactor uniform) — block light is untouched, so a placed glowstone
 // stays lit at night while the sky-lit terrain around it dims.
+// Brightness pass: raised every dayFactor (dawn/dusk 0.55 -> 0.75,
+// midnight 0.12 -> 0.45) toward a bloxd.io-style look — bright and
+// cheerful at all hours, with day/night still readable as a color-tint
+// shift (the `tint` values below are unchanged) rather than relying on
+// a harsh brightness swing to sell "it's night." dayFactor is still the
+// single biggest lever on overall scene brightness (see
+// atlasMaterial.js's shader — it multiplies every sky-lit surface), so
+// this alone is most of "the game should be brighter."
 const KEYFRAMES = [
-  { t: 0.0, dayFactor: 0.55, tint: new THREE.Color(0xffb066), sunIntensity: 0.6 }, // dawn
+  { t: 0.0, dayFactor: 0.75, tint: new THREE.Color(0xffb066), sunIntensity: 0.6 }, // dawn
   { t: 0.25, dayFactor: 1.0, tint: new THREE.Color(0xffffff), sunIntensity: 1.0 }, // noon
-  { t: 0.5, dayFactor: 0.55, tint: new THREE.Color(0xff9a5a), sunIntensity: 0.6 }, // dusk
-  { t: 0.75, dayFactor: 0.12, tint: new THREE.Color(0x1a2340), sunIntensity: 0.05 }, // midnight
-  { t: 1.0, dayFactor: 0.55, tint: new THREE.Color(0xffb066), sunIntensity: 0.6 }, // back to dawn
+  { t: 0.5, dayFactor: 0.75, tint: new THREE.Color(0xff9a5a), sunIntensity: 0.6 }, // dusk
+  { t: 0.75, dayFactor: 0.45, tint: new THREE.Color(0x1a2340), sunIntensity: 0.05 }, // midnight
+  { t: 1.0, dayFactor: 0.75, tint: new THREE.Color(0xffb066), sunIntensity: 0.6 }, // back to dawn
 ];
 
 export class DayNightCycle {

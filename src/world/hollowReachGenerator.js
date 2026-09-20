@@ -16,7 +16,11 @@ const ISLAND_CENTER_Z = 0;
 const ISLAND_BASE_RADIUS = 90;
 const ISLAND_EDGE_NOISE_AMPLITUDE = 18;
 const ISLAND_CENTER_Y = 90; // top surface height at the very center
-const ISLAND_EDGE_Y = 62; // top surface height near the eroded edge
+// Terrain pass: raised from 62 toward flatter, more Minecraft-End-like
+// islands (a relatively flat eroded shell, not a domed mountain) —
+// combined with islandThicknessAt()'s own thinner shell below, this is
+// the "make it thin like the real End" request.
+const ISLAND_EDGE_Y = 78; // top surface height near the eroded edge
 const PILLAR_COUNT = 11;
 const PILLAR_RING_RADIUS = 100;
 const FOUNTAIN_RADIUS = 5;
@@ -194,8 +198,13 @@ export function createHollowReachGenerator(seed) {
   }
 
   function islandThicknessAt(wx, wz, t) {
-    const base = 12 + (1 - t) * 28;
-    return Math.max(5, Math.round(base + thicknessNoise.sample(wx, wz) * 4));
+    // Terrain pass: was 12 + (1-t)*28 (roughly 12-40 blocks thick, a
+    // genuinely solid landmass) — thinned toward the real Minecraft
+    // End's own thin end-stone shell, mirroring the outer islands'
+    // already-thin formula (outerIslandAt's `6 * (1-t) + 2`) instead of
+    // a mountain-sized main island.
+    const base = 6 + (1 - t) * 10;
+    return Math.max(4, Math.round(base + thicknessNoise.sample(wx, wz) * 3));
   }
 
   /**

@@ -1,4 +1,4 @@
-import { Section, SECTION_SIZE } from './section.js';
+import { Section, SECTION_SIZE, sectionIndex } from './section.js';
 
 // Legacy fixed values — still correct for the overworld, kept only so
 // nothing importing these two names for the overworld's own height needs
@@ -79,31 +79,69 @@ export class ChunkColumn {
 
   /** 1-block edge slice for a neighbor read, indexed [y*16+other] to match greedy.js's border layout. */
   borderSliceX(sy, x) {
-    const section = this.sections[sy];
-    const out = new Uint8Array(SECTION_SIZE * SECTION_SIZE);
-    if (!section) return out;
-    for (let y = 0; y < SECTION_SIZE; y++) {
-      for (let z = 0; z < SECTION_SIZE; z++) out[y * SECTION_SIZE + z] = section.get(x, y, z);
-    }
-    return out;
+    return this._readSliceX(sy, x, 'blocks');
   }
 
   borderSliceZ(sy, z) {
+    return this._readSliceZ(sy, z, 'blocks');
+  }
+
+  borderSliceY(sy, y) {
+    return this._readSliceY(sy, y, 'blocks');
+  }
+
+  /**
+   * Same layout as borderSlice{X,Z,Y}, but reads a light channel
+   * ('skyLight' or 'blockLight') instead of block ids. Added alongside
+   * the block-id borders — light used to have none at all (see
+   * lighting.js's own "column-local" note), which meant every section
+   * seam's AO/light sampling silently guessed "full sky light, no block
+   * light" instead of reading the real neighbor, visible as a spurious
+   * bright patch at chunk edges and Y-section boundaries (most obvious
+   * right after any single-block edit, since that redraws every seam in
+   * the whole column at once — see chunkManager.js's setBlock).
+   */
+  borderLightSliceX(sy, x, channel) {
+    return this._readSliceX(sy, x, channel);
+  }
+
+  borderLightSliceZ(sy, z, channel) {
+    return this._readSliceZ(sy, z, channel);
+  }
+
+  borderLightSliceY(sy, y, channel) {
+    return this._readSliceY(sy, y, channel);
+  }
+
+  _readSliceX(sy, x, channel) {
     const section = this.sections[sy];
     const out = new Uint8Array(SECTION_SIZE * SECTION_SIZE);
     if (!section) return out;
+    const arr = section[channel];
     for (let y = 0; y < SECTION_SIZE; y++) {
-      for (let x = 0; x < SECTION_SIZE; x++) out[y * SECTION_SIZE + x] = section.get(x, y, z);
+      for (let z = 0; z < SECTION_SIZE; z++) out[y * SECTION_SIZE + z] = arr[sectionIndex(x, y, z)];
     }
     return out;
   }
 
-  borderSliceY(sy, y) {
+  _readSliceZ(sy, z, channel) {
     const section = this.sections[sy];
     const out = new Uint8Array(SECTION_SIZE * SECTION_SIZE);
     if (!section) return out;
+    const arr = section[channel];
+    for (let y = 0; y < SECTION_SIZE; y++) {
+      for (let x = 0; x < SECTION_SIZE; x++) out[y * SECTION_SIZE + x] = arr[sectionIndex(x, y, z)];
+    }
+    return out;
+  }
+
+  _readSliceY(sy, y, channel) {
+    const section = this.sections[sy];
+    const out = new Uint8Array(SECTION_SIZE * SECTION_SIZE);
+    if (!section) return out;
+    const arr = section[channel];
     for (let x = 0; x < SECTION_SIZE; x++) {
-      for (let z = 0; z < SECTION_SIZE; z++) out[x * SECTION_SIZE + z] = section.get(x, y, z);
+      for (let z = 0; z < SECTION_SIZE; z++) out[x * SECTION_SIZE + z] = arr[sectionIndex(x, y, z)];
     }
     return out;
   }

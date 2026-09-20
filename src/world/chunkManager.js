@@ -356,6 +356,8 @@ export class ChunkManager {
     this.pendingMeshCount++;
 
     const borders = this._gatherBorders(col, sy);
+    const skyLightBorders = this._gatherLightBorders(col, sy, 'skyLight');
+    const blockLightBorders = this._gatherLightBorders(col, sy, 'blockLight');
     const blocksCopy = section.blocks.slice();
     const skyLightCopy = section.skyLight.slice();
     const blockLightCopy = section.blockLight.slice();
@@ -371,6 +373,14 @@ export class ChunkManager {
       borders.negZ.buffer,
       borders.posZ.buffer,
     ];
+    // Light borders are frequently null (a genuinely missing neighbor —
+    // see _gatherLightBorders's own comment), and null has no .buffer
+    // to transfer, so only the real slices get listed.
+    for (const b of [skyLightBorders, blockLightBorders]) {
+      for (const dir of ['negX', 'posX', 'negY', 'posY', 'negZ', 'posZ']) {
+        if (b[dir]) transfer.push(b[dir].buffer);
+      }
+    }
     worker.postMessage(
       {
         type: 'mesh',
@@ -381,6 +391,8 @@ export class ChunkManager {
         skyLight: skyLightCopy,
         blockLight: blockLightCopy,
         borders,
+        skyLightBorders,
+        blockLightBorders,
         aoStrength: this.aoStrength,
       },
       transfer
@@ -400,6 +412,36 @@ export class ChunkManager {
       posZ: posZCol ? posZCol.borderSliceZ(sy, 0) : emptySlice(),
       negY: sy > 0 ? col.borderSliceY(sy - 1, SECTION_SIZE - 1) : opaqueFloorSlice(),
       posY: sy < this.numSections - 1 ? col.borderSliceY(sy + 1, 0) : emptySlice(),
+    };
+  }
+
+  /**
+   * Real cross-section/cross-chunk light data for the mesher's AO/light
+   * corner sampling — see chunkColumn.js's borderLightSlice{X,Z,Y} for
+   * why this exists (there was no light-border data at all before,
+   * every seam silently guessed "full sky, no block light" instead of
+   * reading its real neighbor). `null` for a genuinely missing neighbor
+   * (an unloaded chunk at the edge of render distance, or above the
+   * very top of the world) intentionally falls through to that same old
+   * "assume open sky" default in greedy.js — reasonable there, since
+   * that's either far off-screen or, at the world's top, actually
+   * correct. Below the world's bottom section, an explicit all-zero
+   * slice (not null) is used instead so the bedrock floor doesn't
+   * inherit that same "assume lit" default.
+   */
+  _gatherLightBorders(col, sy, channel) {
+    const negXCol = this.columns.get(columnKey(col.cx - 1, col.cz));
+    const posXCol = this.columns.get(columnKey(col.cx + 1, col.cz));
+    const negZCol = this.columns.get(columnKey(col.cx, col.cz - 1));
+    const posZCol = this.columns.get(columnKey(col.cx, col.cz + 1));
+
+    return {
+      negX: negXCol ? negXCol.borderLightSliceX(sy, SECTION_SIZE - 1, channel) : null,
+      posX: posXCol ? posXCol.borderLightSliceX(sy, 0, channel) : null,
+      negZ: negZCol ? negZCol.borderLightSliceZ(sy, SECTION_SIZE - 1, channel) : null,
+      posZ: posZCol ? posZCol.borderLightSliceZ(sy, 0, channel) : null,
+      negY: sy > 0 ? col.borderLightSliceY(sy - 1, SECTION_SIZE - 1, channel) : emptySlice(),
+      posY: sy < this.numSections - 1 ? col.borderLightSliceY(sy + 1, 0, channel) : null,
     };
   }
 

@@ -35,9 +35,13 @@ function run() {
     const placed = generateChunk(gen, 0, 0);
     const palestoneCount = [...placed.values()].filter((id) => id === BLOCKS.PALESTONE).length;
     // A full 16x16 column patch at the island's thickest point should be
-    // solidly filled — 256 columns x at least ~15 blocks thick each is a
-    // low, safe bar (real thickness there is closer to 30-40).
-    assert(palestoneCount > 256 * 10, `expected a thick landmass at the center chunk, only found ${palestoneCount} Palestone blocks`);
+    // solidly filled — 256 columns x at least ~6 blocks thick each is a
+    // low, safe bar. Terrain pass: the island was thinned toward a real
+    // Minecraft-End-style shell (was ~30-40 thick at center, now ~13-19 —
+    // see hollowReachGenerator.js's islandThicknessAt), so this bar
+    // dropped with it; the point of this assertion (a solid landmass
+    // exists at all, not a paper-thin sliver) still holds.
+    assert(palestoneCount > 256 * 6, `expected a thick landmass at the center chunk, only found ${palestoneCount} Palestone blocks`);
   }
 
   console.log('  - the island is domed (thicker/taller at the center than near its edge)...');
