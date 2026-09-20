@@ -144,6 +144,29 @@ html, body {
   background: linear-gradient(#5fb8e8, #2c86b5);
 }
 
+/* Phase 9 (Glidewings) glide-speed bar — deliberately its own top-level
+   element rather than living inside #vitals, since #vitals is hidden
+   outright in non-survival gameMode (Hud.update's own vitalsEl.hidden
+   toggle) but gliding itself works in every game mode, so its speed
+   readout needs to be visible independent of that gate. */
+#glide-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 100px;
+  transform: translateX(-50%) scale(var(--hud-scale, 1));
+  transform-origin: center bottom;
+  width: 220px;
+}
+
+.vital-fill.glide {
+  background: linear-gradient(#e8f2ff, #9fc9e8);
+  transition: width 0.1s linear, background 0.2s ease;
+}
+
+.vital-fill.glide.low-durability {
+  background: linear-gradient(#f5d089, #c98a2c);
+}
+
 /* The Riftwyrm's boss bar (Hollow Reach phase 4) — top-center, matching
    the vanilla convention this game otherwise has no precedent for (no
    boss existed anywhere before this). Shown/hidden by Hud.updateBossBar

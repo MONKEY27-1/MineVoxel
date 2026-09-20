@@ -159,6 +159,13 @@ export const RECIPES = [
   // main.js's own break/place handling (not this recipe) is what
   // actually makes the resulting block keep its contents.
   { id: 'vault_box', shapeless: true, ingredients: [item(ITEMS.VAULT_SHELL.id), item(BLOCKS.CHEST)], outputId: BLOCKS.VAULT_BOX, outputCount: 1 },
+  // Phase 9: this game has no plant-fiber material (no sugarcane
+  // equivalent) to make vanilla's own paper from, so Sticks stand in —
+  // the same spirit as Cinder Powder standing in for gunpowder below.
+  { id: 'paper', shapeless: true, ingredients: [item(ITEMS.STICK.id), item(ITEMS.STICK.id), item(ITEMS.STICK.id)], outputId: ITEMS.PAPER.id, outputCount: 3 },
+  // "Craftable from paper + gunpowder" — Cinder Powder is this game's
+  // own established gunpowder stand-in (see the tnt recipe's own note).
+  { id: 'skyburst', shapeless: true, ingredients: [item(ITEMS.PAPER.id), item(ITEMS.CINDER_POWDER.id)], outputId: ITEMS.SKYBURST.id, outputCount: 2 },
 ];
 
 function toolFamily(toolType, template) {

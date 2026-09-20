@@ -1,6 +1,7 @@
 import { itemIconTile, itemDisplayName, isBlockItem, getNonBlockItem } from '../items/items.js';
 import { applyIcon } from './itemIcon.js';
 import { EFFECT_TYPES } from '../entities/statusEffects.js';
+import { GLIDE_MAX_SPEED } from '../entities/player.js';
 
 const HOTBAR_ICON_SIZE = 36;
 
@@ -27,6 +28,8 @@ export class Hud {
     this.healthFillEl = document.getElementById('health-fill');
     this.breathFillEl = document.getElementById('breath-fill');
     this.breathBarEl = document.getElementById('breath-bar');
+    this.glideBarEl = document.getElementById('glide-bar');
+    this.glideFillEl = document.getElementById('glide-fill');
     this.hotbarEl = document.getElementById('hotbar');
     this.underwaterEl = document.getElementById('underwater-overlay');
     this.statusEffectsEl = document.getElementById('status-effects');
@@ -56,6 +59,16 @@ export class Hud {
       this.breathBarEl.classList.toggle('hidden', player.breath >= player.maxBreath && !player.headInWater);
     }
     this.underwaterEl.classList.toggle('hidden', !player.headInWater);
+
+    // Phase 9 (Glidewings): shown whenever actually gliding, independent
+    // of gameMode — unlike the vitals block above, gliding itself (and
+    // its speed) is relevant in every mode, only the durability drain is
+    // survival-only (Player._updateGlide's own gating).
+    this.glideBarEl.classList.toggle('hidden', !player.gliding);
+    if (player.gliding) {
+      this.glideFillEl.style.width = `${Math.min(100, (player.glideSpeed / GLIDE_MAX_SPEED) * 100)}%`;
+      this.glideFillEl.classList.toggle('low-durability', player.glideLowDurability);
+    }
 
     this.statusEffectsEl.innerHTML = '';
     for (const [type, remaining] of player.effects.active) {

@@ -20,7 +20,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 6 — Respawning the Riftwyrm
 - [x] Phase 7 — Far Gates and the void crossing (baseline outer-island terrain built here since phase 7 genuinely needs it — see below)
 - [x] Phase 8 — Outer islands, Pale Spires, and Skyships
-- [ ] Phase 9 — Glidewings
+- [x] Phase 9 — Glidewings (the optional third-person pull-back camera while gliding is deferred to phase 12 — see below)
 - [ ] Phase 10 — Rift Chest
 - [ ] Phase 11 — The ending sequence
 - [ ] Phase 12 — Integration
@@ -702,6 +702,102 @@ be rewritten) lives at `src/ending/poem.txt`.
   fade overlay for a rare, dramatic long-distance warp was judged an
   acceptable trade, not a real problem to chase further this pass.
 
+## Architecture decisions (phase 9)
+
+- **Real energy-exchange flight, not a fixed descent rate** — per the
+  spec's own explicit requirement. `Player._updateGlide` treats
+  `glideSpeed` as a scalar along the look direction: diving (negative
+  pitch) converts altitude to speed, climbing trades speed back for
+  altitude, proportional drag bleeds speed toward a stall over time, and
+  level flight still sinks at a fixed minimum rate (`GLIDE_LEVEL_SINK`)
+  rather than hovering. Below `GLIDE_MIN_SPEED` the glide simply ends and
+  falls through to normal gravity, the same "stall" every real glider
+  model has, tuned by feel exactly the way `TUNING`'s own movement
+  constants already were.
+- **Activation reuses `_handleFlyToggle`'s own double-toggle-safe
+  pattern** (`input.getPressTime('flyUp')`, compared against a
+  last-seen timestamp) rather than `wasPressed()` — the same fixed-
+  timestep-substeps-vs-one-rendered-frame gotcha that pattern already
+  exists to solve. `_updateGlideToggle` runs every tick regardless of
+  gliding state (start on a jump press while falling with Glidewings
+  equipped, cancel on a second press), which turned out to be a real
+  gap: it's the *first* `getPressTime()` call site in this codebase that
+  isn't gated behind an opt-in setting/mode, and one existing test
+  (`test-alchemy-live.js`) had a minimal mock `input` object that never
+  needed to implement `getPressTime` before — fixed there, not by adding
+  a defensive check in `Player` for a method its one real caller
+  (`core/input.js`'s actual `Input` class) always provides.
+- **Wall-impact damage reuses `sweepAABB`'s own `collideX`/`collideZ`
+  flags** — the exact mechanism `_sweep`'s existing fall-damage code
+  already relies on for its own collision detection, not a new raycast
+  or velocity-delta check.
+- **Glidewings' durability drain and repair are the first "consumable
+  material reagent, not a RECIPES entry, modifies an already-equipped
+  item's durability in place" interaction in this game** — crafting
+  always produces a fresh output, which can't express "add durability to
+  the specific Glidewings currently in the chest slot," so the Riftstone
+  repair is a direct main.js interaction instead, mirroring the existing
+  potion-drink/Rift-Fruit-eat hooks' own "thin conditional gated on
+  `wasMousePressed(2)` and the held item" shape.
+- **Real bug found writing this exact interaction, before it ever
+  shipped to a player:** Riftstone is a real, pre-existing placeable
+  block (used in Hollow Reach terrain), and `interaction.js`'s own
+  generic block-placement path (`_updatePlacing`, called unconditionally
+  every tick before any of main.js's own per-item checks run) has no
+  hook to skip placing a held block-item just because some other system
+  might also want that click. A plain right-click at a solid face was
+  silently placing the Riftstone as a normal block and consuming it
+  *before* the repair check ever saw it — found by the new
+  `test-glidewings.js` test failing consistently, not by inspection.
+  Fixed by requiring `!interaction.target` (no block in view) for the
+  repair to fire, the same "no block target needed, checks player state
+  directly" shape phase 6's own Bottling Rift Breath interaction already
+  uses for exactly this reason — not by trying to special-case Riftstone
+  inside the shared placement path.
+- **The wind sound is the first continuous, parameter-updated sound in
+  this codebase.** Every existing `synth.js` sound (`playFootstep`,
+  `playBlockBreak`, the mob/player combat cues, even `playExplosion`) is
+  a fire-and-forget envelope: create nodes, ramp to zero, done — none of
+  them are held onto or have a parameter changed after they start.
+  `startWindSound()`/`updateWindSound(speedFraction)`/`stopWindSound()`
+  is a new pattern: create a looping filtered-noise source once on
+  glide-start, push its gain/filter cutoff every frame the wind sound is
+  live to track `glideSpeed`, and explicitly `.stop()` it on glide-end.
+  Needed its own audio category (`ambient`, alongside the existing
+  `footsteps`/`blocks`/`ui`/`mobs`) since it's genuinely not any of those
+  four things.
+- **The gliding view-model pose is the first *persistent* pose this
+  game's view model has** — `triggerSwing`/`triggerPlace`/`triggerEat`
+  are all one-shot timers that fire once and decay; gliding needs to stay
+  blended in for the whole duration of the glide instead, so
+  `ViewModel.setGliding(bool)` drives a separate `_glideT` value that
+  eases toward 0 or 1 continuously rather than a fire-and-decay curve.
+- **The optional third-person pull-back camera while gliding, called out
+  in the spec, is deliberately deferred to phase 12** rather than built
+  here: phase 12's own bullet list already owns a new "glide camera
+  preference" *setting*, and the underlying capability (temporarily
+  showing `player.cameraMode === 'third-back'`'s own render path without
+  touching the player's actual chosen mode) is small enough to add
+  alongside that setting's own UI rather than half-building it now with
+  no way to opt out.
+- **`GLIDE_MAX_SPEED` is exported from `player.js`** (every other glide
+  tuning constant stays module-private) specifically so `hud.js`'s new
+  glide-speed bar can compute a percentage without hand-duplicating the
+  value — the one new cross-file dependency this phase needed.
+- **`test-glidewings.js` runs its own player.update() calls, but the
+  real main.js game loop never stops running on the same live page** —
+  discovered the hard way chasing flaky failures where a one-shot flag
+  (`justGlideWallHit`) read back as `false` even though the exact damage
+  it should have caused had already happened, and where `glideSpeed`
+  read back unchanged after an explicit update loop. The real loop was
+  independently ticking (and, for the one-shot flag, consuming) the same
+  `player` object in the gap between two separate `page.evaluate()`
+  round trips. Fixed by consolidating each step's manipulate-and-verify
+  sequence into one `page.evaluate()` call (via a small `window.__glide`
+  helper installed once), the same discipline `test-feel.js`'s own
+  multi-hundred-iteration loops already use — not by trying to pause or
+  out-race the live loop.
+
 ## Notable honesty calls
 
 - Pale Spire loot calls for "enchanted gear," but this game has no
@@ -746,3 +842,10 @@ be rewritten) lives at `src/ending/poem.txt`.
   library chest needed an explicit `tableId === 'undervault'` case added
   to that function's id-guessing, or it would have been misreported as
   a Ruined Gate discovery.
+- Glidewings' flight model is a single scalar (`glideSpeed` along the
+  look direction) trading against pitch and a fixed sink rate — not a
+  real lift/drag/angle-of-attack simulation, and there's no separate
+  "roll" axis (banking turns are purely a yaw/look change, same as every
+  other movement mode this game has). Good enough to satisfy the spec's
+  own "dive to gain speed, climb to lose it, can't just hover" behavior
+  without building an actual flight-dynamics model for one item.

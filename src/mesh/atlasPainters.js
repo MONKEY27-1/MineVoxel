@@ -1597,3 +1597,35 @@ painters.glidewings = (ctx, ox, oy) => {
   ctx.lineTo(ox + 14, oy + 13);
   ctx.stroke();
 };
+
+// --- Phase 9: Glidewings -----------------------------------------------
+painters.paper = (ctx, ox, oy) => {
+  ctx.fillStyle = '#f2ecd8';
+  ctx.fillRect(ox + 2, oy + 2, 12, 12);
+  ctx.strokeStyle = '#d8d0b8';
+  ctx.lineWidth = 0.5;
+  for (let ry = 4; ry < 14; ry += 3) {
+    ctx.beginPath();
+    ctx.moveTo(ox + 3, oy + ry);
+    ctx.lineTo(ox + 13, oy + ry);
+    ctx.stroke();
+  }
+};
+painters.skyburst = (ctx, ox, oy) => {
+  ctx.fillStyle = '#e8e0f5';
+  ctx.fillRect(ox + 6, oy + 2, 4, 10);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.beginPath();
+  ctx.moveTo(ox + 6, oy + 2);
+  ctx.lineTo(ox + 8, oy);
+  ctx.lineTo(ox + 10, oy + 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#e8621f';
+  ctx.beginPath();
+  ctx.moveTo(ox + 6, oy + 12);
+  ctx.lineTo(ox + 8, oy + 15);
+  ctx.lineTo(ox + 10, oy + 12);
+  ctx.closePath();
+  ctx.fill();
+};

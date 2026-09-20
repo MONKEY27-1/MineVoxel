@@ -42,7 +42,8 @@
     "test:riftwyrm-respawn": "node tools/run-with-server.js tools/test-riftwyrm-respawn.js",
     "test:far-gates": "node tools/run-with-server.js tools/test-far-gates.js",
     "test:pale-spire": "node tools/test-pale-spire.js",
-    "test:pale-spire-live": "node tools/run-with-server.js tools/test-pale-spire-live.js"
+    "test:pale-spire-live": "node tools/run-with-server.js tools/test-pale-spire-live.js",
+    "test:glidewings": "node tools/run-with-server.js tools/test-glidewings.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

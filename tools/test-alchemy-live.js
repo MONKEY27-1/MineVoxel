@@ -73,7 +73,12 @@ export default async function run(baseUrl) {
         const M = window.__minevoxel;
         const p = M.player;
         const dt = 1 / 60;
-        const input = { isDown: () => false, wasPressed: () => false, wasMousePressed: () => false, isMouseDown: () => false, mouseDX: 0, mouseDY: 0 };
+        // getPressTime: () => 0 (real Input's own "never pressed" value) —
+        // needed since Player.update()'s Phase 9 glide-toggle check now
+        // calls it unconditionally whenever the player isn't riding/flying,
+        // unlike every other getPressTime call site here, which is gated
+        // behind an opt-in setting/mode this test's player doesn't have on.
+        const input = { isDown: () => false, wasPressed: () => false, wasMousePressed: () => false, isMouseDown: () => false, getPressTime: () => 0, mouseDX: 0, mouseDY: 0 };
         const originalMoveVector = p._moveVector;
         p._moveVector = () => new M.THREE.Vector3(0, 0, -1);
         p.effects.clear();

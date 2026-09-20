@@ -94,7 +94,15 @@ export default async function run(baseUrl) {
         const M = window.__minevoxel;
         const { ITEMS } = await import('/src/items/items.js');
         const p = M.player.position;
-        const strider = M.mobManager.spawn('emberstrider', { x: p.x, y: p.y, z: p.z - 1.2 });
+        // Explicit dimensionId, not left to mobManager.spawn()'s own
+        // default (this._activeDimensionId) — that field only refreshes
+        // once mobManager.update() next ticks, which hasn't necessarily
+        // happened yet this soon after travelToDimension resolves. Race
+        // discovered while chasing a real Phase 9 test failure: it turned
+        // out to be this pre-existing timing gap, not a Phase 9 bug — the
+        // strider was silently spawning tagged 'overworld' straight after
+        // arriving in the Cinderdeep.
+        const strider = M.mobManager.spawn('emberstrider', { x: p.x, y: p.y, z: p.z - 1.2 }, { dimensionId: 'cinderdeep' });
         M.player.yaw = 0;
         M.player.pitch = 0;
         M.player.inventory.slots[M.player.selectedHotbar] = { itemId: ITEMS.AZURECAP_LURE.id, count: 1 };

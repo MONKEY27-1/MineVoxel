@@ -18,7 +18,7 @@ export class AudioEngine {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.6;
     this.master.connect(this.ctx.destination);
-    for (const name of ['footsteps', 'blocks', 'ui', 'mobs']) {
+    for (const name of ['footsteps', 'blocks', 'ui', 'mobs', 'ambient']) {
       const gain = this.ctx.createGain();
       gain.gain.value = 1;
       gain.connect(this.master);

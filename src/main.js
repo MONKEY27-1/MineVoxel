@@ -30,7 +30,7 @@ import {
 import { DayNightCycle } from './world/dayNightCycle.js';
 import { __selfTestTravel } from './world/travel.js';
 import { __selfTestLighting } from './world/lighting.js';
-import { Player, TUNING } from './entities/player.js';
+import { Player, TUNING, GLIDE_MAX_SPEED } from './entities/player.js';
 import { aabbFits } from './entities/physics.js';
 import { InteractionController, raycastVoxel } from './entities/interaction.js';
 import { PlayerModel } from './entities/playerModel.js';
@@ -52,7 +52,7 @@ import { getVault } from './items/vaultBoxRegistry.js';
 import { allSpawners } from './world/structures/spawnerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
-import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash, playDrip } from './audio/synth.js';
+import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath, playPlayerHurt, playUIClick, playExplosion, playSplash, playDrip, playSkyburst, playGlideImpact, startWindSound, updateWindSound, stopWindSound } from './audio/synth.js';
 import { explode } from './world/explosion.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { TuningPanel } from './ui/tuningPanel.js';
@@ -593,6 +593,8 @@ function main() {
   // retrying on later ticks instead of silently losing the gate.
   let pendingExitGateBuild = false;
   let nightVisionWasActive = false; // phase 6: tracks the transition edge so the ambient-floor override applies/restores exactly once, not every tick
+  let wasGliding = false; // phase 9: tracks the glide-start/stop edge for the wind sound and viewModel pose (both persistent, not one-shot events)
+  let wasGlideLowDurability = false; // phase 9: tracks the edge so the "almost worn out" warning fires once, not every tick it stays true
   let effectParticleTimer = 0;
   // Polish pass: ambient-biome motes (spore/ember/ash) — a per-render-
   // frame timer (real dt, not FIXED_DT — purely decorative, no physics
@@ -2009,6 +2011,42 @@ function main() {
           playUIClick();
         }
 
+        // Using a Skyburst (phase 9): only actually does anything while
+        // gliding (Player.useSkyburst is a no-op and returns false
+        // otherwise) — guarded so it's never consumed for nothing.
+        if (input.wasMousePressed(2) && player.selectedItem?.itemId === ITEMS.SKYBURST.id && !interaction.wantsOpenContainer) {
+          if (player.useSkyburst()) {
+            const held = player.selectedItem;
+            held.count -= 1;
+            if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+            playSkyburst();
+          }
+        }
+
+        // Repairing Glidewings with Riftstone (phase 9): a direct
+        // interaction rather than a RECIPES entry — crafting always
+        // produces a fresh output, but this needs to modify the existing
+        // equipped item's durability in place, which the crafting system
+        // has no notion of. Guarded to only fire below max durability so
+        // right-clicking with a full-durability pair held doesn't waste
+        // the Riftstone for nothing. Riftstone is also a real placeable
+        // block, so this deliberately requires no block in view
+        // (!interaction.target, the same "no block target needed"
+        // reasoning Bottling Rift Breath above uses) — without that
+        // guard, right-clicking a wall with Riftstone held would place it
+        // via interaction.js's own generic block-placement path before
+        // this code ever ran, silently eating the repair.
+        if (input.wasMousePressed(2) && !interaction.target && player.selectedItem?.itemId === BLOCKS.RIFTSTONE) {
+          const chest = player.armor[1];
+          if (chest && chest.itemId === ITEMS.GLIDEWINGS.id && chest.durability < ITEMS.GLIDEWINGS.maxDurability) {
+            const held = player.selectedItem;
+            held.count -= 1;
+            if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+            chest.durability = Math.min(ITEMS.GLIDEWINGS.maxDurability, chest.durability + 60);
+            playUIClick();
+          }
+        }
+
         if (input.wasPressed('drop') && player.selectedItem) {
           const slot = player.selectedItem;
           spawnDropNearPlayer(slot.itemId, 1, slot.durability);
@@ -2153,6 +2191,24 @@ function main() {
       if (player.justEnteredWater) {
         particles.spawnSplash(player.justEnteredWater, player.justEnteredWater.speed);
         playSplash(player.justEnteredWater.speed);
+      }
+      // Phase 9 (Glidewings): wind sound + viewModel pose are both
+      // persistent-while-gliding, not one-shot, so they're driven off the
+      // gliding/not-gliding edge here rather than a trigger flag.
+      if (player.gliding !== wasGliding) {
+        wasGliding = player.gliding;
+        viewModel.setGliding(player.gliding);
+        if (player.gliding) startWindSound();
+        else stopWindSound();
+      }
+      if (player.gliding) updateWindSound(player.glideSpeed / GLIDE_MAX_SPEED);
+      if (player.justGlideWallHit) {
+        playGlideImpact();
+        player.justGlideWallHit = false;
+      }
+      if (player.glideLowDurability !== wasGlideLowDurability) {
+        wasGlideLowDurability = player.glideLowDurability;
+        if (player.glideLowDurability) cmdMessageLog.warn('Your Glidewings are almost worn out.');
       }
       if (player.gameMode === 'survival' && player.health <= 0) respawnPlayer(player.lastDamageCause ?? 'unknown causes');
 

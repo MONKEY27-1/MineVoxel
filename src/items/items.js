@@ -184,6 +184,18 @@ export const ITEMS = {
   // than needing a new one invented just for this; the actual glide
   // physics are phase 9's own scope, not built here.
   GLIDEWINGS: defineArmor('chest', { name: 'glidewings', defense: [0, 0, 0, 0] }),
+
+  // --- Phase 9: Glidewings ----------------------------------------------
+  // Paper didn't exist anywhere in this game before Skyburst needed it.
+  PAPER: defineMaterial('paper'),
+  // "Craftable from paper + gunpowder" — this game has no gunpowder-
+  // equivalent drop at all (recipes.js's own TNT recipe already
+  // documents Cinder Powder standing in for it), so Skyburst reuses that
+  // exact same stand-in rather than inventing a second one. A plain
+  // consumable material, not `kind: 'tool'` — it has no durability and
+  // must never trigger interaction.js's own mining-tool-degradation
+  // logic (which keys off `kind === 'tool'`).
+  SKYBURST: defineMaterial('skyburst'),
 };
 
 const byId = new Map(nonBlockItems.map((i) => [i.id, i]));

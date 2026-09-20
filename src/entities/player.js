@@ -3,7 +3,7 @@ import { sweepAABB, aabbOverlapsBlock, aabbFits } from './physics.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
 import { Inventory } from '../items/inventory.js';
 import { StatusEffectManager } from './statusEffects.js';
-import { ARMOR_MATERIAL, getNonBlockItem } from '../items/items.js';
+import { ARMOR_MATERIAL, ITEMS, getNonBlockItem } from '../items/items.js';
 
 const VOIDSTEEL_KNOCKBACK_RESISTANCE = 0.7; // phase 7: "slight knockback resistance" — a flat multiplier, any piece worn
 
@@ -64,6 +64,28 @@ export const TUNING = {
 
 const isWater = (id) => id === BLOCKS.WATER;
 
+// Phase 9 (Glidewings): real energy-exchange flight, not a fixed descent
+// rate — pitching down (diving) converts altitude to speed, pitching up
+// trades speed for altitude toward a stall, level flight sinks gradually.
+// Tuned by feel, the same way TUNING's own movement constants above were.
+const GLIDE_MIN_SPEED = 5; // below this there isn't enough speed for lift — stalls out of the glide
+export const GLIDE_MAX_SPEED = 26; // exported for hud.js's glide-speed bar denominator
+const GLIDE_START_SPEED = 8;
+const GLIDE_PITCH_ACCEL = 16; // how strongly diving/climbing trades altitude for speed
+const GLIDE_DRAG = 0.35; // per second, proportional — bleeds speed back toward the stall over time without constant diving
+const GLIDE_LEVEL_SINK = 1.1; // blocks/sec lost even in dead-level flight — "level flight loses altitude gradually" per spec
+const GLIDE_WALL_DAMAGE_MIN_SPEED = 10; // below this a wall bump is harmless
+const GLIDE_WALL_DAMAGE_SCALE = 0.8; // health per block/sec of speed above the minimum
+const GLIDE_DURABILITY_LOW_THRESHOLD = 20; // out of GLIDEWINGS's own 240 maxDurability — "near-zero warning"
+const SKYBURST_ACCEL = 40; // added to glideSpeed per second while a Skyburst is active
+const SKYBURST_DURATION = 2.5;
+
+/** The chest slot specifically — Glidewings only ever occupies that one slot, unlike playerWearsGold's own "any slot" check in mob.js. */
+function hasGlidewingsEquipped(player) {
+  const slot = player.armor[1]; // ARMOR_SLOTS = ['helmet','chest','legs','boots']
+  return !!slot && slot.itemId === ITEMS.GLIDEWINGS.id;
+}
+
 /** Whether the AABB footprint at (x,y,z) has solid ground directly beneath its feet. */
 function hasFootingAt(chunkManager, x, y, z, size) {
   return aabbOverlapsBlock(chunkManager, { x, y: y - 0.1, z }, { width: size.width, height: 0.1 }, isSolid);
@@ -96,6 +118,15 @@ export class Player {
     this.headInWater = false; // eye height specifically — drives breath + underwater fog
     this.swimSprinting = false;
     this.justEnteredWater = null; // one-shot {x,y,z,speed} on the exact velocity-based water-entry edge — main.js reads it to trigger a splash-particle burst
+
+    // Phase 9 (Glidewings).
+    this.gliding = false;
+    this.glideSpeed = 0;
+    this.glideLowDurability = false; // read by main.js/hud for the near-zero warning
+    this.justGlideWallHit = false; // one-shot, read+cleared by main.js for a sound/particle cue
+    this._skyburstTimer = 0;
+    this._glideDurabilityTimer = 0;
+    this._lastGlideTogglePressTime = 0;
 
     this.health = 20;
     this.maxHealth = 20;
@@ -194,12 +225,15 @@ export class Player {
   }
 
   get size() {
-    if (this.swimSprinting) return SWIM_SIZE;
+    // Gliding's own "distinct prone flying pose" reuses the same prone
+    // hitbox swim-sprinting already established, rather than a second
+    // near-identical size constant.
+    if (this.swimSprinting || this.gliding) return SWIM_SIZE;
     return this.sneaking ? SNEAK_SIZE : STAND_SIZE;
   }
 
   get eyeHeight() {
-    if (this.swimSprinting) return this.size.height * 0.6;
+    if (this.swimSprinting || this.gliding) return this.size.height * 0.6;
     return this.sneaking ? 1.27 : 1.62;
   }
 
@@ -276,9 +310,18 @@ export class Player {
       // toggled this frame — fall through and still move normally
     }
 
-    if (this.flying) this._updateFly(dt, input, chunkManager);
-    else if (this.headInWater || this.inWater) this._updateSwim(dt, input, chunkManager);
-    else this._updateGround(dt, input, chunkManager);
+    this._updateGlideToggle(input);
+
+    if (this.flying) {
+      this.gliding = false;
+      this._updateFly(dt, input, chunkManager);
+    } else if (this.gliding) {
+      this._updateGlide(dt, input, chunkManager);
+    } else if (this.headInWater || this.inWater) {
+      this._updateSwim(dt, input, chunkManager);
+    } else {
+      this._updateGround(dt, input, chunkManager);
+    }
 
     this._updateBreathAndDamage(dt);
     this._updateStatusEffects(dt, chunkManager);
@@ -400,6 +443,112 @@ export class Player {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Activates on a jump press while falling with Glidewings equipped,
+   * deactivates on a jump press while already gliding (landing and wall
+   * hits are handled inside _updateGlide itself, right after the sweep
+   * that can actually detect them). Same getPressTime() dedup as
+   * _handleFlyToggle's own, own comment above — flyUp is shared by three
+   * independent consumers now (fly-toggle, jump-buffer, this), each with
+   * its own dedup/read style, which is already how fly-toggle and
+   * jump-buffer coexisted before this.
+   */
+  _updateGlideToggle(input) {
+    if (this.riding || this.flying) {
+      this.gliding = false;
+      return;
+    }
+    const pressTime = input.getPressTime('flyUp');
+    if (pressTime === 0 || pressTime === this._lastGlideTogglePressTime) return;
+    this._lastGlideTogglePressTime = pressTime;
+
+    if (this.gliding) {
+      this.gliding = false;
+    } else if (hasGlidewingsEquipped(this) && !this.onGround && !this.inWater && this.velocity.y < 0) {
+      this.gliding = true;
+      this.glideSpeed = GLIDE_START_SPEED;
+    }
+  }
+
+  /**
+   * Real energy-exchange flight: pitch (already the same sign convention
+   * lookDirection uses — positive = looking up) drives glideSpeed up or
+   * down, drag bleeds it back toward the stall over time, and velocity is
+   * simply glideSpeed along the current look direction plus a small
+   * forced sink so level flight still loses altitude. Falling below
+   * GLIDE_MIN_SPEED stalls out of the glide entirely (not enough speed
+   * for lift) rather than clamping to some minimum forever.
+   */
+  _updateGlide(dt, input, chunkManager) {
+    this.sneaking = false;
+
+    if (this._skyburstTimer > 0) {
+      this._skyburstTimer -= dt;
+      this.glideSpeed += SKYBURST_ACCEL * dt;
+    }
+    this.glideSpeed += -this.pitch * GLIDE_PITCH_ACCEL * dt;
+    this.glideSpeed -= GLIDE_DRAG * this.glideSpeed * dt;
+    this.glideSpeed = Math.max(0, Math.min(GLIDE_MAX_SPEED, this.glideSpeed));
+
+    if (this.glideSpeed < GLIDE_MIN_SPEED) {
+      this.gliding = false;
+      this.velocity.y -= this.dimension.gravity * dt;
+      this._sweep(dt, chunkManager);
+      return;
+    }
+
+    const look = this.lookDirection;
+    this.velocity.x = look.x * this.glideSpeed;
+    this.velocity.z = look.z * this.glideSpeed;
+    this.velocity.y = look.y * this.glideSpeed - GLIDE_LEVEL_SINK;
+
+    const size = this.size;
+    const result = sweepAABB(chunkManager, this.position, size, this.velocity, dt);
+    this.position = result.position;
+    this.velocity = result.velocity;
+    this.onGround = result.onGround;
+
+    if (result.collideX || result.collideZ) {
+      if (this.glideSpeed > GLIDE_WALL_DAMAGE_MIN_SPEED) {
+        this.justGlideWallHit = true;
+        if (this.gameMode === 'survival') {
+          const dmg = Math.round((this.glideSpeed - GLIDE_WALL_DAMAGE_MIN_SPEED) * GLIDE_WALL_DAMAGE_SCALE);
+          if (dmg > 0) {
+            this.health = Math.max(0, this.health - dmg);
+            this.lastDamageCause = 'a wall';
+            this._triggerDamageShake();
+            this.justHurt = true;
+          }
+        }
+      }
+      this.gliding = false;
+    }
+    if (this.onGround) this.gliding = false;
+
+    if (this.gliding && this.gameMode === 'survival') {
+      this._glideDurabilityTimer += dt;
+      while (this._glideDurabilityTimer >= 1) {
+        this._glideDurabilityTimer -= 1;
+        const chest = this.armor[1];
+        if (!chest || chest.itemId !== ITEMS.GLIDEWINGS.id) break;
+        chest.durability -= 1;
+        if (chest.durability <= 0) {
+          this.armor[1] = null;
+          this.gliding = false;
+        }
+      }
+    }
+    const chest = this.armor[1];
+    this.glideLowDurability = this.gliding && !!chest && chest.itemId === ITEMS.GLIDEWINGS.id && chest.durability <= GLIDE_DURABILITY_LOW_THRESHOLD;
+  }
+
+  /** Skyburst (phase 9) — a couple seconds of extra forward acceleration, the actual mechanism sustained flight relies on. A no-op when not gliding (there's no glideSpeed to boost). */
+  useSkyburst() {
+    if (!this.gliding) return false;
+    this._skyburstTimer = SKYBURST_DURATION;
+    return true;
   }
 
   _updateWaterState(chunkManager) {

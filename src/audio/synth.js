@@ -149,3 +149,64 @@ export function playDrip() {
   playProfile('blocks', { freq: 900, noise: 0.3, decay: 0.12 }, { volume: 0.18, pitchVariance: 0.25 });
   showCaption('Drip');
 }
+
+// Phase 9 (Glidewings): Skyburst's launch whoosh and a wing-impact thud —
+// both one-shots on the existing playProfile machinery, in the 'mobs'
+// bucket the same way playPlayerHurt already borrows it for a
+// player-centric (not strictly "mob") sound.
+export function playSkyburst() {
+  playProfile('mobs', { freq: 260, noise: 0.55, decay: 0.4 }, { volume: 0.8, pitchVariance: 0.1 });
+  showCaption('Skyburst');
+}
+
+export function playGlideImpact() {
+  playProfile('mobs', { freq: 120, noise: 0.65, decay: 0.25 }, { volume: 0.7, pitchVariance: 0.15 });
+  showCaption('Wing impact');
+}
+
+// Phase 9 (Glidewings) wind: the first CONTINUOUS, parameter-updated sound
+// in this codebase — every other sound here is a fire-and-forget envelope
+// (create, ramp to 0, done). This one is created once on glide-start, has
+// its gain/filter cutoff pushed every frame by updateWindSound() to track
+// glideSpeed, and is explicitly stopped on glide-end — closer to a synth
+// voice than a one-shot. Filtered looping noise (not a tone) reads as
+// rushing air rather than a musical pitch.
+let windNode = null;
+
+export function startWindSound() {
+  audioEngine.ensureStarted();
+  const ctx = audioEngine.ctx;
+  const dest = audioEngine.categoryGains.ambient;
+  if (!dest || windNode) return;
+  const noise = ctx.createBufferSource();
+  noise.buffer = noiseBuffer(ctx, 2);
+  noise.loop = true;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 500;
+  filter.Q.value = 0.7;
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  noise.connect(filter).connect(gain).connect(dest);
+  noise.start();
+  windNode = { noise, filter, gain };
+}
+
+/** speedFraction: 0..1, current glideSpeed relative to its max — called every frame while gliding. */
+export function updateWindSound(speedFraction) {
+  if (!windNode) return;
+  const t = Math.max(0, Math.min(1, speedFraction));
+  const now = audioEngine.ctx.currentTime;
+  windNode.gain.gain.setTargetAtTime(0.08 + t * 0.32, now, 0.1);
+  windNode.filter.frequency.setTargetAtTime(400 + t * 2200, now, 0.1);
+}
+
+export function stopWindSound() {
+  if (!windNode) return;
+  const node = windNode;
+  windNode = null;
+  const ctx = audioEngine.ctx;
+  const now = ctx.currentTime;
+  node.gain.gain.setTargetAtTime(0, now, 0.08);
+  setTimeout(() => { try { node.noise.stop(); } catch { /* already stopped */ } }, 300);
+}

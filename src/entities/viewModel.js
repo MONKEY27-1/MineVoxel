@@ -62,6 +62,12 @@ export class ViewModel {
     this._eating = false;
     this._raiseT = 1; // 0 = fully lowered (just switched slots), 1 = fully raised
     this._bobPhase = 0;
+
+    // Phase 9 (Glidewings): a persistent pose, not a one-shot like
+    // triggerSwing/triggerPlace/triggerEat above — it stays blended in for
+    // the whole duration of the glide rather than firing once and decaying.
+    this._gliding = false;
+    this._glideT = 0;
   }
 
   setFov(fov) {
@@ -114,6 +120,11 @@ export class ViewModel {
     this._eatT = 0;
   }
 
+  /** Held for the whole glide, unlike the trigger* one-shots above — call with true on glide-start, false on glide-end. */
+  setGliding(gliding) {
+    this._gliding = gliding;
+  }
+
   update(dt, moveSpeed) {
     this._bobPhase += dt * Math.min(moveSpeed, 6) * 1.3;
 
@@ -149,6 +160,10 @@ export class ViewModel {
 
     this._raiseT = Math.min(1, this._raiseT + dt / 0.2);
 
+    this._glideT += (this._gliding ? 1 : -1) * dt / 0.3;
+    this._glideT = Math.max(0, Math.min(1, this._glideT));
+    const glideEase = Math.sin(this._glideT * Math.PI * 0.5); // arms braced out/down against the wind
+
     const side = this.handSide === 'left' ? -1 : 1;
     const baseX = side * 0.35;
     const baseY = -0.32;
@@ -174,11 +189,11 @@ export class ViewModel {
 
     this.group.position.set(
       baseX + bobX,
-      baseY + bobY - lowerOffset - placeCurve * 0.08 - eatCurve * 0.05,
-      baseZ + swingCurve * 0.12 + placeCurve * 0.18 + eatCurve * 0.08
+      baseY + bobY - lowerOffset - placeCurve * 0.08 - eatCurve * 0.05 - glideEase * 0.12,
+      baseZ + swingCurve * 0.12 + placeCurve * 0.18 + eatCurve * 0.08 + glideEase * 0.05
     );
     this.group.rotation.set(
-      -swingCurve * 0.9 - placeCurve * 0.5 - eatCurve * 0.3,
+      -swingCurve * 0.9 - placeCurve * 0.5 - eatCurve * 0.3 - glideEase * 0.35,
       side === 1 ? -swingCurve * 0.3 : swingCurve * 0.3,
       side === 1 ? swingCurve * 0.15 : -swingCurve * 0.15
     );
