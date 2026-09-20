@@ -13,7 +13,7 @@ and commit before moving on. Pushing to `origin/main` after every commit.
 - [x] Phase 2 — Player tab
 - [x] Phase 3 — Items tab
 - [x] Phase 4 — Teleport tab
-- [ ] Phase 5 — World tab
+- [x] Phase 5 — World tab
 - [ ] Phase 6 — Debug tab
 - [ ] Phase 7 — Integration
 
@@ -341,6 +341,70 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   (`cmdUndoStack`), which also isn't persisted across a reload — an
   ephemeral "what did I just do" aid, not a saved record.
 
+## Architecture decisions (phase 5)
+
+- **Three genuinely new engine flags, added at their own source of
+  truth rather than as devMenu-owned state**: `dayNightCycle.js`'s
+  `DayNightCycle` gained a real `frozen` field checked inside its own
+  `update(dt)` (so any future second caller of `update()` automatically
+  respects it, not just today's one main.js call site);
+  `mobManager.js`'s `MobManager` gained `frozen`, checked alongside the
+  pre-existing "don't tick a mob whose column isn't loaded" guard in its
+  per-mob loop (same "pause, don't despawn" spirit, just a
+  deliberate/dev-controlled reason instead of a data-availability one).
+  Neither existed in any form before this phase — time had no freeze
+  concept, and mobs had no generic "AI paused" flag (only narrow, mob-
+  type-specific ones like Stoneskitter's burrow state).
+- **Regenerate chunk/3x3 needed real `ChunkManager` support that didn't
+  exist** — `_unloadColumn`'s entire contract is "always persist dirty
+  edits before discarding," the opposite of what "regenerate, discard
+  edits" needs. The new `regenerateColumn(cx, cz)` method deliberately
+  skips `onChunkUnloadDirty`, clears `pendingDiffsToApply` for that
+  column too (or a queued-but-not-yet-applied edit would survive the
+  "reset" untouched), and re-triggers `_requestGenerate`. It only owns
+  in-memory/GPU state, mirroring `_unloadColumn`'s own split with its
+  `onChunkUnloadDirty` callback — the persisted diff record is a
+  separate concern, deleted by the new `deleteChunkDiff` (worldSave.js)
+  from main.js's own `regenerateChunk` wrapper. Without that second
+  step, a later page reload would silently resurrect the "discarded"
+  edits from IndexedDB and undo the whole point of the feature.
+- **Weather/difficulty/gamerules/kill-by-type/summon/set-world-spawn
+  needed zero new command surface** — every one of these already had a
+  real, working command (`/weather`, `/difficulty`, `/gamerule`,
+  `/kill` with `entitySelector()`'s existing `type=`/`type=!` filters,
+  `/summon`, `/setworldspawn`); the World tab is thin `registerControl`
+  wrappers around them, the same pattern `buildTeleportTab` already
+  established for reusing `/locate biome`. One real bug found and fixed
+  along the way: `@e[type!=player]` is invalid syntax — this selector
+  grammar negates as `key=!value`, not `key!=value` (confirmed by
+  reading `selectors.js`'s own `_parseFilters`, which scans the key up
+  to the first `=` and only checks for `!` after it); `type!=player`
+  parses "type!" as an unrecognized filter key and throws. Caught by
+  this phase's own Playwright test, not by inspection.
+- **A real, pre-existing-shaped bug found and fixed while building this
+  tab: several controls read live, `let`-reassigned state
+  (`cmdWorld.seed`, `cmdWorld.worldState`, `cmdWorld.gamerules`) exactly
+  once, at `build()` time** — which runs during this function's own
+  top-level synchronous setup, i.e. `devMenu.registerControl(...)` for
+  every tab happens long before `startGame()` ever assigns the real
+  per-world seed/state/gamerules (all three start as bootstrap
+  placeholders at that point). The seed display would have shown a
+  stale placeholder for the entire session in real play, not just in a
+  test — caught here because a Playwright test that creates a world and
+  immediately checks the seed label surfaced it immediately, but the
+  underlying bug would have been invisible to casual manual testing
+  (nobody manually diffs a displayed seed against the one they typed).
+  Fixed generically: `onOpenChange` (already wired for pointer-lock
+  coordination) now also calls a `refreshSeedLabel` function the World
+  tab assigns once it builds, re-syncing the seed label, weather/
+  difficulty selects, the weather-lock checkbox, and every gamerule
+  input's displayed value on every panel open — not just once at
+  construction. This is a correct behavior on its own merits even
+  ignoring the bootstrap-timing bug: if a value is changed by typing a
+  command directly in the console while the panel is closed, reopening
+  the panel now shows the current value instead of a stale one either
+  way.
+
 ## Notable honesty calls
 
 - Phase 1 shipped with zero real toggles in any of the five tabs — see
@@ -412,3 +476,42 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   doesn't get recorded. The history exists to let dev-menu experimentation
   be undone, not to be a complete log of every position change from every
   source.
+- **Weather/difficulty/every gamerule are currently write-only
+  placeholders** — confirmed by grepping every gamerule name and
+  `worldState.weather`/`.difficulty` across the entire codebase: nothing
+  in mob spawning, damage, fire spread, or the day/night cycle reads any
+  of them back (this is true despite `gamerules.js`'s own header comment
+  claiming the opposite — it says each rule "is read by the systems they
+  affect," which isn't accurate today). The World tab's editor still
+  writes and displays real, saved, correctly-typed values — there's
+  simply nothing downstream consuming them yet, the same honest status
+  `weatherRemaining` already had before this phase.
+- **Weather Lock is real, stored state with nothing to lock against
+  yet** — there is no automated weather cycling anywhere in this
+  codebase (weather only ever changes via an explicit `/weather` call),
+  so a "prevent it from cycling on its own" toggle is inert by
+  construction today. Stored anyway, same "a real place for a future
+  system to read from" status weather/difficulty already had before
+  this phase, rather than skipped outright — a future weather-cycling
+  system needs somewhere to check "should I even run," and adding this
+  now costs one boolean field.
+- **The entity spawner has no variant or equipment options** — neither
+  concept exists anywhere on `Mob`/`MOB_TYPES` (no sub-type/texture-swap
+  field, no held/worn item slots the way the player has `armor[]`).
+  Ring positioning and the spawn-count loop are genuinely new Dev-Menu-
+  side orchestration (computed client-side, each individual mob still
+  spawned through the real `/summon` command), but "with equipment" and
+  "with variant" are skipped rather than inventing either system from
+  scratch for one dev-tool control.
+- **"Reload from disk" lands back at the world-select menu, not a
+  seamless in-place resume** — `startGame()`'s own one-shot guard
+  (`if (started) return`) confirms it was never designed to be called
+  twice in one page session; the only established way to truly reload a
+  world from storage (mirrored from `tools/test-commands.js`'s own
+  persistence-round-trip test) is a real page reload followed by a
+  fresh `startGame()` call from the menu. Building a seamless "reload
+  and auto-resume this exact world" flow would mean adding new
+  bootstrap-level state (a resume flag surviving the reload, read before
+  the menu ever shows) to a part of the game far from the dev menu
+  itself — an extra click to pick the world again from the menu is a
+  smaller, safer cost than that.

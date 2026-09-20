@@ -33,7 +33,14 @@ export function defaultWorldState() {
   // the same reason invSnapshots (phase 3) is: a coordinate triple is
   // only meaningful against the world (and, here, the specific
   // dimension) it was recorded in. Keyed by name -> {x,y,z,dimensionId}.
-  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0, invSnapshots: {}, waypoints: {} };
+  // weatherLocked: Dev Menu phase 5's "Weather Lock" toggle — stored
+  // honestly alongside weather/difficulty themselves despite having
+  // nothing to lock yet: there is no automated weather cycling anywhere
+  // in this codebase (weather only ever changes via /weather), so this
+  // is inert today, same "a real place for a future system to read from"
+  // status this file's own header comment already gives weather/
+  // difficulty.
+  return { weather: 'clear', weatherRemaining: 0, weatherLocked: false, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0, invSnapshots: {}, waypoints: {} };
 }
 
 export function loadWorldState(saved) {
@@ -41,6 +48,7 @@ export function loadWorldState(saved) {
   if (saved && typeof saved === 'object') {
     if (WEATHER_TYPES.includes(saved.weather)) out.weather = saved.weather;
     if (typeof saved.weatherRemaining === 'number') out.weatherRemaining = saved.weatherRemaining;
+    if (typeof saved.weatherLocked === 'boolean') out.weatherLocked = saved.weatherLocked;
     if (DIFFICULTY_LEVELS.includes(saved.difficulty)) out.difficulty = saved.difficulty;
     if (Array.isArray(saved.discoveredBiomes)) out.discoveredBiomes = saved.discoveredBiomes;
     if (Array.isArray(saved.discoveredDimensions)) out.discoveredDimensions = saved.discoveredDimensions;

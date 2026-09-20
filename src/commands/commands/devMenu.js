@@ -341,6 +341,68 @@ export function register(dispatcher) {
     )
   );
 
+  // /dev timefreeze|freezemobs|weatherlock <bool> — three small, genuinely
+  // new engine flags the World tab needs that had no existing concept to
+  // reuse: dayNightCycle.js's own update() now checks `frozen` (added
+  // right there, not here, so every future caller of update() respects
+  // it automatically); mobManager's per-mob-tick loop checks its own
+  // `frozen` the same way column-unloaded/dimension-left-behind mobs are
+  // already paused. weatherlock stores into worldState (same file/
+  // pattern as weather/difficulty themselves) despite having nothing to
+  // lock yet — see DEVMENU.md: no automated weather cycling exists
+  // anywhere in this codebase, so this is an honest no-op today, the
+  // same status weather/difficulty already have.
+  dev.then(
+    literal('timefreeze').then(
+      argument('value', bool()).executes((context, args) => {
+        context.world.dayNight.frozen = args.value;
+        context.success(`Time freeze: ${args.value ? 'on' : 'off'}.`);
+        return { success: true };
+      })
+    )
+  );
+  dev.then(
+    literal('freezemobs').then(
+      argument('value', bool()).executes((context, args) => {
+        context.world.mobManager.frozen = args.value;
+        context.success(`Freeze mobs: ${args.value ? 'on' : 'off'}.`);
+        return { success: true };
+      })
+    )
+  );
+  dev.then(
+    literal('weatherlock').then(
+      argument('value', bool()).executes((context, args) => {
+        context.world.worldState.weatherLocked = args.value;
+        context.success(`Weather lock: ${args.value ? 'on' : 'off'}.`);
+        return { success: true };
+      })
+    )
+  );
+
+  // /dev regenchunk <radius> — discards the executor's current chunk
+  // column's edits and regenerates it from the same seed; radius 1 does
+  // the same for the surrounding 3x3. No confirmation (matches the dev
+  // menu's own spec'd "every action fires immediately" rule) — every
+  // affected column's coordinates are logged so an accidental click is
+  // at least traceable after the fact.
+  dev.then(
+    literal('regenchunk').then(
+      argument('radius', integer({ min: 0, max: 1 })).executes((context, args) => {
+        const player = devPlayer(context);
+        const baseCx = Math.floor(player.position.x / 16);
+        const baseCz = Math.floor(player.position.z / 16);
+        const coords = [];
+        for (let dcx = -args.radius; dcx <= args.radius; dcx++) {
+          for (let dcz = -args.radius; dcz <= args.radius; dcz++) coords.push([baseCx + dcx, baseCz + dcz]);
+        }
+        for (const [cx, cz] of coords) context.world.regenerateChunk(cx, cz);
+        context.success(`Regenerated ${coords.length} chunk${coords.length === 1 ? '' : 's'}: ${coords.map(([cx, cz]) => `(${cx},${cz})`).join(', ')}.`);
+        return { success: true };
+      })
+    )
+  );
+
   dispatcher.register(dev);
 
   // /health and /air — this game already has /xp set/add/query for the

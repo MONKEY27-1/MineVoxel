@@ -636,6 +636,29 @@ export class ChunkManager {
     this.pendingGenerate.delete(col.key);
   }
 
+  /**
+   * Dev Menu World tab's "regenerate chunk" — the opposite of
+   * _unloadColumn's own "always persist before discarding" contract:
+   * this drops a column's in-memory edits (modifiedBlocks) AND any
+   * not-yet-applied queued diff (pendingDiffsToApply) without ever
+   * calling onChunkUnloadDirty, then re-requests generation from
+   * scratch. The caller (main.js's regenerateChunk) is responsible for
+   * also deleting the column's persisted diff record — this method only
+   * owns in-memory/GPU state, the same split _unloadColumn and its
+   * onChunkUnloadDirty callback already have.
+   */
+  regenerateColumn(cx, cz) {
+    const key = columnKey(cx, cz);
+    const col = this.columns.get(key);
+    if (col) {
+      for (let sy = 0; sy < this.numSections; sy++) this._disposeSectionMeshes(col, sy);
+      this.columns.delete(key);
+    }
+    this.pendingGenerate.delete(key);
+    this.pendingDiffsToApply.delete(key);
+    this._requestGenerate(cx, cz);
+  }
+
   // --- block access / editing -------------------------------------------
   // Nothing calls setBlock yet (breaking/placing lands in phase 5) but the
   // cross-section-boundary remesh path is core engine behavior, not a

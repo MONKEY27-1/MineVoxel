@@ -17,9 +17,15 @@ export class DayNightCycle {
     this.cycleDuration = cycleDuration;
     this.timeOfDay = 0.25; // start at noon
     this._tint = new THREE.Color();
+    // Dev Menu World tab's "freeze time" toggle — checked here rather
+    // than at main.js's own call site so every caller of update()
+    // (there's only the one today, but this keeps the invariant local
+    // to the class that owns timeOfDay) automatically respects it.
+    this.frozen = false;
   }
 
   update(dt) {
+    if (this.frozen) return;
     this.timeOfDay = (this.timeOfDay + dt / this.cycleDuration) % 1;
   }
 

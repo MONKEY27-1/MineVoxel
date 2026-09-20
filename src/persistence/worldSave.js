@@ -25,6 +25,11 @@ export async function saveChunkDiff(worldId, dimensionId, cx, cz, diffs) {
   await dbPut(STORES.chunkDiffs, { key: chunkDiffKey(worldId, dimensionId, cx, cz), dimensionId, cx, cz, diffs });
 }
 
+/** Dev Menu "regenerate chunk" — the durable half of discarding a column's edits (ChunkManager.regenerateColumn only clears in-memory state; without this, a later reload would resurrect the old diff from here and undo the regeneration). */
+export async function deleteChunkDiff(worldId, dimensionId, cx, cz) {
+  await dbDelete(STORES.chunkDiffs, chunkDiffKey(worldId, dimensionId, cx, cz));
+}
+
 /**
  * Every world record is stamped with `schemaVersion`; every load already
  * routes through this, so a later format change only needs a new branch

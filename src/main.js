@@ -41,6 +41,7 @@ import { FallingBlockManager, checkFall } from './entities/fallingBlock.js';
 import { FluidSimulator } from './world/fluids.js';
 import { XPOrbManager } from './entities/xpOrb.js';
 import { MobManager } from './entities/mobManager.js';
+import { MOB_TYPES } from './entities/mobTypes.js';
 import { ProjectileManager } from './entities/projectile.js';
 import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
@@ -63,7 +64,7 @@ import { setCaptionsEnabled } from './ui/captions.js';
 import { InventoryUI } from './ui/inventoryUI.js';
 import { initItemIcons, applyIcon } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
-import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, saveRiftwyrmState, loadRiftwyrmState, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
+import { saveGame, loadGame, saveChunkDiff, deleteChunkDiff, saveGateRegistry, loadGateRegistry, saveRiftwyrmState, loadRiftwyrmState, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
 import { loadSettings, saveSettings } from './settings/settings.js';
 import { applyMipmapping } from './mesh/atlas.js';
 import { Clouds } from './world/clouds.js';
@@ -75,8 +76,8 @@ import { UndoStack } from './commands/operations.js';
 import { AliasRegistry, replayAliases } from './commands/aliases.js';
 import { FunctionStore } from './commands/functions.js';
 import { Scheduler } from './commands/scheduler.js';
-import { loadGamerules } from './commands/gamerules.js';
-import { loadWorldState } from './commands/worldState.js';
+import { loadGamerules, GAMERULE_DEFS } from './commands/gamerules.js';
+import { loadWorldState, WEATHER_TYPES, DIFFICULTY_LEVELS } from './commands/worldState.js';
 import { allEntities } from './commands/selectors.js';
 import { TitleDisplay } from './ui/titleDisplay.js';
 import { ConsoleUI } from './ui/console.js';
@@ -1045,6 +1046,21 @@ function main() {
     }
   }
 
+  /**
+   * Dev Menu World tab's "regenerate chunk" — discards a column's edits
+   * and re-runs world generation for it from the same seed.
+   * ChunkManager.regenerateColumn only owns in-memory/GPU state (mirrors
+   * _unloadColumn's own split with onChunkUnloadDirty); this also
+   * deletes the column's persisted diff record so a later reload can't
+   * resurrect what was just discarded. Fire-and-forget on the delete,
+   * same convention onChunkUnloadDirty's own saveChunkDiff call already
+   * uses — nothing here needs to block on it.
+   */
+  function regenerateChunk(cx, cz) {
+    chunkManager.regenerateColumn(cx, cz);
+    if (currentWorldId) deleteChunkDiff(currentWorldId, activeDimension.id, cx, cz).catch(() => {});
+  }
+
   function scheduleAutosave() {
     clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(async () => {
@@ -1142,6 +1158,7 @@ function main() {
     set commandsEnabled(v) { commandsEnabled = v; },
     respawnPlayer,
     persistNow,
+    regenerateChunk,
     get currentWorldId() { return currentWorldId; },
     get lastFrameMs() { return lastFrameMs; },
     get lastWorldTriangles() { return lastWorldTriangles; },
@@ -1180,6 +1197,16 @@ function main() {
     }
   }
 
+  // World tab's seed display can't just read cmdWorld.seed once at
+  // build() time — every devMenu.registerControl() call happens during
+  // this function's own top-level setup, long before startGame() ever
+  // assigns the real per-world seed (currentSeed starts as a
+  // placeholder). buildWorldTab() below fills this in once it builds
+  // the label; onOpenChange calls it on every open so the label is
+  // never stuck showing whatever seed happened to be current at
+  // bootstrap time.
+  let refreshSeedLabel = null;
+
   const devMenu = new DevMenu({
     layout: settings.devMenu.layout,
     presets: settings.devMenu.presets,
@@ -1187,7 +1214,10 @@ function main() {
     persist: () => saveSettings(settings),
     logDebug: (text) => cmdMessageLog.debug(`[Dev Menu] ${text}`),
     onOpenChange: (open) => {
-      if (open) exitLockForUI();
+      if (open) {
+        exitLockForUI();
+        refreshSeedLabel?.();
+      }
       // Closing intentionally does NOT auto-relock — "moving the cursor
       // off the panel returns control to the game cleanly" means a real
       // click on the world does that (see the canvas listener below),
@@ -2017,6 +2047,348 @@ function main() {
           }
         };
         refreshHistoryList();
+      },
+    });
+  }
+
+  // --- Dev Menu — World tab (phase 5) ---------------------------------
+  buildWorldTab();
+
+  /**
+   * Time (with a real, new "freeze" flag on dayNight itself), weather
+   * (+ a stored-but-honestly-inert "lock", since no automated weather
+   * cycling exists anywhere to lock), difficulty, a generic gamerule
+   * editor driven entirely off GAMERULE_DEFS's own {type,default,min}
+   * shape (note per DEVMENU.md: every gamerule is currently a write-only
+   * placeholder — nothing in gameplay code reads any of them back yet,
+   * despite gamerules.js's own header comment claiming otherwise), an
+   * entity spawner (ring positions computed here, each individual mob
+   * still spawned through the real /summon command — no variant/
+   * equipment fields exist anywhere on Mob/MOB_TYPES to expose), a real
+   * new "freeze mobs" flag, kill-all/kill-by-type (both already fully
+   * expressible with the existing /kill + entitySelector type= filter,
+   * zero new command surface needed), regenerate chunk/3x3 (new
+   * ChunkManager.regenerateColumn + a persisted-diff delete, since
+   * nothing in this codebase could previously discard a column's edits
+   * and redo world generation for it), seed display+copy, set world
+   * spawn, force save, and reload-from-disk.
+   */
+  function buildWorldTab() {
+    devMenu.registerControl({
+      id: 'world.panel',
+      tab: 'world',
+      type: 'custom',
+      label: 'World',
+      presetable: false,
+      keywords: 'time weather difficulty gamerule spawn mob kill regenerate chunk seed save reload',
+      build: (container) => {
+        // --- Time ----------------------------------------------------------
+        const timeHeader = document.createElement('div');
+        timeHeader.className = 'devmenu-tp-section-label';
+        timeHeader.textContent = 'Time';
+        container.appendChild(timeHeader);
+        const timeRow = document.createElement('div');
+        timeRow.className = 'devmenu-tp-row';
+        const timeRange = document.createElement('input');
+        timeRange.type = 'range';
+        timeRange.min = '0';
+        timeRange.max = '23999';
+        timeRange.step = '1';
+        timeRange.value = String(Math.round(dayNight.timeOfDay * 24000) % 24000);
+        const timeValueEl = document.createElement('span');
+        timeValueEl.className = 'devmenu-row-value';
+        timeValueEl.textContent = timeRange.value;
+        timeRange.addEventListener('input', () => {
+          if (runDevCommand(`time set ${timeRange.value}`)) timeValueEl.textContent = timeRange.value;
+        });
+        timeRow.append(timeRange, timeValueEl);
+        container.appendChild(timeRow);
+        const timePresetRow = document.createElement('div');
+        timePresetRow.className = 'devmenu-tp-row';
+        for (const name of ['day', 'noon', 'night', 'midnight']) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = name[0].toUpperCase() + name.slice(1);
+          btn.addEventListener('click', () => {
+            if (runDevCommand(`time set ${name}`)) timeRange.value = timeValueEl.textContent = String(Math.round(dayNight.timeOfDay * 24000) % 24000);
+          });
+          timePresetRow.appendChild(btn);
+        }
+        const freezeTimeLabel = document.createElement('label');
+        const freezeTimeToggle = document.createElement('input');
+        freezeTimeToggle.type = 'checkbox';
+        freezeTimeToggle.checked = dayNight.frozen;
+        freezeTimeToggle.addEventListener('change', () => {
+          if (runDevCommand(`dev timefreeze ${freezeTimeToggle.checked}`)) devMenu.logDebug?.(`Time freeze: ${freezeTimeToggle.checked ? 'on' : 'off'}`);
+        });
+        freezeTimeLabel.append(freezeTimeToggle, document.createTextNode(' Freeze time'));
+        timePresetRow.appendChild(freezeTimeLabel);
+        container.appendChild(timePresetRow);
+
+        // --- Weather ---------------------------------------------------------
+        const weatherHeader = document.createElement('div');
+        weatherHeader.className = 'devmenu-tp-section-label';
+        weatherHeader.textContent = 'Weather';
+        container.appendChild(weatherHeader);
+        const weatherRow = document.createElement('div');
+        weatherRow.className = 'devmenu-tp-row';
+        const weatherSelect = document.createElement('select');
+        for (const type of WEATHER_TYPES) {
+          const o = document.createElement('option');
+          o.value = type;
+          o.textContent = type;
+          weatherSelect.appendChild(o);
+        }
+        weatherSelect.value = cmdWorld.worldState.weather;
+        const weatherDuration = document.createElement('input');
+        weatherDuration.type = 'number';
+        weatherDuration.min = '1';
+        weatherDuration.value = '6000';
+        weatherDuration.className = 'devmenu-items-qty';
+        const weatherSetBtn = document.createElement('button');
+        weatherSetBtn.type = 'button';
+        weatherSetBtn.textContent = 'Set weather';
+        weatherSetBtn.addEventListener('click', () => {
+          const cmd = weatherSelect.value === 'clear' ? 'weather clear' : `weather ${weatherSelect.value} ${weatherDuration.value}`;
+          if (runDevCommand(cmd)) devMenu.logDebug?.(`Weather set to ${weatherSelect.value}`);
+        });
+        const weatherLockLabel = document.createElement('label');
+        const weatherLockToggle = document.createElement('input');
+        weatherLockToggle.type = 'checkbox';
+        weatherLockToggle.checked = cmdWorld.worldState.weatherLocked;
+        weatherLockToggle.title = 'No automated weather cycling exists in this game yet, so this has nothing to lock against today — stored for a future system to read, same as weather/difficulty themselves.';
+        weatherLockToggle.addEventListener('change', () => {
+          if (runDevCommand(`dev weatherlock ${weatherLockToggle.checked}`)) devMenu.logDebug?.(`Weather lock: ${weatherLockToggle.checked ? 'on' : 'off'}`);
+        });
+        weatherLockLabel.append(weatherLockToggle, document.createTextNode(' Lock'));
+        weatherRow.append(weatherSelect, weatherDuration, weatherSetBtn, weatherLockLabel);
+        container.appendChild(weatherRow);
+
+        // --- Difficulty --------------------------------------------------------
+        const diffHeader = document.createElement('div');
+        diffHeader.className = 'devmenu-tp-section-label';
+        diffHeader.textContent = 'Difficulty';
+        container.appendChild(diffHeader);
+        const diffRow = document.createElement('div');
+        diffRow.className = 'devmenu-tp-row';
+        const diffSelect = document.createElement('select');
+        for (const level of DIFFICULTY_LEVELS) {
+          const o = document.createElement('option');
+          o.value = level;
+          o.textContent = level;
+          diffSelect.appendChild(o);
+        }
+        diffSelect.value = cmdWorld.worldState.difficulty;
+        diffSelect.addEventListener('change', () => {
+          if (runDevCommand(`difficulty ${diffSelect.value}`)) devMenu.logDebug?.(`Difficulty set to ${diffSelect.value}`);
+        });
+        diffRow.appendChild(diffSelect);
+        container.appendChild(diffRow);
+
+        // --- Gamerules ---------------------------------------------------------
+        const gameruleHeader = document.createElement('div');
+        gameruleHeader.className = 'devmenu-tp-section-label';
+        gameruleHeader.textContent = 'Gamerules';
+        container.appendChild(gameruleHeader);
+        const gameruleList = document.createElement('div');
+        gameruleList.className = 'devmenu-world-gamerules';
+        const gameruleInputs = {}; // name -> input element, so refreshWorldTabState can re-sync them
+        for (const [name, def] of Object.entries(GAMERULE_DEFS)) {
+          const row = document.createElement('div');
+          row.className = 'devmenu-tp-row devmenu-world-gamerule-row';
+          const label = document.createElement('span');
+          label.className = 'devmenu-row-label';
+          label.textContent = name;
+          label.title = def.description;
+          row.appendChild(label);
+          if (def.type === 'boolean') {
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = !!cmdWorld.gamerules[name];
+            input.addEventListener('change', () => {
+              if (runDevCommand(`gamerule ${name} ${input.checked}`)) devMenu.logDebug?.(`${name} = ${input.checked}`);
+            });
+            row.appendChild(input);
+            gameruleInputs[name] = input;
+          } else {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = String(def.min ?? 0);
+            input.value = String(cmdWorld.gamerules[name]);
+            input.className = 'devmenu-items-qty';
+            input.addEventListener('change', () => {
+              if (runDevCommand(`gamerule ${name} ${input.value}`)) devMenu.logDebug?.(`${name} = ${input.value}`);
+            });
+            row.appendChild(input);
+            gameruleInputs[name] = input;
+          }
+          gameruleList.appendChild(row);
+        }
+        container.appendChild(gameruleList);
+
+        // --- Entity spawner ------------------------------------------------------
+        const spawnHeader = document.createElement('div');
+        spawnHeader.className = 'devmenu-tp-section-label';
+        spawnHeader.textContent = 'Entity spawner';
+        container.appendChild(spawnHeader);
+        const spawnRow = document.createElement('div');
+        spawnRow.className = 'devmenu-tp-row';
+        const spawnTypeSelect = document.createElement('select');
+        for (const [id, def] of Object.entries(MOB_TYPES)) {
+          const o = document.createElement('option');
+          o.value = id;
+          o.textContent = def.name;
+          spawnTypeSelect.appendChild(o);
+        }
+        const spawnCount = document.createElement('input');
+        spawnCount.type = 'number';
+        spawnCount.min = '1';
+        spawnCount.max = '64';
+        spawnCount.value = '1';
+        spawnCount.className = 'devmenu-items-qty';
+        spawnCount.title = 'Count';
+        const spawnRadius = document.createElement('input');
+        spawnRadius.type = 'number';
+        spawnRadius.min = '0';
+        spawnRadius.max = '32';
+        spawnRadius.value = '3';
+        spawnRadius.className = 'devmenu-items-qty';
+        spawnRadius.title = 'Ring radius (0 = all at one point)';
+        const spawnBtn = document.createElement('button');
+        spawnBtn.type = 'button';
+        spawnBtn.textContent = 'Spawn';
+        spawnBtn.addEventListener('click', () => {
+          const count = Math.max(1, Math.min(64, Math.round(Number(spawnCount.value) || 1)));
+          const radius = Math.max(0, Math.min(32, Number(spawnRadius.value) || 0));
+          const p = player.position;
+          let spawned = 0;
+          for (let i = 0; i < count; i++) {
+            const angle = (i / count) * Math.PI * 2;
+            const x = (p.x + Math.cos(angle) * radius).toFixed(2);
+            const z = (p.z + Math.sin(angle) * radius).toFixed(2);
+            if (runDevCommand(`summon ${spawnTypeSelect.value} ${x} ${p.y.toFixed(2)} ${z}`)) spawned++;
+          }
+          devMenu.logDebug?.(`Spawned ${spawned} ${spawnTypeSelect.value}`);
+        });
+        spawnRow.append(spawnTypeSelect, spawnCount, spawnRadius, spawnBtn);
+        container.appendChild(spawnRow);
+        const spawnHint = document.createElement('div');
+        spawnHint.className = 'devmenu-items-hint';
+        spawnHint.textContent = 'No variant or equipment options — neither concept exists on any mob in this game yet.';
+        container.appendChild(spawnHint);
+
+        const freezeMobsLabel = document.createElement('label');
+        const freezeMobsToggle = document.createElement('input');
+        freezeMobsToggle.type = 'checkbox';
+        freezeMobsToggle.checked = mobManager.frozen;
+        freezeMobsToggle.addEventListener('change', () => {
+          if (runDevCommand(`dev freezemobs ${freezeMobsToggle.checked}`)) devMenu.logDebug?.(`Freeze mobs: ${freezeMobsToggle.checked ? 'on' : 'off'}`);
+        });
+        freezeMobsLabel.append(freezeMobsToggle, document.createTextNode(' Freeze mobs'));
+        container.appendChild(freezeMobsLabel);
+
+        const killRow = document.createElement('div');
+        killRow.className = 'devmenu-tp-row';
+        const killAllBtn = document.createElement('button');
+        killAllBtn.type = 'button';
+        killAllBtn.textContent = 'Kill All Mobs';
+        killAllBtn.addEventListener('click', () => {
+          // Negation syntax is `key=!value`, not `key!=value` — the
+          // selector parser scans the key up to the first `=`, then
+          // checks for `!` right after it (see selectors.js's own
+          // _parseFilters); `type!=player` would parse "type!" as an
+          // unrecognized filter key and throw.
+          if (runDevCommand('kill @e[type=!player] --confirm')) devMenu.logDebug?.('Killed all mobs');
+        });
+        const killTypeBtn = document.createElement('button');
+        killTypeBtn.type = 'button';
+        killTypeBtn.textContent = 'Kill by type';
+        killTypeBtn.addEventListener('click', () => {
+          if (runDevCommand(`kill @e[type=${spawnTypeSelect.value}] --confirm`)) devMenu.logDebug?.(`Killed all ${spawnTypeSelect.value}`);
+        });
+        killRow.append(killAllBtn, killTypeBtn);
+        container.appendChild(killRow);
+
+        // --- Regenerate chunk ------------------------------------------------------
+        const regenHeader = document.createElement('div');
+        regenHeader.className = 'devmenu-tp-section-label';
+        regenHeader.textContent = 'Regenerate terrain';
+        container.appendChild(regenHeader);
+        const regenRow = document.createElement('div');
+        regenRow.className = 'devmenu-tp-row';
+        const regenOneBtn = document.createElement('button');
+        regenOneBtn.type = 'button';
+        regenOneBtn.textContent = 'Regenerate current chunk';
+        regenOneBtn.addEventListener('click', () => runDevCommand('dev regenchunk 0'));
+        const regen3x3Btn = document.createElement('button');
+        regen3x3Btn.type = 'button';
+        regen3x3Btn.textContent = 'Regenerate 3x3';
+        regen3x3Btn.addEventListener('click', () => runDevCommand('dev regenchunk 1'));
+        regenRow.append(regenOneBtn, regen3x3Btn);
+        container.appendChild(regenRow);
+
+        // --- Seed / spawn / save / reload --------------------------------------
+        const miscHeader = document.createElement('div');
+        miscHeader.className = 'devmenu-tp-section-label';
+        miscHeader.textContent = 'World';
+        container.appendChild(miscHeader);
+        const seedRow = document.createElement('div');
+        seedRow.className = 'devmenu-tp-row';
+        const seedLabel = document.createElement('span');
+        seedLabel.className = 'devmenu-row-label';
+        seedLabel.textContent = `Seed: ${cmdWorld.seed}`;
+        // This whole build() closure runs once, during this function's
+        // own top-level setup — long before startGame() ever assigns the
+        // real per-world seed/worldState/gamerules (all three start as
+        // placeholders/defaults at that point). Every control below that
+        // read one of those at build time needs re-syncing once a real
+        // world is actually loaded; onOpenChange (where this function is
+        // assigned) calls it on every panel open, which covers "the
+        // world changed since I last looked" (a fresh load, or a reload)
+        // without needing a dedicated "world loaded" event to hook.
+        refreshSeedLabel = () => {
+          seedLabel.textContent = `Seed: ${cmdWorld.seed}`;
+          weatherSelect.value = cmdWorld.worldState.weather;
+          weatherLockToggle.checked = cmdWorld.worldState.weatherLocked;
+          diffSelect.value = cmdWorld.worldState.difficulty;
+          for (const [name, input] of Object.entries(gameruleInputs)) {
+            if (input.type === 'checkbox') input.checked = !!cmdWorld.gamerules[name];
+            else input.value = String(cmdWorld.gamerules[name]);
+          }
+        };
+        const seedCopyBtn = document.createElement('button');
+        seedCopyBtn.type = 'button';
+        seedCopyBtn.textContent = 'Copy';
+        seedCopyBtn.addEventListener('click', () => {
+          navigator.clipboard?.writeText(String(cmdWorld.seed)).catch(() => {});
+        });
+        seedRow.append(seedLabel, seedCopyBtn);
+        container.appendChild(seedRow);
+
+        const worldActionsRow = document.createElement('div');
+        worldActionsRow.className = 'devmenu-items-actions';
+        const setSpawnBtn = document.createElement('button');
+        setSpawnBtn.type = 'button';
+        setSpawnBtn.textContent = 'Set World Spawn Here';
+        setSpawnBtn.addEventListener('click', () => {
+          if (runDevCommand('setworldspawn')) devMenu.logDebug?.('Set world spawn to current position');
+        });
+        const forceSaveBtn = document.createElement('button');
+        forceSaveBtn.type = 'button';
+        forceSaveBtn.textContent = 'Force Save';
+        forceSaveBtn.addEventListener('click', () => {
+          cmdWorld.persistNow();
+          devMenu.logDebug?.('Force-saved the world');
+        });
+        const reloadBtn = document.createElement('button');
+        reloadBtn.type = 'button';
+        reloadBtn.textContent = 'Reload From Disk';
+        reloadBtn.title = 'Reloads the page back to the world-select menu — anything since the last save is discarded.';
+        reloadBtn.addEventListener('click', () => {
+          location.reload();
+        });
+        worldActionsRow.append(setSpawnBtn, forceSaveBtn, reloadBtn);
+        container.appendChild(worldActionsRow);
       },
     });
   }

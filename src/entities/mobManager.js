@@ -89,6 +89,12 @@ export class MobManager {
     // recently called with, so spawn() can default a new mob's
     // dimensionId correctly without every call site needing to pass it.
     this._activeDimensionId = 'overworld';
+    // Dev Menu World tab's "freeze mobs" toggle — mobs still render
+    // (mesh stays visible/positioned) but skip AI/physics entirely,
+    // same "don't tick, don't despawn" spirit as the dimension-left-
+    // behind and column-unloaded pauses just below, for a different
+    // (deliberate, dev-controlled) reason.
+    this.frozen = false;
   }
 
   spawn(typeId, position, opts) {
@@ -152,7 +158,7 @@ export class MobManager {
       // the column reloads or the mob drifts past despawnDist mirrors the
       // exact same "pause a mob whose world isn't valid right now"
       // pattern already used for a mob left behind in another dimension.
-      if (chunkManager.isColumnLoaded(mob.position.x, mob.position.z)) {
+      if (!this.frozen && chunkManager.isColumnLoaded(mob.position.x, mob.position.z)) {
         mob.update(dt, chunkManager, player, projectiles);
         if (mob._justTeleported) {
           mob._justTeleported = false;
