@@ -52,7 +52,9 @@
     "test:devmenu-teleport": "node tools/run-with-server.js tools/test-devmenu-teleport.js",
     "test:devmenu-world": "node tools/run-with-server.js tools/test-devmenu-world.js",
     "test:devmenu-debug": "node tools/run-with-server.js tools/test-devmenu-debug.js",
-    "test:devmenu-integration": "node tools/run-with-server.js tools/test-devmenu-integration.js"
+    "test:devmenu-integration": "node tools/run-with-server.js tools/test-devmenu-integration.js",
+    "test:model-format": "node tools/test-model-format.js",
+    "test:model-builder": "node tools/run-with-server.js tools/test-model-builder.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"
