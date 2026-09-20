@@ -9,6 +9,8 @@ const SPECIAL_DROPS = new Map([
   [BLOCKS.COAL_ORE, { itemId: ITEMS.COAL.id, min: 1, max: 1 }],
   [BLOCKS.DIAMOND_ORE, { itemId: ITEMS.DIAMOND.id, min: 1, max: 1 }],
   [BLOCKS.GRASS_BLOCK, { itemId: BLOCKS.DIRT, min: 1, max: 1 }],
+  // Phase 8: Rift Bloom isn't minable for itself, it's a food plant.
+  [BLOCKS.RIFT_BLOOM, { itemId: ITEMS.RIFT_FRUIT.id, min: 1, max: 2 }],
 ]);
 
 /** @returns {{itemId:number,count:number}|null} null means no drop. */

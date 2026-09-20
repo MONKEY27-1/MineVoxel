@@ -155,6 +155,10 @@ export const RECIPES = [
   // a bottle of Rift Breath (BOTTLED_RIFT_BREATH, filled by standing in
   // an active Rift Breath cloud with a Glass Bottle held — see main.js).
   { id: 'spire_crystal', shapeless: true, ingredients: [item(BLOCKS.GLASS), item(ITEMS.RIFT_SHARD.id), item(ITEMS.BOTTLED_RIFT_BREATH.id)], outputId: BLOCKS.SPIRE_CRYSTAL, outputCount: 1 },
+  // Phase 8: a Vault Box is just a Chest reinforced with a Vault Shell —
+  // main.js's own break/place handling (not this recipe) is what
+  // actually makes the resulting block keep its contents.
+  { id: 'vault_box', shapeless: true, ingredients: [item(ITEMS.VAULT_SHELL.id), item(BLOCKS.CHEST)], outputId: BLOCKS.VAULT_BOX, outputCount: 1 },
 ];
 
 function toolFamily(toolType, template) {
@@ -196,6 +200,9 @@ export const SMELTING_RECIPES = new Map([
   // scrap step — a much longer burn than every other smelt, since this
   // is the endgame material, not a routine one.
   [BLOCKS.VOIDIRON_ORE, { outputId: ITEMS.VOIDIRON_SCRAP.id, outputCount: 1, time: 25 }],
+  // Phase 8: "cooking yields Riftstone material" per spec — Rift Fruit's
+  // own second use, beyond eating it raw.
+  [ITEMS.RIFT_FRUIT.id, { outputId: BLOCKS.RIFTSTONE, outputCount: 1, time: 10 }],
 ]);
 
 export const FUEL_ITEMS = new Map([

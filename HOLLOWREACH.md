@@ -19,7 +19,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 5 — Death, the exit gate, and rewards (the real ending sequence itself is a placeholder — see phase 11)
 - [x] Phase 6 — Respawning the Riftwyrm
 - [x] Phase 7 — Far Gates and the void crossing (baseline outer-island terrain built here since phase 7 genuinely needs it — see below)
-- [ ] Phase 8 — Outer islands, Pale Spires, and Skyships (the base floating-island terrain and Far Gates themselves are already done — this phase layers Rift Bloom, Pale Spires, Skyships, and Vaultling onto that same terrain)
+- [x] Phase 8 — Outer islands, Pale Spires, and Skyships
 - [ ] Phase 9 — Glidewings
 - [ ] Phase 10 — Rift Chest
 - [ ] Phase 11 — The ending sequence
@@ -607,8 +607,112 @@ be rewritten) lives at `src/ending/poem.txt`.
   own throw trajectory, since a plausible-looking near-miss and a not-
   yet-resolved shot are indistinguishable without ticking far enough.
 
+## Architecture decisions (phase 8)
+
+- **Pale Spires are modeled directly on `structures/undervault.js`, not
+  `structures/emberhold.js`** — confirmed before writing any code:
+  Emberhold is deliberately small and fixed (a 3-room line via the
+  ordinary per-region placer), while the Undervault's own "fixed sites,
+  cached blueprints, a real branching layout built from a seeded random
+  process" architecture is the actual precedent for a large, branching,
+  guarded structure. `structures/paleSpire.js` reuses that same shape —
+  a `LocalBlocks` store, per-role room/floor builders, chest/spawner
+  metadata attached via a local-key lookup, one flat blueprint cached and
+  clipped per chunk exactly like `placeBlueprintInChunk` already expects.
+- **Placement is neither the Undervault's "a few fixed global sites" nor
+  the ordinary per-region grid** — a Spire can exist in *any* outer-
+  island grid cell that independently rolls both "has an island" (already
+  decided by `outerIslandAt`) and a separate, lower "also has a Spire"
+  chance, salted differently so the two decisions don't correlate.
+  `createPaleSpirePlacer` caches by cell coordinate instead of a short
+  list, since cells (not sites) are the natural unit here.
+- **A Spire only ever anchors to a real island, checked at the cell's own
+  dead center — never a floating footprint over the void.** If the
+  island's own (randomly offset) center doesn't happen to cover that
+  exact point, the cell simply gets no Spire that roll — a deliberate,
+  documented trade (a fraction of the already-low chance goes unused)
+  over trying to hunt for a nearby valid anchor within the cell.
+- **"Recursive branching generation" is a real, depth-bounded recursive
+  function (`buildBranch`, max depth 2), not a growing fractal** — each
+  call builds one bridge-to-balcony branch and has a bounded chance to
+  call itself again from that balcony in a new direction. This keeps
+  every Spire's total size predictable while still producing genuinely
+  branching, not just linear, side structures — confirmed by
+  `tools/test-pale-spire.js` actually finding a branched footprint, not
+  just asserting the code path was reachable.
+- **No new body-shape builder was added to `mob.js` for Vaultling** —
+  it reuses the existing `spider` shape (many legs already reads as
+  "shelled/segmented" close enough) with its own texture doing the real
+  work of looking armored, the same "reuse an existing shape, let the
+  texture carry the identity" call already made for Riftmite and
+  Stoneskitter in phase 3.
+- **"Homing levitate projectile" is a real, well-aimed `rangedAttack`
+  shot with strong knockback — not literal homing or a levitate status
+  effect.** Neither exists anywhere in this codebase (`ProjectileManager`
+  has no post-spawn steering at all, and `statusEffects.js`'s own
+  `EFFECT_TYPES` has no upward-force effect, only `slow_falling` — both
+  confirmed by research before design), and building either from scratch
+  for one mob's one attack was judged out of scope. "Armored while
+  closed" is similarly a flat `armorReduction` on `takeDamage`, not a
+  real open/closed animation state machine.
+- **Real bug found before it ever shipped:** `mob.js`'s own animation
+  code divided by `def.walkSpeed` (`speed / this.def.walkSpeed`) with no
+  guard — Vaultling's `walkSpeed: 0` would have produced `0/0 = NaN`
+  every frame, silently propagating into every limb's rotation forever.
+  Found via the phase 8 research pass (before Vaultling was even
+  written) and fixed with a explicit `walkSpeed > 0` guard alongside a
+  new `stationary` flag that skips `_updatePhysics` entirely (no gravity,
+  no movement) — the real fix "wall-clinging" needed, not just the NaN
+  patch.
+- **Vault Box repurposes the existing `durability` slot field to carry a
+  small `vaultBoxRegistry` id, instead of extending the
+  `{itemId,count,durability}` shape everywhere** (inventory, item drops,
+  container serialization, save/load) **that a genuine new payload field
+  would have needed touching.** A real, deliberate trade confirmed before
+  writing any code (a dedicated research pass found no existing item
+  carries payload beyond those three fields anywhere in this codebase).
+  This only stays safe because Vault Box's own `maxStack` is 1 — a real,
+  separate bug fixed along the way: `items.js`'s `getMaxStack()` returned
+  a hardcoded `64` for every block with no per-block override path at
+  all, which would have let two Vault Box items (different vault ids)
+  silently merge into one stack and lose one of their two contents.
+  `vaultBoxRegistry.js`'s own contents are persisted by having
+  `worldSave.js` fold its `toJSON()` into the *existing* `blockEntities`
+  save record `serializeContainers()` already owns, rather than a new
+  dedicated store — it's conceptually "container state" too, just not
+  keyed by position.
+- **Rift Fruit is the first real food item this game has ever had** — no
+  hunger system exists (a long-documented simplification) and none was
+  added; eating is simply "a consumable with an effect," the exact same
+  shape a potion already has (a modest instant heal, survival-only,
+  mirroring the healing potion above it in main.js) plus Rift Fruit's own
+  signature short random teleport. This is also the first real use of
+  `viewModel.js`'s `triggerEat()` animation, which existed but had never
+  been called by anything before this pass.
+- **A real, still-present performance cost, recorded rather than hidden:**
+  Far Gate travel to a never-before-generated area can now take
+  noticeably longer than it used to (up to several seconds) if the
+  landing spot is near a dense Pale Spire — confirmed by profiling that
+  raw chunk *generation* is still fast (169 chunks in ~60ms in isolation)
+  and the real cost is downstream (meshing/upload scheduling for the
+  extra geometry Pale Spires add), not the generator itself. Fixed
+  pragmatically by giving `travelViaFarGate`'s own `ensureChunkLoadedAt`
+  call a longer budget (30s vs. the usual 15s default) rather than trying
+  to optimize Pale Spire generation further — a one-time wait behind a
+  fade overlay for a rare, dramatic long-distance warp was judged an
+  acceptable trade, not a real problem to chase further this pass.
+
 ## Notable honesty calls
 
+- Pale Spire loot calls for "enchanted gear," but this game has no
+  enchanting system (a real, pre-existing limitation from earlier
+  phases) and no diamond tool tier at all — the best real gear this game
+  actually has (iron and Voidsteel, the Cinderdeep's own endgame
+  material) stands in instead. No item frame exists either, so
+  Glidewings is a guaranteed chest item on every Skyship, not a wall-
+  mounted display piece — still genuinely "the reward the outer islands
+  exist for," just presented the way every other reward in this game
+  already is.
 - Phase 5 is built and tested (`tools/test-hollow-exit.js`, real ~11.5s
   of actual game-loop ticking for the death sequence, not a shortcut),
   but the ending a player actually sees on their first trip home is a

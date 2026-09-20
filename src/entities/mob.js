@@ -381,9 +381,17 @@ export class Mob {
         return;
       }
     }
-    this.health -= amount;
+    // Vaultling: "armored while closed" — a flat damage reduction rather
+    // than a real open/closed animation state machine (a documented
+    // scope simplification, see HOLLOWREACH.md).
+    const reduced = this.def.armorReduction ? amount * (1 - this.def.armorReduction) : amount;
+    this.health -= reduced;
     this._hurtFlash = 0.15;
-    if (knockbackDir) {
+    // Stationary mobs (Vaultling) have nothing for knockback to push —
+    // no velocity integration happens for them at all (_updatePhysics
+    // returns immediately), so applying it here would just leave a
+    // dangling velocity nothing ever reads.
+    if (knockbackDir && !this.def.stationary) {
       this.velocity.x += knockbackDir.x * KNOCKBACK_HORIZ;
       this.velocity.z += knockbackDir.z * KNOCKBACK_HORIZ;
       this.velocity.y = KNOCKBACK_UP;
@@ -662,6 +670,11 @@ export class Mob {
   }
 
   _updatePhysics(dt, chunkManager) {
+    // Vaultling (phase 8) is wall-mounted, not standing on a floor — no
+    // gravity, no movement, ever. Every other mob still falls/walks
+    // normally; this is a real, narrow exception, not a general "some
+    // mobs skip physics" system.
+    if (this.def.stationary) return;
     const size = this.size;
     // Ridden Emberstriders move at their own rideSpeed (faster than
     // wandering on their own — the whole point of taming one), not walkSpeed.
@@ -706,7 +719,10 @@ export class Mob {
     // Amplitude now scales with actual speed (capped) instead of a flat
     // moving/not-moving switch, so a slow wander swings less than a full
     // chase sprint.
-    const target = Math.min(1, speed / this.def.walkSpeed) * 0.9;
+    // Vaultling (phase 8) is stationary — walkSpeed: 0 would otherwise
+    // divide by zero here (0/0 = NaN, silently propagating into every
+    // limb's rotation forever).
+    const target = this.def.walkSpeed > 0 ? Math.min(1, speed / this.def.walkSpeed) * 0.9 : 0;
     const lerpT = Math.min(1, dt * 12);
     for (const [part, sign] of this.swingPairs) {
       const targetAngle = Math.sin(this.walkCycle) * sign * target;

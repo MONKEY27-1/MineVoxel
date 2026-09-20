@@ -1,8 +1,11 @@
 import { BLOCKS } from './blocks.js';
 import { getBlockDrop } from '../items/drops.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, removeContainerAt } from '../items/containerRegistry.js';
+import { storeVault } from '../items/vaultBoxRegistry.js';
 
-const CONTAINER_BLOCKS = new Set([BLOCKS.CHEST, BLOCKS.FURNACE, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE]);
+// Vault Box (phase 8) shares the plain chest-shaped container storage —
+// getOrCreateChest is already generic per-position, not per-block-id.
+const CONTAINER_BLOCKS = new Set([BLOCKS.CHEST, BLOCKS.FURNACE, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE, BLOCKS.VAULT_BOX]);
 
 /**
  * Revision-pass section 6: the single path every block removal must go
@@ -20,17 +23,21 @@ const CONTAINER_BLOCKS = new Set([BLOCKS.CHEST, BLOCKS.FURNACE, BLOCKS.BREWING_S
  * regardless of that choice, so it can never resurrect on reload — see
  * containerRegistry.js's own note that none of this persists yet anyway.
  *
- * @returns {{blockId:number, blockDrop:{itemId,count}|null, containerDrops:{itemId,count,durability}[]|null}|null}
- *   null if there was nothing to destroy (already air).
+ * @returns {{blockId:number, blockDrop:{itemId,count}|null, containerDrops:{itemId,count,durability}[]|null, vaultId:number|null}|null}
+ *   null if there was nothing to destroy (already air). `vaultId` is set
+ *   only when a Vault Box with real contents was broken — see
+ *   vaultBoxRegistry.js's own note on why that's a separate signal from
+ *   `containerDrops` (a Vault Box's contents don't scatter at all).
  */
 export function destroyBlock(chunkManager, x, y, z) {
   const blockId = chunkManager.getBlock(x, y, z);
   if (blockId === BLOCKS.AIR) return null;
 
   let containerDrops = null;
+  let vaultId = null;
   if (CONTAINER_BLOCKS.has(blockId)) {
     const container =
-      blockId === BLOCKS.CHEST
+      blockId === BLOCKS.CHEST || blockId === BLOCKS.VAULT_BOX
         ? getOrCreateChest(x, y, z)
         : blockId === BLOCKS.FURNACE
           ? getOrCreateFurnace(x, y, z)
@@ -47,7 +54,13 @@ export function destroyBlock(chunkManager, x, y, z) {
       container.cookProgress = 0;
       container.isBurning = false;
     }
-    containerDrops = container.slots.filter(Boolean).map((s) => ({ itemId: s.itemId, count: s.count, durability: s.durability }));
+    const hasContents = container.slots.some(Boolean);
+    if (blockId === BLOCKS.VAULT_BOX && hasContents) {
+      // Saved, not scattered — the whole point of a Vault Box.
+      vaultId = storeVault(container.slots);
+    } else {
+      containerDrops = container.slots.filter(Boolean).map((s) => ({ itemId: s.itemId, count: s.count, durability: s.durability }));
+    }
     // removeContainerAt only detaches this object from the registry map —
     // it doesn't touch the object itself, and a still-open inventory
     // screen on this exact container holds the same live reference (see
@@ -63,5 +76,5 @@ export function destroyBlock(chunkManager, x, y, z) {
   chunkManager.setBlock(x, y, z, BLOCKS.AIR);
   const blockDrop = getBlockDrop(blockId);
 
-  return { blockId, blockDrop, containerDrops };
+  return { blockId, blockDrop, containerDrops, vaultId };
 }

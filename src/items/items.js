@@ -167,6 +167,23 @@ export const ITEMS = {
   // Glass Bottle held (main.js) — the last ingredient the respawn
   // ritual's own Spire Crystal recipe needs (recipes.js).
   BOTTLED_RIFT_BREATH: defineMaterial('bottled_rift_breath'),
+
+  // --- Phase 8: outer islands, Pale Spires, and Skyships ---------------
+  // Rift Bloom's own fruit — a real food-and-effect item (main.js's new
+  // eat interaction): a modest instant heal (this game deliberately has
+  // no hunger system, so "food" just means "a consumable with an
+  // effect", the same spirit any potion already has) plus its own
+  // signature short random teleport.
+  RIFT_FRUIT: defineMaterial('rift_fruit'),
+  // Vaultling's own drop — the other half of the Vault Box recipe.
+  VAULT_SHELL: defineMaterial('vault_shell'),
+  // The Skyship's own reward. A real chest-slot armor item (reusing the
+  // existing ARMOR_MATERIAL/defense system with zero defense — it's not
+  // protective armor, just something that occupies the chest slot) so
+  // phase 9's own flight system has a normal equip slot to check rather
+  // than needing a new one invented just for this; the actual glide
+  // physics are phase 9's own scope, not built here.
+  GLIDEWINGS: defineArmor('chest', { name: 'glidewings', defense: [0, 0, 0, 0] }),
 };
 
 const byId = new Map(nonBlockItems.map((i) => [i.id, i]));
@@ -215,7 +232,13 @@ export function getNonBlockItem(itemId) {
 }
 
 export function getMaxStack(itemId) {
-  if (isBlockItem(itemId)) return 64;
+  // Phase 8: Vault Box needs to behave like a tool (maxStack: 1) even
+  // though it's a block — its own durability field is repurposed to
+  // carry a per-item vaultBoxRegistry id (see main.js), and merging two
+  // Vault Box stacks together the normal way (which ignores durability
+  // entirely) would silently lose one of their two saved contents. Every
+  // other block still defaults to 64, same as before this check existed.
+  if (isBlockItem(itemId)) return getBlock(itemId)?.maxStack ?? 64;
   return getNonBlockItem(itemId)?.maxStack ?? 64;
 }
 

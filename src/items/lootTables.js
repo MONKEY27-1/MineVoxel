@@ -159,6 +159,40 @@ export const LOOT_TABLES = {
       { itemId: ITEMS.RIFT_SHARD.id, weight: 4, min: 1, max: 1 },
     ],
   },
+  // Phase 8: a Pale Spire's own vault-room chests. Spec calls for
+  // "enchanted gear" — this game has no enchanting system (an existing,
+  // documented limitation from earlier phases) and no diamond tool tier
+  // at all, so the best real gear this game has (iron and Voidsteel,
+  // the Cinderdeep's own endgame material) stands in instead.
+  pale_spire: {
+    rolls: [3, 5],
+    entries: [
+      { itemId: ITEMS.DIAMOND.id, weight: 6, min: 1, max: 4 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 8, min: 2, max: 6 },
+      { itemId: ITEMS.VAULT_SHELL.id, weight: 5, min: 1, max: 2 },
+      { itemId: ITEMS.IRON_SWORD.id, weight: 3, min: 1, max: 1 },
+      { itemId: ITEMS.VOIDSTEEL_SWORD.id, weight: 1, min: 1, max: 1 },
+      { itemId: BLOCKS.RIFTSTONE, weight: 6, min: 4, max: 10 },
+    ],
+  },
+  // Phase 8: a Skyship's own general-loot chest (one of its two).
+  skyship: {
+    rolls: [3, 5],
+    entries: [
+      { itemId: ITEMS.DIAMOND.id, weight: 5, min: 2, max: 5 },
+      { itemId: ITEMS.VOIDSTEEL_INGOT.id, weight: 3, min: 1, max: 2 },
+      { itemId: ITEMS.GOLD_INGOT.id, weight: 6, min: 2, max: 5 },
+      { itemId: ITEMS.VAULT_SHELL.id, weight: 4, min: 1, max: 2 },
+    ],
+  },
+  // The Skyship's SECOND chest — a dedicated, single-entry table rather
+  // than a weighted chance inside `skyship` above, so Glidewings ("the
+  // reward the outer islands exist for" per spec) is genuinely
+  // guaranteed on every Skyship, not just likely.
+  skyship_glidewings: {
+    rolls: [1, 1],
+    entries: [{ itemId: ITEMS.GLIDEWINGS.id, weight: 1, min: 1, max: 1 }],
+  },
 };
 
 /** Deterministic given the same seed — used once, at first-open, per chest. */

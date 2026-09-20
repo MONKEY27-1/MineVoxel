@@ -1492,3 +1492,108 @@ painters.far_gate_return = (ctx, ox, oy) => {
   ctx.fillStyle = '#f2d4a8';
   ctx.fillRect(ox + 7, oy + 7, 2, 2);
 };
+
+// --- Phase 8: outer islands, Pale Spires, and Skyships -----------------
+painters.riftstone = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#c9b8e0', ['#d8cceb', '#b3a0cf'], 0.25, 920);
+};
+painters.riftstone_pillar_side = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#c9b8e0', ['#d8cceb'], 0.15, 921);
+  ctx.fillStyle = '#b3a0cf';
+  ctx.fillRect(ox + 1, oy, 2, TILE);
+  ctx.fillRect(ox + 13, oy, 2, TILE);
+};
+painters.riftstone_pillar_top = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#d8cceb', ['#c9b8e0', '#b3a0cf'], 0.3, 922);
+};
+painters.pale_rod = (ctx, ox, oy) => {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  ctx.fillStyle = '#f2ecfa';
+  ctx.fillRect(ox + 6, oy, 4, TILE);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.fillRect(ox + 7, oy + 2, 2, TILE - 4);
+};
+painters.rift_bloom = (ctx, ox, oy) => {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  ctx.strokeStyle = '#5a3a7a';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 15);
+  ctx.lineTo(ox + 8, oy + 5);
+  ctx.stroke();
+  ctx.fillStyle = '#c9a7ff';
+  for (const [dx, dy] of [[8, 4], [4, 7], [12, 7], [6, 10], [10, 10]]) {
+    ctx.beginPath();
+    ctx.arc(ox + dx, oy + dy, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+};
+painters.wyrm_skull = (ctx, ox, oy) => {
+  ctx.clearRect(ox, oy, TILE, TILE);
+  speckle(ctx, ox, oy, '#e8e0d0', ['#d0c8b8'], 0.15, 923);
+  ctx.fillStyle = '#1a1622';
+  ctx.fillRect(ox + 4, oy + 6, 2, 2);
+  ctx.fillRect(ox + 10, oy + 6, 2, 2);
+  ctx.fillStyle = '#8a7a5a';
+  ctx.fillRect(ox + 3, oy + 11, 3, 3);
+  ctx.fillRect(ox + 10, oy + 11, 3, 3);
+};
+painters.vault_box_top = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#4a3a6e', ['#5a4880', '#3a2c58'], 0.2, 924);
+  ctx.strokeStyle = '#c9a7ff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox + 2, oy + 2, 12, 12);
+};
+painters.vault_box_side = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#3a2c58', ['#4a3a6e'], 0.2, 925);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.fillRect(ox + 6, oy + 6, 4, 4);
+};
+painters.rift_fruit = (ctx, ox, oy) => {
+  ctx.fillStyle = '#8a6ab0';
+  ctx.beginPath();
+  ctx.arc(ox + 8, oy + 9, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#c9a7ff';
+  ctx.beginPath();
+  ctx.arc(ox + 6, oy + 7, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#3a2452';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 4);
+  ctx.lineTo(ox + 8, oy + 2);
+  ctx.stroke();
+};
+painters.vault_shell = (ctx, ox, oy) => {
+  ctx.fillStyle = '#4a3a6e';
+  ctx.beginPath();
+  ctx.ellipse(ox + 8, oy + 9, 6, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#c9a7ff';
+  ctx.lineWidth = 0.8;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(ox + 8 + i * 3, oy + 4);
+    ctx.lineTo(ox + 8 + i * 3, oy + 14);
+    ctx.stroke();
+  }
+};
+painters.glidewings = (ctx, ox, oy) => {
+  ctx.fillStyle = '#e8e0f5';
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 8);
+  ctx.quadraticCurveTo(ox + 1, oy + 4, ox + 2, oy + 13);
+  ctx.quadraticCurveTo(ox + 6, oy + 10, ox + 8, oy + 8);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(ox + 8, oy + 8);
+  ctx.quadraticCurveTo(ox + 15, oy + 4, ox + 14, oy + 13);
+  ctx.quadraticCurveTo(ox + 10, oy + 10, ox + 8, oy + 8);
+  ctx.fill();
+  ctx.strokeStyle = '#7a4fb0';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(ox + 2, oy + 13);
+  ctx.lineTo(ox + 14, oy + 13);
+  ctx.stroke();
+};

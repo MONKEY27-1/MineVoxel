@@ -335,6 +335,33 @@ export const MOB_TYPES = {
     callsAlliesOnHit: true,
     drops: [],
   }),
+
+  // --- Phase 8: guards a Pale Spire's own vault room -------------------
+  vaultling: hostile({
+    name: 'vaultling',
+    dimension: 'hollow_reach',
+    shape: 'spider', // a shelled, many-legged silhouette reads close enough — see mobTexture.js's own note
+    size: { width: 0.9, height: 0.9 },
+    maxHealth: 22,
+    walkSpeed: 0, // wall-mounted, never wanders — mob.js's own stationary flag skips physics/movement entirely
+    stationary: true,
+    attackDamage: 0, // never melees — see rangedAttack below
+    attackRange: 12,
+    attackCooldown: 2.2,
+    aggroRange: 16,
+    particleColor: 0x4a3a6e,
+    // "Fires a homing levitate projectile" — approximated with a real,
+    // well-aimed ranged shot (this codebase's projectile system has no
+    // post-spawn steering to make anything genuinely home) and a strong
+    // knockback for the "levitate" launch feel, rather than a new
+    // duration-based levitate status effect needing real player-physics
+    // support. See HOLLOWREACH.md for the full reasoning.
+    rangedAttack: { color: 0xc9a7ff, speed: 14, damage: 4, knockback: 9, radius: 0.2 },
+    // "Armored while closed" — a flat damage reduction, not a real open/
+    // closed animation state machine.
+    armorReduction: 0.35,
+    drops: [{ itemId: ITEMS.VAULT_SHELL.id, min: 1, max: 1, chance: 1 }],
+  }),
 };
 
 export const HOSTILE_MOB_IDS = Object.keys(MOB_TYPES).filter((id) => MOB_TYPES[id].category === 'hostile');

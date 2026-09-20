@@ -389,6 +389,34 @@ export const BLOCKS = {
   // teleport back toward the central island instead of further outward
   // along its own position's bearing from center.
   FAR_GATE_RETURN: define({ name: 'far_gate_return', texture: { all: 'far_gate_return' }, hardness: Infinity, drops: null, blastResistance: Infinity, lightEmission: 6 }),
+
+  // --- Phase 8: outer islands, Pale Spires, and Skyships ---------------
+  // Riftstone — cooked from Rift Fruit, the outer islands' own building
+  // material (the naming table's own "Riftstone set = purpur" mapping).
+  // Two variants only (a plain block + a pillar/corner accent), not a
+  // full stairs/slabs family — this engine has no stairs/slab geometry
+  // system at all yet, and building one just for this material was
+  // judged out of scope.
+  RIFTSTONE: define({ name: 'riftstone', texture: { all: 'riftstone' }, hardness: 2.5, tool: 'pickaxe' }),
+  RIFTSTONE_PILLAR: define({ name: 'riftstone_pillar', texture: { top: 'riftstone_pillar_top', side: 'riftstone_pillar_side', bottom: 'riftstone_pillar_top' }, hardness: 2.5, tool: 'pickaxe' }),
+  // Pale Rod — the Pale Spires' own light source (spec's own naming).
+  PALE_ROD: define({ name: 'pale_rod', texture: { all: 'pale_rod' }, solid: false, transparent: true, hardness: 1, lightEmission: 14 }),
+  // Rift Bloom — grows on the outer islands themselves (world/
+  // hollowReachGenerator.js's outer-island surface pass); breaking it
+  // drops Rift Fruit rather than itself (items/drops.js's own
+  // SPECIAL_DROPS — `drops: null` here would mean "drops nothing at
+  // all", not "drops something else").
+  RIFT_BLOOM: define({ name: 'rift_bloom', texture: { all: 'rift_bloom' }, solid: false, transparent: true, cross: true, hardness: 0 }),
+  // A Skyship's own mounted trophy at the bow — purely decorative.
+  WYRM_SKULL: define({ name: 'wyrm_skull', texture: { all: 'wyrm_skull' }, solid: false, transparent: true, hardness: 1.5 }),
+  // Vault Box — see items.js's own note on the durability-as-vault-id
+  // trick main.js uses to make one keep its contents across a break.
+  // maxStack: 1 — same reasoning as a tool, not the usual 64 every other
+  // block gets (see items.js's own getMaxStack note): each Vault Box
+  // item's own `durability` field carries a distinct vaultBoxRegistry
+  // id, and merging two into one stack the normal way would silently
+  // lose one of their two saved contents.
+  VAULT_BOX: define({ name: 'vault_box', texture: { top: 'vault_box_top', side: 'vault_box_side', bottom: 'vault_box_top' }, hardness: 3, tool: 'pickaxe', maxStack: 1 }),
 };
 
 export function getBlock(id) {

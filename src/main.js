@@ -31,6 +31,7 @@ import { DayNightCycle } from './world/dayNightCycle.js';
 import { __selfTestTravel } from './world/travel.js';
 import { __selfTestLighting } from './world/lighting.js';
 import { Player, TUNING } from './entities/player.js';
+import { aabbFits } from './entities/physics.js';
 import { InteractionController, raycastVoxel } from './entities/interaction.js';
 import { PlayerModel } from './entities/playerModel.js';
 import { ParticleSystem } from './entities/particles.js';
@@ -47,6 +48,7 @@ import { Inventory } from './items/inventory.js';
 import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName } from './items/items.js';
 import { rollLoot } from './items/lootTables.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests } from './items/containerRegistry.js';
+import { getVault } from './items/vaultBoxRegistry.js';
 import { allSpawners } from './world/structures/spawnerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
@@ -1459,7 +1461,12 @@ function main() {
         cmdMessageLog.push({ source: 'system', category: 'warning', style: 'warning', segments: 'The Far Gate flickers and fails to connect.' });
         return;
       }
-      await ensureChunkLoadedAt(chunkManager, landing.x, landing.z);
+      // A longer budget than ordinary local travel (ensureChunkLoadedAt's
+      // own 15s default) — warping ~1000 blocks into never-before-
+      // generated territory, possibly right into a dense Pale Spire, is
+      // a genuinely heavier one-time load than any other travel in this
+      // game triggers, and 15s wasn't always enough headroom for it.
+      await ensureChunkLoadedAt(chunkManager, landing.x, landing.z, 30000);
       // Re-derived from the real generated blocks, not the noise
       // estimate alone — outerIslandAt's own `top` is a close guide for
       // where to start scanning, not a guarantee (rounding/noise-sample
@@ -1519,6 +1526,39 @@ function main() {
     }
   }
 
+  const RIFT_FRUIT_TELEPORT_MIN = 3;
+  const RIFT_FRUIT_TELEPORT_MAX = 8;
+
+  /**
+   * Rift Fruit's own signature effect — a short random teleport, same
+   * spirit as vanilla's chorus fruit. Tries a handful of random nearby
+   * offsets and only actually moves the player if one lands somewhere
+   * real (a clear space with solid ground beneath, or anywhere at all in
+   * creative) — a miss just leaves the player where they were rather
+   * than ever dropping them into open air or the void.
+   */
+  function tryRiftFruitTeleport() {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = RIFT_FRUIT_TELEPORT_MIN + Math.random() * (RIFT_FRUIT_TELEPORT_MAX - RIFT_FRUIT_TELEPORT_MIN);
+      const tx = player.position.x + Math.cos(angle) * dist;
+      const ty = player.position.y;
+      const tz = player.position.z + Math.sin(angle) * dist;
+      if (!aabbFits(chunkManager, { x: tx, y: ty, z: tz }, player.size)) continue;
+      const groundedOrFlying = player.gameMode === 'creative' && player.flying ? true : isSolid(chunkManager.getBlock(Math.floor(tx), Math.floor(ty) - 1, Math.floor(tz)));
+      if (!groundedOrFlying) continue;
+      player.position.x = tx;
+      player.position.y = ty;
+      player.position.z = tz;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      particles.spawnBurst({ x: tx, y: ty + 0.5, z: tz }, 0x8a6ab0, 15, 4);
+      return true;
+    }
+    return false;
+  }
+
   const inventoryUI = new InventoryUI({ atlasUV, playerInventory: player.inventory, spawnDrop: spawnDropNearPlayer, player });
   inventoryUI.onItemCrafted = checkCraftMilestone;
 
@@ -1554,6 +1594,8 @@ function main() {
       inventoryUI.open('smithing', { smithingTable: getOrCreateSmithingTable(x, y, z) }, 'Smithing Table', { x, y, z });
     } else if (blockId === BLOCKS.CHEST) {
       inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Chest', { x, y, z });
+    } else if (blockId === BLOCKS.VAULT_BOX) {
+      inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Vault Box', { x, y, z });
     } else {
       return;
     }
@@ -1718,7 +1760,7 @@ function main() {
               spawnDropNearPlayer(slot.itemId, slot.count, slot.durability);
             }
           }
-          if (interaction.justBroke.drop) spawnDropNearPlayer(interaction.justBroke.drop.itemId, interaction.justBroke.drop.count);
+          if (interaction.justBroke.drop) spawnDropNearPlayer(interaction.justBroke.drop.itemId, interaction.justBroke.drop.count, interaction.justBroke.drop.durability);
 
           // Physics reactions to the now-empty cell: a gravity block
           // resting directly on it just lost its support, and any
@@ -1789,6 +1831,19 @@ function main() {
           // it happened to complete the respawn ritual.
           if (interaction.justPlaced.blockId === BLOCKS.SPIRE_CRYSTAL && activeDimension === hollowReach) {
             checkRiftwyrmRitual();
+          }
+
+          // Vault Box (phase 8): if the placed item's own durability
+          // carries a vaultBoxRegistry id (see vaultBoxRegistry.js),
+          // restore its saved contents into the freshly-created
+          // container — this is what makes "keeps contents when broken
+          // and picked up" actually round-trip, not just the break half.
+          if (interaction.justPlaced.blockId === BLOCKS.VAULT_BOX && interaction.justPlaced.durability != null) {
+            const saved = getVault(interaction.justPlaced.durability);
+            if (saved) {
+              const container = getOrCreateChest(px, py, pz);
+              for (let i = 0; i < saved.length; i++) container.slots[i] = saved[i] ? { ...saved[i] } : null;
+            }
           }
         }
         if (interaction.wantsOpenContainer) {
@@ -1935,6 +1990,23 @@ function main() {
             else player.effects.add(heldEffect);
             playUIClick();
           }
+        }
+
+        // Eating Rift Fruit (phase 8): this game deliberately has no
+        // hunger system (README's own documented simplification), so
+        // "food" here just means "a consumable with an effect" — a
+        // modest instant heal (same amount and survival-only gating as
+        // the healing potion above) plus its own signature short random
+        // teleport. The first real consumer of viewModel's own
+        // long-dormant triggerEat() animation.
+        if (input.wasMousePressed(2) && player.selectedItem?.itemId === ITEMS.RIFT_FRUIT.id && !interaction.wantsOpenContainer) {
+          const held = player.selectedItem;
+          held.count -= 1;
+          if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
+          if (player.gameMode === 'survival') player.health = Math.min(player.maxHealth, player.health + 2);
+          viewModel.triggerEat();
+          tryRiftFruitTeleport();
+          playUIClick();
         }
 
         if (input.wasPressed('drop') && player.selectedItem) {

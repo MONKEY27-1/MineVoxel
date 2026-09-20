@@ -116,13 +116,16 @@ export default async function run(baseUrl) {
         for (let i = 0; i < 140; i++) M.projectiles.update(1 / 20, M.chunkManager, M.player, M.mobManager, M.activeDimension); // past maxLifetime (6s) so a miss still resolves via timeout, not left hanging
         return { x: M.player.position.x, z: M.player.position.z };
       }, gatePos);
-      // travelViaFarGate is async (it awaits ensureChunkLoadedAt) — the
-      // onHit callback that triggered it doesn't await it, so this polls
-      // for the real outcome rather than assuming it's done by now.
+      // travelViaFarGate is async (it awaits ensureChunkLoadedAt, given a
+      // generous 30s budget of its own for exactly this reason — warping
+      // into a never-before-generated area, possibly a dense Pale Spire,
+      // is real one-time work) — the onHit callback that triggered it
+      // doesn't await it, so this polls for the real outcome with
+      // matching patience rather than assuming it's done sooner.
       await page.waitForFunction(
         (b) => Math.hypot(window.__minevoxel.player.position.x - b.x, window.__minevoxel.player.position.z - b.z) > 500,
         before,
-        { timeout: 15000 }
+        { timeout: 35000 }
       );
 
       const res = await page.evaluate(() => {

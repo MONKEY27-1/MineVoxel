@@ -456,6 +456,35 @@ const BUILDERS = {
       speckleFill(ctx, 48, 0, '#6e6e76', [shade('#6e6e76', -0.1)], seed ^ 4, 0.3);
     }, seed);
   },
+
+  // Phase 8: Vaultling — a shelled, wall-clinging guard. Reuses the
+  // 'spider' shape's many-legged silhouette (mob.js has no bespoke
+  // "shelled turret" body builder, and adding one for a single mob was
+  // judged out of scope — see HOLLOWREACH.md) painted to read as an
+  // armored shell rather than an organic creature.
+  vaultling(seed) {
+    return buildSheet((ctx, put, rnd) => {
+      put('headFront', 0, 0);
+      speckleFill(ctx, 0, 0, '#4a3a6e', [shade('#4a3a6e', 0.15), '#3a2c58'], seed ^ 1, 0.3);
+      drawEyes(ctx, 0, 0, '#c9a7ff', true);
+
+      put('headSide', 16, 0);
+      speckleFill(ctx, 16, 0, '#3a2c58', [shade('#3a2c58', 0.1)], seed ^ 2, 0.3);
+
+      put('body', 32, 0);
+      // A banded shell pattern, not organic mottling — the "armored
+      // while closed" flavor read directly in the texture.
+      ctx.fillStyle = '#4a3a6e';
+      ctx.fillRect(32, 0, TILE, TILE);
+      ctx.fillStyle = '#3a2c58';
+      for (let ry = 1; ry < TILE; ry += 3) ctx.fillRect(32, ry, TILE, 1);
+      ctx.strokeStyle = '#c9a7ff';
+      ctx.strokeRect(33, 1, TILE - 2, TILE - 2);
+
+      put('limb', 48, 0);
+      speckleFill(ctx, 48, 0, '#3a2c58', [shade('#3a2c58', -0.1)], seed ^ 4, 0.25);
+    }, seed);
+  },
 };
 
 const cache = new Map();

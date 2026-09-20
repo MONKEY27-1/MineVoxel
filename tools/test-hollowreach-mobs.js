@@ -56,8 +56,9 @@ export default async function run(baseUrl) {
         M.mobManager.mobs = [];
         return { ids, spawned };
       });
-      if (result.ids.length !== 3) {
-        throw new Error(`expected 3 Hollow Reach mob types, found ${result.ids.length}: ${result.ids.join(',')}`);
+      if (result.ids.length !== 4) {
+        // Hollowkin, Riftmite, Stoneskitter (phase 3) + Vaultling (phase 8).
+        throw new Error(`expected 4 Hollow Reach mob types, found ${result.ids.length}: ${result.ids.join(',')}`);
       }
       for (const s of result.spawned) {
         if (!s.hasMesh || !(s.health > 0)) throw new Error(`mob ${s.id} failed to spawn correctly: ${JSON.stringify(s)}`);

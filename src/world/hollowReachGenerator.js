@@ -1,5 +1,7 @@
 import { BLOCKS } from './blocks.js';
 import { NoiseField } from './noise.js';
+import { createPaleSpirePlacer } from './structures/paleSpire.js';
+import { placeBlueprintInChunk } from './structures/placement.js';
 
 // The Hollow Reach's central island (phase 2): a single Palestone
 // landmass roughly 180 blocks across, radial-noise eroded (not a flat
@@ -48,6 +50,7 @@ const OUTER_ISLAND_MIN_RADIUS = 8;
 const OUTER_ISLAND_MAX_RADIUS = 22;
 const OUTER_ISLAND_MIN_Y = 60;
 const OUTER_ISLAND_MAX_Y = 140;
+const RIFT_BLOOM_CHANCE = 0.015; // per outer-island surface column — sparse, not a lawn
 
 function hashCoords(seed, a, b) {
   let h = (seed ^ 0x9e3779b9) | 0;
@@ -152,6 +155,13 @@ export function createHollowReachGenerator(seed) {
     return { top, thickness };
   }
 
+  // Phase 8: Pale Spires (and their rare Skyships) — a separate,
+  // structure-shaped placer layered on top of the outer islands
+  // outerIslandAt itself already generates, the same "generator owns
+  // the terrain, a placer owns what stands on it" split
+  // generator.js/undervault.js already established for the overworld.
+  const paleSpirePlacer = createPaleSpirePlacer(s, outerIslandAt, OUTER_ISLAND_CELL);
+
   function buildFarGate(setBlock, cx, cz, gate) {
     const setIfInChunk = (wx, wy, wz, id) => {
       if (Math.floor(wx / 16) !== cx || Math.floor(wz / 16) !== cz) return;
@@ -228,7 +238,6 @@ export function createHollowReachGenerator(seed) {
   }
 
   function generateColumn(setBlock, cx, cz, rnd) {
-    void rnd; // no per-column randomness needed yet — every random choice here is seeded once, above, at generator construction
     for (let lx = 0; lx < 16; lx++) {
       for (let lz = 0; lz < 16; lz++) {
         const wx = cx * 16 + lx;
@@ -251,6 +260,9 @@ export function createHollowReachGenerator(seed) {
           if (outer) {
             const bottom = Math.max(1, outer.top - outer.thickness);
             for (let wy = bottom; wy <= outer.top; wy++) setBlock(lx, wy, lz, BLOCKS.PALESTONE);
+            // Rift Bloom (phase 8) — grows sparsely on the outer islands'
+            // own bare surface.
+            if (rnd() < RIFT_BLOOM_CHANCE) setBlock(lx, outer.top + 1, lz, BLOCKS.RIFT_BLOOM);
           }
         }
       }
@@ -269,7 +281,14 @@ export function createHollowReachGenerator(seed) {
       const nearZ = Math.abs(Math.floor(gate.z / 16) - cz) <= 1;
       if (nearX && nearZ) buildFarGate(setBlock, cx, cz, gate);
     }
-    return { chests: [], spawners: [] };
+    const chests = [];
+    const spawners = [];
+    for (const blueprint of paleSpirePlacer.blueprintsNear(cx, cz)) {
+      const result = placeBlueprintInChunk(blueprint, cx, cz, setBlock);
+      chests.push(...result.chests);
+      spawners.push(...result.spawners);
+    }
+    return { chests, spawners };
   }
 
   // Exposed so main.js's Riftwyrm (phase 4) can reuse the same fixed

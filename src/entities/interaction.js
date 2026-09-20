@@ -7,7 +7,7 @@ const PLACE_COOLDOWN = 0.2;
 
 // Right-clicking these opens a UI (see main.js's _openContainerFor)
 // instead of placing whatever's in the player's hand.
-export const CONTAINER_BLOCKS = new Set([BLOCKS.CRAFTING_TABLE, BLOCKS.FURNACE, BLOCKS.CHEST, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE]);
+export const CONTAINER_BLOCKS = new Set([BLOCKS.CRAFTING_TABLE, BLOCKS.FURNACE, BLOCKS.CHEST, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE, BLOCKS.VAULT_BOX]);
 
 function cubeOverlapsAABB(cx, cy, cz, position, size) {
   const halfW = size.width / 2;
@@ -178,10 +178,24 @@ export class InteractionController {
       }
 
       const dropBlockItem = player.gameMode !== 'creative';
+      // A Vault Box with real contents always drops itself with its
+      // vaultId attached (destroyBlock.js), even in creative mode — the
+      // same "container contents are player-placed, not part of the
+      // block itself, so they always drop" exception containerDrops
+      // already gets below. Without this, breaking a stocked Vault Box
+      // in creative would silently orphan its saved contents forever
+      // (stored in the registry, but with no item left anywhere to
+      // reference that id).
+      const drop =
+        result.vaultId != null
+          ? { ...result.blockDrop, durability: result.vaultId }
+          : dropBlockItem
+            ? result.blockDrop
+            : null;
       this.justBroke = {
         position: { x: x + 0.5, y: y + 0.5, z: z + 0.5 },
         blockId: result.blockId,
-        drop: dropBlockItem ? result.blockDrop : null,
+        drop,
         // Container contents are player-placed items, not part of the
         // block itself — they always drop regardless of game mode
         // (matches genre convention). Gating this on dropBlockItem too
@@ -218,7 +232,12 @@ export class InteractionController {
     if (cubeOverlapsAnyMob(px, py, pz, mobs)) return;
 
     chunkManager.setBlock(px, py, pz, held.itemId);
-    this.justPlaced = { position: { x: px + 0.5, y: py + 0.5, z: pz + 0.5 }, blockId: held.itemId };
+    // Vault Box (phase 8): held.durability carries a vaultBoxRegistry id
+    // (see vaultBoxRegistry.js) — captured here, before count-- below
+    // might null out the slot entirely, so main.js's justPlaced handler
+    // can restore that vault's saved contents into the freshly-placed
+    // block.
+    this.justPlaced = { position: { x: px + 0.5, y: py + 0.5, z: pz + 0.5 }, blockId: held.itemId, durability: held.durability };
     this._placeCooldown = PLACE_COOLDOWN;
 
     if (player.gameMode !== 'creative') {
