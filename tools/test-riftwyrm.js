@@ -316,7 +316,7 @@ export default async function run(baseUrl) {
         const wyrm = M.riftwyrmManager.current;
         wyrm.takeDamage(9999, null);
         let diedEventFired = false;
-        for (let i = 0; i < 80 && M.riftwyrmManager.current; i++) {
+        for (let i = 0; i < 250 && M.riftwyrmManager.current; i++) {
           M.riftwyrmManager.update(1 / 20, M.chunkManager, M.player, M.activeDimension);
           if (M.riftwyrmManager.justDied) diedEventFired = true;
         }

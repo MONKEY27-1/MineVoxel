@@ -47,7 +47,15 @@ const BUFFET_DAMAGE = 2;
 const STRAFE_INTERVAL = 14;
 const STRAFE_DURATION = 4;
 
-const DEATH_FADE_DURATION = 2.5; // a stub collapse — phase 5 replaces this with the real ~10s death sequence
+// Phase 5's real ~10s death sequence, three sub-phases by fraction of
+// DEATH_DURATION: rearing (a slow rise, no fade yet), light bursts
+// (periodic particle+XP pulses that speed up over time), then
+// disintegration (fade/shrink to nothing plus one final large burst).
+const DEATH_DURATION = 10;
+const DEATH_REAR_END = 0.3;
+const DEATH_BURST_END = 0.8;
+const DEATH_XP_TOTAL = 100;
+const DEATH_XP_BURST_COUNT = 6; // "a sustained XP burst" per spec — spread across the light-burst phase, not one lump sum
 
 // Blocks the Riftwyrm's own body never destroys by simply flying through
 // — everything else in its path is cleared, per spec.
@@ -192,24 +200,56 @@ export class Riftwyrm {
     }
   }
 
-  update(dt, chunkManager, player, particles, projectiles, dimensionId) {
+  update(dt, chunkManager, player, particles, projectiles, dimensionId, xpOrbs) {
     this.justDamagedPlayer = false;
     this.justBuffetedPlayer = false;
     this.justBreathed = null;
 
     if (this.despawning) {
-      // A stub collapse — fading out over DEATH_FADE_DURATION. Phase 5
-      // owns the real ~10s rearing/light-burst/disintegration sequence,
-      // the XP burst, and the exit gate; this just guarantees the fight
-      // actually ends and cleans itself up rather than leaving a
-      // full-health-bar corpse hanging in the sky.
-      this._deathT += dt / DEATH_FADE_DURATION;
-      const fade = Math.max(0, 1 - this._deathT);
-      this.material.opacity = fade;
-      this.material.transparent = true;
-      this.group.scale.setScalar(fade + 0.001);
-      if (this._deathT >= 1) this.dead = true;
+      this._deathT += dt / DEATH_DURATION;
+      const t = Math.min(1, this._deathT);
+
+      if (t < DEATH_REAR_END) {
+        // Rearing — a slow rise, no fade yet. The segmented body follows
+        // this via the same trail-history mechanism normal flight uses,
+        // so the whole wyrm visibly lifts and curls rather than just the
+        // head moving alone.
+        this.position.y += 1.4 * dt;
+      } else if (t < DEATH_BURST_END) {
+        // Light bursts — a bright particle pulse and a share of the XP
+        // burst on each one, firing more often as this phase goes on.
+        this.position.y += 0.3 * dt;
+        const phaseT = (t - DEATH_REAR_END) / (DEATH_BURST_END - DEATH_REAR_END);
+        this._burstTimer = (this._burstTimer ?? 0) - dt;
+        if (this._burstTimer <= 0) {
+          this._burstTimer = 0.7 - phaseT * 0.5;
+          particles?.spawnBurst({ ...this.position }, 0xffffff, 18, 6);
+          const burstIndex = Math.min(DEATH_XP_BURST_COUNT - 1, Math.floor(phaseT * DEATH_XP_BURST_COUNT));
+          if (burstIndex !== this._lastXpBurstIndex) {
+            this._lastXpBurstIndex = burstIndex;
+            xpOrbs?.spawn({ ...this.position }, Math.round(DEATH_XP_TOTAL / DEATH_XP_BURST_COUNT));
+          }
+        }
+      } else if (!this._finalBurstDone) {
+        // Disintegration — fade and shrink to nothing, with one last
+        // large burst the instant this phase begins.
+        this._finalBurstDone = true;
+        particles?.spawnBurst({ ...this.position }, 0xc9a7ff, 60, 8);
+        xpOrbs?.spawn({ ...this.position }, DEATH_XP_TOTAL - Math.round(DEATH_XP_TOTAL / DEATH_XP_BURST_COUNT) * DEATH_XP_BURST_COUNT);
+      }
+
+      if (t >= DEATH_BURST_END) {
+        const fadeT = (t - DEATH_BURST_END) / (1 - DEATH_BURST_END);
+        const fade = Math.max(0, 1 - fadeT);
+        this.material.opacity = fade;
+        this.material.transparent = true;
+        this.group.scale.setScalar(fade + 0.001);
+      }
+
+      this._history.unshift({ ...this.position });
+      if (this._history.length > HISTORY_LENGTH) this._history.length = HISTORY_LENGTH;
       this._syncMesh();
+      if (t >= 1) this.dead = true;
       return;
     }
     if (this.dead) return;

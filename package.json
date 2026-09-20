@@ -37,7 +37,8 @@
     "test:undervault": "node tools/test-undervault.js",
     "test:hollowreach": "node tools/run-with-server.js tools/test-hollowreach.js",
     "test:hollowreach-mobs": "node tools/run-with-server.js tools/test-hollowreach-mobs.js",
-    "test:riftwyrm": "node tools/run-with-server.js tools/test-riftwyrm.js"
+    "test:riftwyrm": "node tools/run-with-server.js tools/test-riftwyrm.js",
+    "test:hollow-exit": "node tools/run-with-server.js tools/test-hollow-exit.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

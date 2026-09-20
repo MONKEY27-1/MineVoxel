@@ -15,8 +15,8 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 1 — The Undervault and the Rift Gate
 - [x] Phase 2 — The central island
 - [x] Phase 3 — Mobs (Hollowkin, Riftmite, Stoneskitter; Vaultling is its own phase 8 item per spec)
-- [x] Phase 4 — The Riftwyrm (the death sequence itself is a stub — see phase 5)
-- [ ] Phase 5 — Death, the exit gate, and rewards
+- [x] Phase 4 — The Riftwyrm
+- [x] Phase 5 — Death, the exit gate, and rewards (the real ending sequence itself is a placeholder — see phase 11)
 - [ ] Phase 6 — Respawning the Riftwyrm
 - [ ] Phase 7 — Far Gates and the void crossing
 - [ ] Phase 8 — Outer islands, Pale Spires, and Skyships
@@ -373,20 +373,92 @@ be rewritten) lives at `src/ending/poem.txt`.
   exactly once per world (`riftwyrmManager.spawned`), which
   `RiftwyrmManager.fromJSON`/the persisted record both respect, so a
   reload never mints a second one.
-- **Death is a deliberate stub**, not the real thing: health reaching 0
-  starts a short (2.5s) fade-and-shrink, then the boss despawns and
-  `riftwyrmManager.justDied` fires once. The actual ~10s
-  rearing/light-burst/disintegration sequence, the XP burst, and the
-  exit gate spawning at the fountain are explicitly phase 5's own scope
-  (its own numbered spec item), not something to half-build here first.
+- **Death was a deliberate stub in phase 4** (a short 2.5s fade), now
+  replaced by phase 5's real ~10s sequence — see below.
+
+## Architecture decisions (phase 5)
+
+- **The real ~10s death sequence is three sub-phases by fraction of
+  `DEATH_DURATION`, not a single continuous animation:** rearing (0-30%,
+  a slow rise, no fade yet — the segmented body follows via the same
+  trail-history mechanism normal flight already uses, so the whole wyrm
+  visibly lifts and curls, not just the head), light bursts (30-80%, a
+  particle pulse plus a slice of the XP burst on each one, firing more
+  often as the phase goes on), then disintegration (80-100%, fade and
+  shrink to nothing with one last large burst the instant it begins).
+  `riftwyrm.js`'s own `update()` now takes an `xpOrbs` parameter (threaded
+  through `RiftwyrmManager`'s constructor and `update()`) purely for
+  this — nothing in the live fight itself needed it.
+- **"A sustained XP burst" is spread across `DEATH_XP_BURST_COUNT` (6)
+  pulses during the light-burst phase, not one lump sum at the end** —
+  matches the spec's own wording more literally than a single
+  `xpOrbs.spawn()` call would, and reads as part of the same escalating
+  light-burst spectacle rather than a separate reward pop-up afterward.
+- **The exit gate is NOT shaped like the Rift Gate's own 12-slot ring.**
+  It's a fixed, always-in-the-same-spot structure (the fountain) that's
+  never player-built or player-searched-for, so it doesn't need
+  `riftGate.js`'s generic bounded-search detection machinery at all —
+  `main.js`'s new `buildExitGate()` just places a plain 8-block bedrock
+  ring around one new `EXIT_PORTAL` block, built once, found by nothing
+  but its own fixed coordinates.
+- **`buildExitGate()` retries every tick (`pendingExitGateBuild`) instead
+  of running once off `justDied`** — the fountain's own column isn't
+  guaranteed loaded the exact tick the wyrm finishes dying, the same
+  "phantom air" caution phase 4's own Riftwyrm code already needed
+  against unloaded chunks (see phase 4's own architecture notes above).
+- **No piston system exists anywhere in this codebase, and building one
+  just for the Wyrm Egg was judged out of scope for one collectible
+  block.** The spec's own language ("can't be mined normally — requires
+  a displacement/piston-style puzzle") is satisfied more narrowly:
+  `WYRM_EGG` has `hardness: Infinity` (genuinely unminable, same family
+  as the portal blocks) but a finite `blastResistance` (4), so
+  `explosion.js`'s existing `explode()` — built for an earlier, unrelated
+  phase 7 need (Voidiron Ore) — already lets a TNT blast clear it. This
+  is the in-spirit equivalent of vanilla's own piston trick (an indirect
+  force displaces it, not direct mining) built entirely from a mechanic
+  this game already had, not a new one invented just for this. Wired in
+  as one more special case in `main.js`'s existing TNT-fuse
+  `destroyed`-block loop: a cleared `WYRM_EGG` becomes a real
+  `itemDrops.spawn()` pickup instead of just vanishing.
+- **`travelViaExitGate()` is deliberately separate from both
+  `travelToDimension()` and `travelToHollowReach()`**, not a
+  generalization of either — same reasoning HOLLOWREACH.md's phase 1
+  notes already gave for why the Rift Gate needed its own travel
+  function: this one has a fixed destination (the world's own overworld
+  spawn point, via `climateGenerator.heightAndBiome` — the exact same
+  safe-height lookup `respawnPlayer()` already uses) with no gate
+  search/build, and (unlike a death respawn) doesn't touch health/breath
+  or dismount anything but the player's own mount.
+- **The real ending sequence (poem, generative music, credits) doesn't
+  exist yet — phase 11's own scope.** `travelViaExitGate()`'s first trip
+  just shows a placeholder title (`"The Hollow Reach falls silent."`)
+  and records `riftwyrmManager.hasSeenEnding`, so phase 11 has a real,
+  already-tested flag to hook its actual sequence into rather than
+  needing to invent one later. Every trip after the first returns home
+  silently (just the plain travel), matching "skippable immediately on
+  subsequent trips" in spirit even though there's no real sequence yet
+  to skip.
+- **Far Gates "appearing" once the wyrm is dead is NOT built here** —
+  that's explicitly phase 7's own numbered spec item ("Far Gates and the
+  void crossing"), and phase 7 will need to define what a Far Gate
+  actually looks like before anything can meaningfully place one; doing
+  a placeholder version now risked being thrown away or fought against
+  once phase 7's real design exists. Recorded here as a deliberate
+  boundary, not an oversight.
 
 ## Notable honesty calls
 
-- The Riftwyrm's death right now just ends the fight (a stub fade, then
-  it's gone) — it does NOT spawn an exit gate, award XP, or return the
-  player anywhere, because none of that exists until phase 5. Right after
-  killing it, a player is still standing in a Hollow Reach with no way
-  home yet; that's an expected, temporary state of the build, not a bug.
+- Phase 5 is built and tested (`tools/test-hollow-exit.js`, real ~11.5s
+  of actual game-loop ticking for the death sequence, not a shortcut),
+  but the ending a player actually sees on their first trip home is a
+  one-line placeholder title, not the real poem/music/credits — that's
+  phase 11's own scope, tracked by the same `hasSeenEnding` flag phase 11
+  will read. A player who kills the Riftwyrm today gets a real exit gate,
+  a real Wyrm Egg, and a real trip home — just not the real send-off yet.
+- No piston block exists in this game (confirmed before designing the
+  Wyrm Egg's own "displacement puzzle") — see phase 5's architecture
+  notes above for why an explosion, not a piston, is this game's actual
+  answer to that part of the spec.
 - The boss fight's flight AI, crystal healing, attacks, and persistence
   were all verified through `tools/test-riftwyrm.js` (real Playwright
   browser, real ticking, no shortcuts) rather than by manually flying

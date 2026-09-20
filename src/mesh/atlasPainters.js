@@ -1428,3 +1428,37 @@ painters.rift_portal = (ctx, ox, oy) => {
     ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), size, size);
   }
 };
+
+// Phase 5: the exit gate's own portal surface — a cooler, darker speckle
+// than the Rift Portal's warm violet, reading as genuinely distinct (a
+// way OUT, not the one-way way in).
+painters.exit_portal = (ctx, ox, oy) => {
+  const rnd = mulberry32(908);
+  ctx.fillStyle = '#05040a';
+  ctx.fillRect(ox, oy, TILE, TILE);
+  for (let i = 0; i < 22; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? '#3a5a8a' : '#0a0a14';
+    ctx.fillRect(ox + Math.floor(rnd() * TILE), oy + Math.floor(rnd() * TILE), 1, 1);
+  }
+};
+
+// Phase 5: the Wyrm Egg — a smooth, dark ovoid with faint violet veining,
+// matching the Riftwyrm's own scale-texture palette so it visibly reads
+// as "belongs to it."
+painters.wyrm_egg = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#150c1f', ['#241634', '#0d0812'], 0.15, 909);
+  ctx.fillStyle = '#1c1226';
+  ctx.beginPath();
+  ctx.ellipse(ox + 8, oy + 9, 5, 6.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#5a3a7a';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(ox + 5, oy + 4);
+  ctx.quadraticCurveTo(ox + 9, oy + 9, ox + 6, oy + 14);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(ox + 11, oy + 5);
+  ctx.quadraticCurveTo(ox + 7, oy + 10, ox + 10, oy + 15);
+  ctx.stroke();
+};

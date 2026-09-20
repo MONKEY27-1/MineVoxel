@@ -15,14 +15,23 @@ const BREATH_CLOUD_DAMAGE_PER_TICK = 2;
 const BREATH_CLOUD_TICK_INTERVAL = 1;
 
 export class RiftwyrmManager {
-  constructor(scene, particles, projectiles) {
+  constructor(scene, particles, projectiles, xpOrbs) {
     this.scene = scene;
     this.particles = particles;
     this.projectiles = projectiles;
+    this.xpOrbs = xpOrbs;
     this.current = null; // the live Riftwyrm, or null
     this.spawned = false; // has one ever been spawned in this world (persisted) — phase 6 will need this to gate its own respawn ritual
+    // The rest of the Hollow Reach's own "boss arc" state (phase 5) —
+    // kept here rather than a second persisted record, since it's all
+    // one continuous story (has the wyrm ever died, is its exit gate
+    // open, is its egg still sitting there, has the player seen the
+    // first-time ending) that naturally lives alongside `spawned` above.
+    this.exitGateOpen = false;
+    this.eggPresent = false;
+    this.hasSeenEnding = false;
     this.clouds = []; // active Rift Breath hazards: {x,y,z,remaining,tickTimer}
-    this.justDied = false; // one-shot flag, read+cleared by main.js for the (stub, phase-5-owned) death handling
+    this.justDied = false; // one-shot flag, read+cleared by main.js to build the exit gate + Wyrm Egg exactly once
   }
 
   spawn(position, pillars, fountain, health) {
@@ -33,7 +42,7 @@ export class RiftwyrmManager {
   update(dt, chunkManager, player, dimension) {
     this.justDied = false;
     if (this.current) {
-      this.current.update(dt, chunkManager, player, this.particles, this.projectiles, dimension.id);
+      this.current.update(dt, chunkManager, player, this.particles, this.projectiles, dimension.id, this.xpOrbs);
       if (this.current.justBreathed) this._spawnBreathCloud(this.current.justBreathed);
       if (this.current.dead) {
         this.current.dispose();
@@ -73,7 +82,7 @@ export class RiftwyrmManager {
     }
   }
 
-  /** Only what's needed to resume the fight roughly where it left off — see Riftwyrm.toJSON's own note on why the trail/crystal-links need nothing extra. */
+  /** Only what's needed to resume the fight roughly where it left off — see Riftwyrm.toJSON's own note on why the trail/crystal-links need nothing extra. The exit gate/egg/ending flags need no such caveat — they're plain booleans, not live entity state. */
   toJSON() {
     return {
       spawned: this.spawned,
@@ -82,14 +91,20 @@ export class RiftwyrmManager {
       x: this.current?.position.x ?? null,
       y: this.current?.position.y ?? null,
       z: this.current?.position.z ?? null,
+      exitGateOpen: this.exitGateOpen,
+      eggPresent: this.eggPresent,
+      hasSeenEnding: this.hasSeenEnding,
     };
   }
 
   /** `pillars`/`fountain` always come from the live generator, never the save — they're deterministic from the world seed alone, so persisting them would just be a second, redundant copy that could drift out of sync. */
-  static fromJSON(json, scene, particles, projectiles, pillars, fountain) {
-    const manager = new RiftwyrmManager(scene, particles, projectiles);
+  static fromJSON(json, scene, particles, projectiles, xpOrbs, pillars, fountain) {
+    const manager = new RiftwyrmManager(scene, particles, projectiles, xpOrbs);
     if (!json) return manager;
     manager.spawned = !!json.spawned;
+    manager.exitGateOpen = !!json.exitGateOpen;
+    manager.eggPresent = !!json.eggPresent;
+    manager.hasSeenEnding = !!json.hasSeenEnding;
     if (json.alive && json.health > 0) {
       manager.current = new Riftwyrm(scene, { x: json.x, y: json.y, z: json.z }, { health: json.health, pillars, arrivalPoint: { y: json.y }, fountain });
     }

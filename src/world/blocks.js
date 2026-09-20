@@ -364,6 +364,17 @@ export const BLOCKS = {
   // (it heals the wyrm while intact) — the block itself is real and
   // minable today, that mechanic hooks in later without a block change.
   SPIRE_CRYSTAL: define({ name: 'spire_crystal', texture: { all: 'spire_crystal' }, hardness: 3, blastResistance: 3, lightEmission: 10, transparent: true, renderOpaque: true }),
+  // Phase 5: the exit gate that opens at the fountain once the Riftwyrm
+  // first dies — same "never minable, a real portal surface" shape as
+  // CINDER_PORTAL/RIFT_PORTAL.
+  EXIT_PORTAL: define({ name: 'exit_portal', texture: { all: 'exit_portal' }, solid: false, transparent: true, hardness: Infinity, lightEmission: 8, drops: null, blastResistance: Infinity }),
+  // The Wyrm Egg that spawns on the exit gate frame — genuinely
+  // unminable (hardness: Infinity, same as the portal blocks above), but
+  // NOT explosion-proof like they are: this game has no piston to
+  // reproduce vanilla's own "push it with a piston" trick, so an
+  // explosion is the in-spirit displacement solution instead (see
+  // main.js's TNT-detonation handling and HOLLOWREACH.md's own note).
+  WYRM_EGG: define({ name: 'wyrm_egg', texture: { all: 'wyrm_egg' }, hardness: Infinity, drops: null, blastResistance: 4, lightEmission: 3 }),
 };
 
 export function getBlock(id) {

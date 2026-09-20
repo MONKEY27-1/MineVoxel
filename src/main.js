@@ -396,7 +396,7 @@ function main() {
   // entry (see riftwyrmManager.js's own note on why). `let`, not `const`:
   // startGame's load branch replaces it wholesale via
   // RiftwyrmManager.fromJSON, same story as gateRegistry.
-  let riftwyrmManager = new RiftwyrmManager(renderer.scene, particles, projectiles);
+  let riftwyrmManager = new RiftwyrmManager(renderer.scene, particles, projectiles, xpOrbs);
 
   // --- Revision-pass section 8: clouds, sky, sun/shadow light --------
   const clouds = new Clouds(renderer.scene, WORLD_SEED);
@@ -583,6 +583,12 @@ function main() {
   let isTraveling = false;
   let travelCooldown = 0; // seconds — set after arriving, so stepping back into the destination portal doesn't immediately bounce you again
   let portalStandTime = 0;
+  // Phase 5: true from the instant the Riftwyrm's death sequence
+  // finishes until the exit gate is actually built — the fountain's own
+  // column isn't guaranteed to be loaded that exact tick (same "phantom
+  // air" caution phase 4's own Riftwyrm code needed), so this just keeps
+  // retrying on later ticks instead of silently losing the gate.
+  let pendingExitGateBuild = false;
   let nightVisionWasActive = false; // phase 6: tracks the transition edge so the ambient-floor override applies/restores exactly once, not every tick
   let effectParticleTimer = 0;
   // Polish pass: ambient-biome motes (spore/ember/ash) — a per-render-
@@ -782,6 +788,78 @@ function main() {
     }
   }
 
+  /**
+   * Phase 5: builds the exit gate at the fountain the instant the
+   * Riftwyrm's death sequence finishes — a small bedrock frame around a
+   * dark EXIT_PORTAL surface, plus the Wyrm Egg sitting on one corner of
+   * the frame. Deliberately not shaped like the Rift Gate's own 12-slot
+   * ring (this one is never player-built or player-searched-for, so it
+   * doesn't need that generic detection machinery — it only ever exists
+   * in this one fixed spot, built once).
+   */
+  function buildExitGate() {
+    const fx = Math.floor(HOLLOW_FOUNTAIN_POINT.x);
+    const fy = Math.floor(HOLLOW_FOUNTAIN_POINT.y);
+    const fz = Math.floor(HOLLOW_FOUNTAIN_POINT.z);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (dx === 0 && dz === 0) continue;
+        chunkManager.setBlock(fx + dx, fy, fz + dz, BLOCKS.BEDROCK);
+      }
+    }
+    chunkManager.setBlock(fx, fy, fz, BLOCKS.EXIT_PORTAL);
+    chunkManager.setBlock(fx - 1, fy + 1, fz - 1, BLOCKS.WYRM_EGG);
+    riftwyrmManager.exitGateOpen = true;
+    riftwyrmManager.eggPresent = true;
+    particles.spawnBurst({ x: fx + 0.5, y: fy + 0.5, z: fz + 0.5 }, 0x3a5a8a, 40, 6);
+    // No bespoke gate-opening sound exists yet — reusing the same "something
+    // big just happened" cue the Rift Gate's own opening already reuses.
+    playExplosion();
+    cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'An exit gate opens at the fountain.' });
+  }
+
+  /**
+   * Phase 5's one-way return trip — a fixed destination (the world's own
+   * overworld spawn point) with no gate search/build, the same
+   * "deliberately simpler than travelToDimension" reasoning
+   * travelToHollowReach's own note gives for the Rift Gate. The first
+   * trip through is meant to trigger the full ending sequence (poem,
+   * music, credits) — that UI doesn't exist yet (phase 11's own scope),
+   * so this shows a placeholder title/message instead of leaving the
+   * moment silent, and records hasSeenEnding so a real phase 11 pass has
+   * a flag to hook into rather than needing to invent one later.
+   */
+  async function travelViaExitGate() {
+    if (isTraveling) return;
+    player.dismount();
+    isTraveling = true;
+    fadeOverlayEl.style.transition = '';
+    fadeOverlayEl.classList.add('visible');
+    try {
+      chunkManager = overworld.chunkManager;
+      activeDimension = overworld;
+      player.dimension = overworld;
+      world.setActive(overworld.id);
+      applyDimensionAtmosphere(renderer.scene, overworld);
+      const { height } = climateGenerator.heightAndBiome(spawnX, spawnZ);
+      player.position.x = spawnX + 0.5;
+      player.position.y = height + 2;
+      player.position.z = spawnZ + 0.5;
+      player.velocity.x = 0;
+      player.velocity.y = 0;
+      player.velocity.z = 0;
+      if (!riftwyrmManager.hasSeenEnding) {
+        riftwyrmManager.hasSeenEnding = true;
+        titleDisplay.showTitle('The Hollow Reach falls silent.', 'You have returned home.', 6);
+      }
+      cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'You return from the Hollow Reach.' });
+      travelCooldown = 3;
+    } finally {
+      setTimeout(() => fadeOverlayEl.classList.remove('visible'), 150);
+      isTraveling = false;
+    }
+  }
+
   // One entry per portal-surface block id — a lookup the standing-on-a-
   // portal tick check (below) reads from, instead of a growing chain of
   // per-block if/else as more gate types exist. Cinder Gate travel is
@@ -797,6 +875,10 @@ function main() {
     [BLOCKS.RIFT_PORTAL]: {
       standSeconds: () => 0,
       go: () => travelToHollowReach(),
+    },
+    [BLOCKS.EXIT_PORTAL]: {
+      standSeconds: () => 0,
+      go: () => travelViaExitGate(),
     },
   };
 
@@ -1034,6 +1116,7 @@ function main() {
         renderer.scene,
         particles,
         projectiles,
+        xpOrbs,
         hollowReachClimate.pillars,
         HOLLOW_FOUNTAIN_POINT
       );
@@ -1693,6 +1776,17 @@ function main() {
             }
           }
           closeContainerUIIfDestroyed(d.x, d.y, d.z);
+          // The Wyrm Egg (phase 5) is genuinely unminable — hardness:
+          // Infinity, same as the portal blocks — so an explosion is the
+          // only way to actually collect it, the in-spirit stand-in for
+          // vanilla's own "push it with a piston" trick (this game has
+          // no piston block at all — see HOLLOWREACH.md). explode()
+          // already lets it through (a finite blastResistance), so this
+          // just turns "destroyed" into a real pickup instead of nothing.
+          if (d.id === BLOCKS.WYRM_EGG) {
+            itemDrops.spawn({ x: d.x + 0.5, y: d.y + 0.5, z: d.z + 0.5 }, BLOCKS.WYRM_EGG, 1);
+            riftwyrmManager.eggPresent = false;
+          }
         }
         particles.spawnBurst({ x: fuse.x + 0.5, y: fuse.y + 0.5, z: fuse.z + 0.5 }, 0xff9933, 24, 6);
         playExplosion();
@@ -1740,10 +1834,16 @@ function main() {
         riftwyrmManager.update(FIXED_DT, chunkManager, player, activeDimension);
         if (riftwyrmManager.current?.justDamagedPlayer || riftwyrmManager.current?.justBuffetedPlayer) playPlayerHurt();
         if (riftwyrmManager.justDied) {
-          // A stub: the real ~10s death sequence, XP burst, and exit gate
-          // are phase 5's own job (riftwyrm.js's own note on this). For
-          // now the fight just ends cleanly instead of hanging forever.
           cmdMessageLog.push({ source: 'system', category: 'discovery', style: 'success', segments: 'The Riftwyrm falls.' });
+          pendingExitGateBuild = true;
+        }
+        // Retried every tick rather than attempted once — the fountain's
+        // own column isn't guaranteed loaded the exact tick the wyrm
+        // dies (same caution riftwyrm.js's own block-destruction code
+        // needed against unloaded columns).
+        if (pendingExitGateBuild && !riftwyrmManager.exitGateOpen && chunkManager.isColumnLoaded(HOLLOW_FOUNTAIN_POINT.x, HOLLOW_FOUNTAIN_POINT.z)) {
+          buildExitGate();
+          pendingExitGateBuild = false;
         }
       }
       if (mobManager.justKilled) playMobDeath();
