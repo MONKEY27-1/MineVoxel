@@ -15,7 +15,7 @@ and commit before moving on. Pushing to `origin/main` after every commit.
 - [x] Phase 4 — Teleport tab
 - [x] Phase 5 — World tab
 - [x] Phase 6 — Debug tab
-- [ ] Phase 7 — Integration
+- [x] Phase 7 — Integration
 
 ## Architecture decisions (phase 1)
 
@@ -465,6 +465,57 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   and the F3 overlay's own biome readout already call** — real noise/
   climate data, not an approximation, confirmed callable for any (x,z)
   independent of whether that column has ever been generated.
+
+## Phase 7 — Integration
+
+No new tools or tabs — this phase is verification and documentation
+across everything phases 1-6 already built, per the spec's own
+"definition of done" checklist.
+
+- **Cross-dimension verification**: every earlier phase's own
+  Playwright test ran exclusively in the overworld. `tools/test-devmenu-
+  integration.js` specifically exercises `/dev tp`, `/summon`, `/dev
+  regenchunk`, and every Debug-tab overlay inside Cinderdeep, and
+  confirms height-range validation is genuinely dimension-aware
+  (Cinderdeep's real 128-block ceiling correctly rejects a Y that would
+  be perfectly valid in the overworld's 256-block one) rather than
+  silently always checking the overworld's own range.
+- **Corruption safety**: confirmed (not assumed) that an unregistered
+  entity type or item id fails at *parse* time — `entityTypeId()`/
+  `itemId()` (argumentTypes.js) both throw before the command tree ever
+  reaches an executor, so `/summon bogus-type`/`/dev give bogus-item`
+  never call `mobManager.spawn`/write an inventory slot at all; there
+  is no code path where a half-applied mutation could occur. Same for
+  an absurd out-of-range teleport — `requireWithinHeight` throws before
+  `player.position` is ever touched. Nothing new had to be built here;
+  this phase's job was proving these failure paths are real (a
+  Playwright test verifying zero mob-count/inventory change on
+  rejection, not just "the command returned false").
+- **Real save+reload round trip**: `test:devmenu-integration`'s own
+  test mirrors `tools/test-commands.js`'s established
+  `persistNow()` → `page.reload()` → `startGame(rec, {isNew:false})`
+  pattern (the only real way to reload a world from storage — see
+  phase 5's own note on `startGame`'s one-shot guard) and confirms a
+  waypoint, an inventory snapshot, a dev-menu preset, and a panel-layout
+  change all survive it. This is the first time any of phases 3-5's own
+  "per-world"/"global" persistence claims were checked against an
+  *actual* reload rather than just a live in-memory read of the same
+  session's `cmdWorldState`/`settings` objects.
+- **README documentation**: `DEVMENU.md` (this file) has stayed the
+  phase-by-phase build log throughout, matching `CINDERDEEP.md`/
+  `HOLLOWREACH.md`'s own established split — the practical reference
+  (every tool, every keybind, the persistence model, and a "how to add
+  a new tool" guide) belongs in `README.md`'s own new "The Dev Menu"
+  section instead, the same way Cinderdeep/Hollow Reach's practical
+  summaries live in `README.md` while their phase-by-phase decisions
+  stay in their own `.md` logs.
+- **A real, pre-existing documentation bug found and fixed along the
+  way**: `README.md`'s own Controls table still described `F6` as "debug
+  builds only, `?debug=1` — Live movement/jump tuning panel", which
+  stopped being true the moment phase 1 moved that tool to `F7` and
+  gave `F6` to the Dev Menu (always-available, rebindable, no debug
+  flag needed) — a stale doc, not a code bug, but a real inaccuracy a
+  future reader would have followed straight into confusion.
 
 ## Notable honesty calls
 

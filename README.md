@@ -7,10 +7,12 @@ at runtime.
 `POLISH.md` tracks the current/most recent stability, performance, and
 polish pass over this codebase (what's been fixed, what's deliberately
 left alone and why); `PERF.md` has the performance baselines it produced;
-`CINDERDEEP.md` is the same kind of log for the second dimension (see
-below) — phase-by-phase decisions, what got simplified and why. All three
-are logs, not specs — read them for *why* something looks the way it
-does, not as a second source of truth for how to build/run the game.
+`CINDERDEEP.md` and `HOLLOWREACH.md` are the same kind of log for the
+second and third dimensions (see below); `DEVMENU.md` is the build log
+for the in-game Dev Menu (see below) — phase-by-phase decisions, what
+got simplified and why. All of these are logs, not specs — read them
+for *why* something looks the way it does, not as a second source of
+truth for how to build/run the game.
 
 ## Running it
 
@@ -90,12 +92,14 @@ All bindings are rebindable in Settings → Controls except where noted.
 | `F5` | Cycle camera: first-person → third-person-back → third-person-front |
 | `F2` | Screenshot |
 | `F11` / the in-game Fullscreen button | Fullscreen (hold `Esc` to exit — see Browser support below) |
-| `F6` *(debug builds only, `?debug=1`)* | Live movement/jump tuning panel — see `POLISH.md` |
+| `F6` | Dev Menu — see below |
+| `F7` *(debug builds only, `?debug=1`)* | Live movement/jump tuning panel — see `POLISH.md` |
 
-Only the debug-only `F6` is hardcoded/not rebindable — it's a dev tool
-gated behind `?debug=1`, not a player-facing keybind. `F2` and `F5` are
-real `input.bindings` entries (`screenshot`/`cycleCamera`) like
-everything else in the table.
+`F2`, `F5`, and `F6` (`devMenu`) are all real, rebindable
+`input.bindings` entries like everything else in the table — the Dev
+Menu is available in every world (creative or survival) regardless of
+that world's "Allow Commands" setting, not a debug-build-only tool.
+Only the debug-only `F7` tuning panel is hardcoded/not rebindable.
 
 ## Status
 
@@ -1238,6 +1242,161 @@ what they already did for the same keypress). The ambient music
 independent voices, each scheduling its own next note at a random delay
 from a shared scale, so no fixed sequence exists anywhere and no two
 playthroughs sound the same.
+
+## The Dev Menu
+
+Press `F6` in any world (creative or survival, regardless of that
+world's "Allow Commands" setting) to open a draggable/resizable/
+collapsible panel with five tabs — Player, Items, Teleport, World, and
+Debug. `DEVMENU.md` is the full 7-phase build log (architecture
+decisions and honesty calls, same convention `CINDERDEEP.md`/
+`HOLLOWREACH.md` use); this section is the practical reference: every
+tool, every keybind, how the persistent pieces work, and how to add a
+new one.
+
+**The one architectural rule worth knowing before touching this code**:
+every action that mutates the game or world routes through the same
+dispatcher/command layer typed chat commands already use (see
+`src/commands/commands/devMenu.js` for the `/dev ...` family added
+specifically for controls with no vanilla-style command to reuse) — the
+Dev Menu is a control surface, not a second way to write world state.
+Pure, read-only visualization (the Debug tab's overlays, the Teleport
+tab's structure search) is the one deliberate exception, since there's
+no world state being written for a command to route through.
+
+### Keybinds
+
+| Key | Action |
+|---|---|
+| `F6` | Open/close the Dev Menu (rebindable — `input.bindings.devMenu`) |
+| `Tab` | Keyboard-focus cycling inside the panel while it's open (the game's own inventory-toggle `Tab` binding is suppressed while the panel has focus) |
+| `Esc` | Closes the panel (via the same focus-trap every other modal in this game already uses) — does **not** pause the world or reacquire pointer lock; click back on the game to resume |
+| Right-click any control | Assign or clear a **quick-bind** — a keypress that fires that one control instantly, even while the panel is closed |
+
+The panel is deliberately non-modal — the world keeps ticking while
+it's open (dropping pointer lock the same way the inventory/settings
+screens already do, without pausing anything), so you can watch the
+effect of a toggle in real time.
+
+### Player tab
+
+Fly speed/vertical-fly-speed/walk-speed/sprint-speed/jump-height/gravity
+multipliers, reach, and toggles for noclip, invulnerable, instant mine,
+no fall damage, no clip through liquids, freeze player, auto-heal, and
+night vision; sliders for health/air/XP; a gamemode switcher; and
+action buttons for heal-to-full, clear status effects, kill self, and
+apply-an-effect. Every toggle/slider is a real `/dev <name> <value>`
+command (or an existing command like `/gamemode`/`/heal`/`/effect`) —
+see `DEVMENU.md`'s phase 2 notes for exactly which. No hunger/
+saturation system exists in this game, so those spec'd controls aren't
+here — see `DEVMENU.md`'s honesty calls.
+
+### Items tab
+
+A searchable item/block browser (free-text search + a category filter
+built from each item's own real `kind` field — this game has no
+creative-tab/tag/dimension metadata to filter by instead), a quantity +
+custom-durability customizer, click to give / shift-click for a full
+stack, Give All / Give All (category) (overflow spawns a chest near
+you), one-click armor-set equip buttons, inventory/armor clearing, and
+named per-world inventory snapshots (save/restore/delete). No
+enchantment or custom-name customizer fields — neither system exists
+anywhere in this game.
+
+### Teleport tab
+
+Coordinate entry (`~`/`~5` relative syntax works exactly like typing
+`/tp`) with a safe-landing toggle, an instant dimension switcher
+(Overworld ↔ Cinderdeep freely; → Hollow Reach one-way — see below),
+Locate Biome, a real async/cancelable/progress-reporting Locate
+Structure search, per-world named waypoints (save/go/delete — "go"
+across dimensions isn't automatic, switch dimension first), a
+teleport-to-entity live list, and a session-only teleport history with
+undo (last 20).
+
+The dimension switcher won't take you *out of* the Hollow Reach — its
+only real exit (`travelViaExitGate`) deliberately triggers the game's
+one-time ending sequence, and reusing it as a casual teleport would
+misfire that. Use **Kill self** (Player tab) instead — dying always
+sends you back to the overworld regardless of cause.
+
+### World tab
+
+Time (slider + Day/Noon/Night/Midnight presets + a real freeze toggle),
+weather (+ a stored Lock toggle — inert today, since this game has no
+automated weather cycling to lock against yet), a difficulty switcher,
+a generic gamerule editor (every rule from the real `GAMERULE_DEFS`
+registry — note: none of the 14 gamerules are actually read by any
+gameplay system yet, they're write-only placeholders, same honest
+status weather/difficulty already had), an entity spawner (type/count/
+ring-radius — no variant or equipment options, neither concept exists
+on any mob), a freeze-mobs toggle, Kill All Mobs / Kill by Type,
+Regenerate Chunk / Regenerate 3x3 (discards that column's edits and
+regenerates it from the same seed — no confirmation, fires
+immediately), seed display + copy, Set World Spawn, Force Save, and
+Reload From Disk (a real page reload back to the world-select menu —
+`startGame()`'s own one-shot guard means an in-place reload isn't
+possible; pick your world again from the menu).
+
+### Debug tab
+
+Entity hitboxes (+ an eye/look-vector line), a block collision-shape
+hitbox (mostly matches the block's visual shape — `IRON_BARS` is the
+one real exception: it renders as a thin cross-plane but still collides
+as a full cube, and this overlay shows that honestly), chunk/section
+borders, a light-level overlay (sky/block/combined), spawn-eligibility
+highlighting (the real natural-spawn predicate, not an approximation),
+mob steering lines (this game has no real pathfinding — these show each
+mob's live steering direction, not a planned route), structure anchor-
+point markers (real spawner/loot-chest positions — no structure in this
+game retains a bounding box/footprint), culling visualization (the
+engine's real BFS-occlusion + frustum test results, color-coded),
+entity info labels, a wireframe toggle, a Normals debug view, and a
+worldgen inspector (live noise/biome data for whatever's under your
+crosshair — Overworld only; Cinderdeep uses a different climate sampler
+and Hollow Reach has no biome sampler at all). Every overlay costs
+nothing when switched off (`src/ui/debugRenderer.js`'s own pre-allocate-
+and-reuse pattern, mirroring `mesh/blockHighlight.js`).
+
+### What's global vs. per-world
+
+- **Global** (`localStorage`, survives across every world): panel
+  layout/position/size/collapsed state/last-open tab, and named
+  presets (`devMenu.savePreset()` — captures every registered control's
+  current value, applies with one click).
+- **Per-world** (saved with that world, same IndexedDB path as
+  everything else): named waypoints and inventory snapshots
+  (`worldState.waypoints`/`worldState.invSnapshots`), plus every dev
+  toggle that's a real field on `Player`/`MobManager`/`DayNightCycle`
+  (noclip, invulnerable, freeze mobs, freeze time, etc.) — these
+  persist "for free" because they're just normal fields on objects this
+  game already saves, not a separate dev-menu-owned save record.
+- **Session-only** (lost on reload, by design): teleport history/undo,
+  quick-bind capture state, and Debug-tab overlay toggles.
+
+### Adding a new tool to a tab
+
+1. If the tool needs to *mutate* game/world state and no existing
+   command already does it, add a new subcommand under `/dev` in
+   `src/commands/commands/devMenu.js` (or extend an existing
+   `/gamemode`/`/give`/etc.-style command if one's already close).
+   Read-only tools (a search, a live readout) don't need a command at
+   all — see the Debug tab and the Teleport tab's structure search for
+   the precedent.
+2. In `src/main.js`, find the `build<TabName>Tab()` function for that
+   tab (e.g. `buildWorldTab`) and call `devMenu.registerControl({...})`
+   with a unique `id`, the right `tab`, and a `type` — `'toggle'`,
+   `'slider'`, `'select'`, `'number'`, `'text'`, `'button'`, or
+   `'custom'` (for anything richer than one label+input, like a
+   searchable list or a multi-field picker — see `devMenu.js`'s own
+   docstring on `registerControl` for the full descriptor shape).
+   `get`/`set` should read/write the real field directly and route
+   `set` through `runDevCommand('...')` if it's a command-backed
+   mutation.
+3. Verify it in a browser, then add a Playwright test —
+   `tools/test-devmenu-<tab>.js` is the existing pattern (one file per
+   tab), testing both the underlying command/mutation directly and the
+   rendered control end to end.
 
 ## Architecture
 
