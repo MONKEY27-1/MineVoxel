@@ -273,11 +273,14 @@ export class DevMenu {
   // --- Control registration ------------------------------------------
 
   /**
-   * descriptor: { id, tab, type: 'toggle'|'slider'|'select'|'number'|'text'|'button',
-   *   label, get, set (not for 'button'), run (only for 'button'),
+   * descriptor: { id, tab, type: 'toggle'|'slider'|'select'|'number'|'text'|'button'|'custom',
+   *   label, get, set (not for 'button'/'custom'), run (only for 'button'),
    *   min, max, step, format (slider), options: [{value,label}] (select),
    *   cheatLabel (toggle only — shown in the active-cheat strip while true),
-   *   quickBindable (default true), presetable (default true), keywords }
+   *   quickBindable (default true, false for 'custom'), presetable (default true),
+   *   keywords, build(container, devMenu) (only for 'custom' — appends
+   *   whatever free-form DOM it wants into `container`; not covered by
+   *   presets/quickbinds/active-cheat-strip since it has no single get/set) }
    * Returns a dispose function.
    */
   registerControl(descriptor) {
@@ -312,6 +315,32 @@ export class DevMenu {
     const row = document.createElement('div');
     row.className = 'devmenu-row';
     row.dataset.controlId = descriptor.id;
+
+    // 'custom' controls (a searchable item browser, a named-snapshot
+    // picker — anything richer than one label+input) render no generic
+    // label row and skip straight to the caller's own build(); they're
+    // still a real descriptor for search-filtering purposes (label/
+    // keywords still match the per-tab search box), just not one the
+    // generic get/set/preset/quickbind machinery below knows how to
+    // touch — presets and applyState already skip anything with no
+    // get()/set(), and quickBindable defaults to false here since a
+    // free-form block has no single on/off action to bind a key to.
+    if (descriptor.type === 'custom') {
+      row.classList.add('devmenu-row-custom');
+      const container = document.createElement('div');
+      container.className = 'devmenu-custom-container';
+      row.appendChild(container);
+      descriptor._rowEl = row;
+      section.appendChild(row);
+      descriptor.build(container, this);
+      if (descriptor.quickBindable === true) {
+        row.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          this._showContextMenu(descriptor.id, e.clientX, e.clientY);
+        });
+      }
+      return;
+    }
 
     const label = document.createElement('span');
     label.className = 'devmenu-row-label';

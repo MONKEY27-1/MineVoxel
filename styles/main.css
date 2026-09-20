@@ -1743,3 +1743,177 @@ html, body {
 #devmenu-context-menu button:hover {
   background: rgba(201, 167, 255, 0.2);
 }
+
+/* Dev Menu — Items tab (phase 3): the one 'custom' control's own DOM,
+   built directly by main.js's buildItemsBrowser() rather than the
+   generic row renderer, so it needs its own rules instead of reusing
+   .devmenu-row's label+single-input layout. */
+.devmenu-row-custom {
+  display: block;
+  padding: 4px 2px;
+}
+
+.devmenu-custom-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.devmenu-items-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.devmenu-items-search {
+  flex: 1;
+  min-width: 100px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-items-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.devmenu-items-category-btn {
+  background: rgba(201, 167, 255, 0.12);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.devmenu-items-category-btn.active {
+  background: rgba(201, 167, 255, 0.4);
+}
+
+.devmenu-items-customizer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.devmenu-items-customizer label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.devmenu-items-qty {
+  width: 70px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.devmenu-items-durability-value {
+  min-width: 32px;
+  color: #c9a7ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.devmenu-items-hint {
+  font-size: 10px;
+  color: rgba(232, 224, 245, 0.5);
+}
+
+.devmenu-items-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.devmenu-item-slot {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(201, 167, 255, 0.25);
+  border-radius: 3px;
+  cursor: pointer;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.devmenu-item-slot:hover {
+  border-color: #c9a7ff;
+  background-color: rgba(201, 167, 255, 0.2);
+}
+
+.devmenu-items-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.devmenu-items-actions button {
+  background: rgba(201, 167, 255, 0.18);
+  border: 1px solid rgba(201, 167, 255, 0.4);
+  color: #e8e0f5;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.devmenu-items-actions button:hover {
+  background: rgba(201, 167, 255, 0.32);
+}
+
+.devmenu-items-snapshots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid rgba(201, 167, 255, 0.2);
+}
+
+.devmenu-items-snapshot-name {
+  flex: 1;
+  min-width: 90px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-items-snapshot-select {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(201, 167, 255, 0.3);
+  color: #e8e0f5;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.devmenu-items-snapshots button {
+  background: rgba(201, 167, 255, 0.18);
+  border: 1px solid rgba(201, 167, 255, 0.4);
+  color: #e8e0f5;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.devmenu-items-snapshots button:hover {
+  background: rgba(201, 167, 255, 0.32);
+}

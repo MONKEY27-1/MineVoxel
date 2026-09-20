@@ -1,16 +1,11 @@
-import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockItem, NON_BLOCK_ITEM_LIST, ITEMS, POTION_EFFECTS, ARMOR_SLOTS } from '../items/items.js';
+import { itemIconTile, itemDisplayName, getMaxStack, isBlockItem, getNonBlockItem, ITEMS, POTION_EFFECTS, ARMOR_SLOTS, GIVEABLE_ITEM_LIST } from '../items/items.js';
 import { mergeOrSwap, splitStack } from '../items/inventory.js';
 import { findMatchingRecipe, consumeCraftingGrid } from '../items/crafting.js';
 import { SMELTING_RECIPES, FUEL_ITEMS, BREW_RECIPES, BREW_FUEL_ITEM } from '../items/recipes.js';
 import { UPGRADE_TARGETS } from '../items/smithingTable.js';
-import { BLOCK_LIST, BLOCKS } from '../world/blocks.js';
 import { applyIcon } from './itemIcon.js';
 
-const NON_GIVEABLE_BLOCKS = new Set([BLOCKS.AIR, BLOCKS.WATER]);
-const CREATIVE_ITEM_LIST = [
-  ...BLOCK_LIST.filter((b) => !NON_GIVEABLE_BLOCKS.has(b.id)).map((b) => b.id),
-  ...NON_BLOCK_ITEM_LIST.map((i) => i.id),
-];
+const CREATIVE_ITEM_LIST = GIVEABLE_ITEM_LIST;
 
 const SLOT_SIZE = 40;
 

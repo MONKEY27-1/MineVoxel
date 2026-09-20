@@ -45,7 +45,7 @@ import { ViewModel } from './entities/viewModel.js';
 import { BlockHighlight } from './mesh/blockHighlight.js';
 import { getBlock, isSolid, BLOCKS } from './world/blocks.js';
 import { Inventory } from './items/inventory.js';
-import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName } from './items/items.js';
+import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName, itemIconTile, getMaxStack, isBlockItem, GIVEABLE_ITEM_LIST, itemCategory } from './items/items.js';
 import { rollLoot } from './items/lootTables.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests } from './items/containerRegistry.js';
 import { getVault } from './items/vaultBoxRegistry.js';
@@ -60,7 +60,7 @@ import { TuningPanel } from './ui/tuningPanel.js';
 import { Hud } from './ui/hud.js';
 import { setCaptionsEnabled } from './ui/captions.js';
 import { InventoryUI } from './ui/inventoryUI.js';
-import { initItemIcons } from './ui/itemIcon.js';
+import { initItemIcons, applyIcon } from './ui/itemIcon.js';
 import { MenuController } from './ui/menus.js';
 import { saveGame, loadGame, saveChunkDiff, saveGateRegistry, loadGateRegistry, saveRiftwyrmState, loadRiftwyrmState, getPlayerDimensionId, saveCommandData, loadCommandData } from './persistence/worldSave.js';
 import { loadSettings, saveSettings } from './settings/settings.js';
@@ -1379,6 +1379,263 @@ function main() {
     keywords: 'potion status give',
     run: () => runDevCommand(`effect give @s ${devEffectPickerType} ${devEffectPickerDuration}`),
   });
+
+  // --- Dev Menu — Items tab (phase 3) ---------------------------------
+  buildItemsBrowser();
+
+  /**
+   * The Items tab's one real control — a searchable item/block browser,
+   * a give/shift-give quantity+durability customizer, Give All actions,
+   * one-click armor sets, and named per-world inventory snapshots. This
+   * is a single `type: 'custom'` control (devMenu.js's own new type,
+   * added for exactly this — the generic toggle/slider/select/number/
+   * text/button rows can't express a scrollable icon grid) rather than a
+   * dialog, since this codebase has no dialog abstraction anywhere
+   * (matches the settings/inventory panels' own plain-in-panel
+   * convention). See DEVMENU.md for the honesty calls on what the spec
+   * asked for here that has no real backing data in this codebase:
+   * creative-tab/tag/dimension metadata, enchantments, and item naming
+   * all don't exist, so "category" uses each item's real `kind` field
+   * instead of a fabricated creative-tab taxonomy, and enchantments/
+   * custom names are skipped outright.
+   */
+  function buildItemsBrowser() {
+    devMenu.registerControl({
+      id: 'items.browser',
+      tab: 'items',
+      type: 'custom',
+      label: 'Item browser',
+      presetable: false,
+      keywords: 'give items search browser armor equip snapshot inventory clear',
+      build: (container) => {
+        let category = 'all';
+        let search = '';
+        let customDurability = false;
+        let durabilityPct = 100;
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'devmenu-items-toolbar';
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search items…';
+        searchInput.className = 'devmenu-items-search';
+        toolbar.appendChild(searchInput);
+        const categoryRow = document.createElement('div');
+        categoryRow.className = 'devmenu-items-categories';
+        toolbar.appendChild(categoryRow);
+        container.appendChild(toolbar);
+
+        const grid = document.createElement('div');
+        grid.className = 'devmenu-items-grid';
+        // Inserted after the customizer row below — declared here so the
+        // category/search handlers (defined before the customizer exists
+        // further down) can already reference it.
+
+        const CATEGORY_LABELS = { all: 'All', block: 'Blocks', tool: 'Tools', armor: 'Armor', material: 'Materials' };
+        for (const cat of Object.keys(CATEGORY_LABELS)) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = CATEGORY_LABELS[cat];
+          btn.className = 'devmenu-items-category-btn';
+          btn.classList.toggle('active', cat === category);
+          btn.addEventListener('click', () => {
+            category = cat;
+            for (const b of categoryRow.children) b.classList.toggle('active', b === btn);
+            renderGrid();
+          });
+          categoryRow.appendChild(btn);
+        }
+        searchInput.addEventListener('input', () => {
+          search = searchInput.value.trim().toLowerCase();
+          renderGrid();
+        });
+
+        const customizer = document.createElement('div');
+        customizer.className = 'devmenu-items-customizer';
+        const qtyLabel = document.createElement('label');
+        qtyLabel.textContent = 'Qty ';
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.min = '1';
+        qtyInput.max = '1000000';
+        qtyInput.value = '1';
+        qtyInput.className = 'devmenu-items-qty';
+        qtyLabel.appendChild(qtyInput);
+        customizer.appendChild(qtyLabel);
+
+        const durToggleLabel = document.createElement('label');
+        const durToggle = document.createElement('input');
+        durToggle.type = 'checkbox';
+        durToggleLabel.appendChild(durToggle);
+        durToggleLabel.appendChild(document.createTextNode(' Custom durability '));
+        const durRange = document.createElement('input');
+        durRange.type = 'range';
+        durRange.min = '0';
+        durRange.max = '100';
+        durRange.value = '100';
+        durRange.disabled = true;
+        const durValue = document.createElement('span');
+        durValue.className = 'devmenu-items-durability-value';
+        durValue.textContent = '100%';
+        durToggle.addEventListener('change', () => {
+          customDurability = durToggle.checked;
+          durRange.disabled = !customDurability;
+        });
+        durRange.addEventListener('input', () => {
+          durabilityPct = Number(durRange.value);
+          durValue.textContent = `${durabilityPct}%`;
+        });
+        durToggleLabel.appendChild(durRange);
+        durToggleLabel.appendChild(durValue);
+        customizer.appendChild(durToggleLabel);
+
+        const hint = document.createElement('span');
+        hint.className = 'devmenu-items-hint';
+        hint.textContent = 'Click: give Qty · Shift-click: give a full stack';
+        customizer.appendChild(hint);
+        container.appendChild(customizer);
+        container.appendChild(grid);
+
+        /** -1 (unset) unless the customizer is on AND the item actually has durability (a block/material has no maxDurability to compute a percentage of). */
+        function durabilityFor(id) {
+          if (!customDurability) return -1;
+          const maxDur = isBlockItem(id) ? undefined : getNonBlockItem(id)?.maxDurability;
+          if (!maxDur) return -1;
+          return Math.round((durabilityPct / 100) * maxDur);
+        }
+
+        function giveItem(id, count) {
+          const dur = durabilityFor(id);
+          const ok = runDevCommand(`dev give ${itemDisplayName(id)} ${count} ${dur}`);
+          if (ok) devMenu.logDebug?.(`Gave ${count} ${itemDisplayName(id).replace(/_/g, ' ')}`);
+        }
+
+        function renderGrid() {
+          grid.innerHTML = '';
+          for (const id of GIVEABLE_ITEM_LIST) {
+            if (category !== 'all' && itemCategory(id) !== category) continue;
+            const name = itemDisplayName(id).replace(/_/g, ' ');
+            if (search && !name.toLowerCase().includes(search)) continue;
+            const slot = document.createElement('div');
+            slot.className = 'devmenu-item-slot';
+            slot.title = name;
+            applyIcon(slot, itemIconTile(id), atlasUV, 32);
+            slot.addEventListener('click', (e) => {
+              const count = e.shiftKey ? getMaxStack(id) : Math.max(1, Math.min(1000000, Math.round(Number(qtyInput.value) || 1)));
+              giveItem(id, count);
+            });
+            grid.appendChild(slot);
+          }
+        }
+        renderGrid();
+
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'devmenu-items-actions';
+        const giveAllBtn = document.createElement('button');
+        giveAllBtn.type = 'button';
+        giveAllBtn.textContent = 'Give All';
+        giveAllBtn.addEventListener('click', () => {
+          if (runDevCommand('dev giveall')) devMenu.logDebug?.('Gave one of every item');
+        });
+        const giveCategoryBtn = document.createElement('button');
+        giveCategoryBtn.type = 'button';
+        giveCategoryBtn.textContent = 'Give All (category)';
+        giveCategoryBtn.addEventListener('click', () => {
+          if (runDevCommand(`dev giveall ${category}`)) devMenu.logDebug?.(`Gave one of every ${category} item`);
+        });
+        const clearInvBtn = document.createElement('button');
+        clearInvBtn.type = 'button';
+        clearInvBtn.textContent = 'Clear Inventory';
+        clearInvBtn.addEventListener('click', () => {
+          if (runDevCommand('clear')) devMenu.logDebug?.('Cleared inventory');
+        });
+        const clearArmorBtn = document.createElement('button');
+        clearArmorBtn.type = 'button';
+        clearArmorBtn.textContent = 'Clear Armor';
+        clearArmorBtn.addEventListener('click', () => {
+          if (runDevCommand('dev cleararmor')) devMenu.logDebug?.('Cleared armor');
+        });
+        for (const b of [giveAllBtn, giveCategoryBtn, clearInvBtn, clearArmorBtn]) actionsRow.appendChild(b);
+        container.appendChild(actionsRow);
+
+        const armorRow = document.createElement('div');
+        armorRow.className = 'devmenu-items-actions';
+        for (const material of ['gold', 'iron', 'voidsteel']) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = `Equip ${material[0].toUpperCase()}${material.slice(1)} Armor`;
+          btn.addEventListener('click', () => {
+            if (runDevCommand(`dev equip ${material}`)) devMenu.logDebug?.(`Equipped ${material} armor`);
+          });
+          armorRow.appendChild(btn);
+        }
+        container.appendChild(armorRow);
+
+        // Named per-world inventory snapshots (worldState.js's own
+        // invSnapshots) — deliberately not built through registerControl
+        // (it needs a free-form name input and a dynamically-refreshing
+        // <select>, the same shape devMenu.js's own global preset picker
+        // has, just per-world and over raw inventory slots instead of
+        // control state).
+        const snapshotRow = document.createElement('div');
+        snapshotRow.className = 'devmenu-items-snapshots';
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.placeholder = 'Snapshot name…';
+        nameInput.className = 'devmenu-items-snapshot-name';
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.textContent = 'Save';
+        const select = document.createElement('select');
+        select.className = 'devmenu-items-snapshot-select';
+        const restoreBtn = document.createElement('button');
+        restoreBtn.type = 'button';
+        restoreBtn.textContent = 'Restore';
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.textContent = 'Delete';
+
+        function refreshSnapshotOptions() {
+          select.innerHTML = '';
+          const blank = document.createElement('option');
+          blank.value = '';
+          blank.textContent = 'Snapshots…';
+          select.appendChild(blank);
+          for (const name of Object.keys(cmdWorld.worldState.invSnapshots)) {
+            const o = document.createElement('option');
+            o.value = name;
+            o.textContent = name;
+            select.appendChild(o);
+          }
+        }
+        saveBtn.addEventListener('click', () => {
+          const name = nameInput.value;
+          if (!name) return;
+          if (runDevCommand(`dev invsave ${name}`)) {
+            devMenu.logDebug?.(`Saved inventory snapshot "${name}"`);
+            nameInput.value = '';
+            refreshSnapshotOptions();
+          }
+        });
+        restoreBtn.addEventListener('click', () => {
+          const name = select.value;
+          if (!name) return;
+          if (runDevCommand(`dev invload ${name}`)) devMenu.logDebug?.(`Restored inventory snapshot "${name}"`);
+        });
+        deleteBtn.addEventListener('click', () => {
+          const name = select.value;
+          if (!name) return;
+          if (runDevCommand(`dev invdelete ${name}`)) {
+            devMenu.logDebug?.(`Deleted inventory snapshot "${name}"`);
+            refreshSnapshotOptions();
+          }
+        });
+        refreshSnapshotOptions();
+        snapshotRow.append(nameInput, saveBtn, select, restoreBtn, deleteBtn);
+        container.appendChild(snapshotRow);
+      },
+    });
+  }
 
   /** /schedule's fire callback — a scheduled command runs with a fresh root context (nothing chained it from /execute, so there's no derived context to reuse) and any failure is reported the same way a typed command's own failure is, rather than throwing out of the tick loop. */
   function runScheduledCommand(cmd) {
@@ -2928,6 +3185,10 @@ function main() {
       getBlock,
       BLOCKS,
       TUNING,
+      ITEMS,
+      GIVEABLE_ITEM_LIST,
+      getMaxStack,
+      itemCategory,
       mobManager,
       projectiles,
       respawnPlayer,

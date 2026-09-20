@@ -1,4 +1,4 @@
-import { getBlock } from '../world/blocks.js';
+import { getBlock, BLOCK_LIST, BLOCKS } from '../world/blocks.js';
 
 // Two item "kinds" share one id space: block items (id === the block's own
 // id in world/blocks.js — every placeable block is trivially its own item)
@@ -269,6 +269,30 @@ export function itemIconTile(itemId) {
 }
 
 export const NON_BLOCK_ITEM_LIST = nonBlockItems;
+
+// AIR and WATER are the only two blocks nothing should ever hand a
+// player as an item (there's no "air item"/"water item" to hold or
+// place from an inventory slot) — every other block is trivially
+// giveable, per this file's own note on why block ids double as item
+// ids. Shared by inventoryUI.js's creative palette and the Dev Menu's
+// Items tab/`giveall` command so "what's giveable" is defined exactly
+// once rather than drifting between two hand-copied lists.
+const NON_GIVEABLE_BLOCKS = new Set([BLOCKS.AIR, BLOCKS.WATER]);
+export const GIVEABLE_ITEM_LIST = [
+  ...BLOCK_LIST.filter((b) => !NON_GIVEABLE_BLOCKS.has(b.id)).map((b) => b.id),
+  ...NON_BLOCK_ITEM_LIST.map((i) => i.id),
+];
+
+/**
+ * The Dev Menu Items tab's "category" filter — real, existing data
+ * (every non-block item already has a `kind`; every block is simply
+ * 'block'), not a fabricated "creative tab" taxonomy this codebase has
+ * no actual data for (see DEVMENU.md's own honesty call on this).
+ */
+export function itemCategory(itemId) {
+  if (isBlockItem(itemId)) return 'block';
+  return getNonBlockItem(itemId)?.kind ?? 'material';
+}
 
 /** Phase 7: any Voidsteel tool/armor piece, ingot, or upgrade plate — itemDrop.js uses this to make dropped Voidsteel items float on lava and never burn (a block item can never be Voidsteel, so those short-circuit false). */
 export function isVoidsteelItem(itemId) {

@@ -11,7 +11,7 @@ and commit before moving on. Pushing to `origin/main` after every commit.
 
 - [x] Phase 1 — The panel (framework only — no real tabs' controls yet)
 - [x] Phase 2 — Player tab
-- [ ] Phase 3 — Items tab
+- [x] Phase 3 — Items tab
 - [ ] Phase 4 — Teleport tab
 - [ ] Phase 5 — World tab
 - [ ] Phase 6 — Debug tab
@@ -193,6 +193,83 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   small closure variables in main.js, the same pattern a "form" would
   use if this app had one.
 
+## Architecture decisions (phase 3)
+
+- **`devMenu.js` gained a new descriptor type, `'custom'`** — the
+  generic `toggle|slider|select|number|text|button` rows (phase 1) have
+  no way to express a searchable icon grid, a dynamically-refreshing
+  named-snapshot `<select>`, or several linked fields sharing local
+  state. A `'custom'` descriptor skips the generic label+input row
+  entirely and hands the tab section a raw container via
+  `build(container, devMenu)`; it's still a real descriptor for the
+  per-tab search box (label/keywords still match), just outside the
+  generic get/set/preset/quickbind machinery (which already no-ops
+  cleanly for anything without a `get`/`set`, needing no further
+  framework changes).
+- **"Category" is `itemCategory()` (items.js) — each item's real,
+  pre-existing `kind` field (`'tool'|'armor'|'material'`, or `'block'`
+  for anything in the block registry) — not a fabricated "creative tab"
+  taxonomy.** The spec's own wording ("creative tab/tag/dimension/text"
+  filters) describes Minecraft concepts this codebase has no data for;
+  rather than inventing a taxonomy that would immediately drift out of
+  sync with new items, the category filter surfaces exactly the
+  classification that already exists and is already correct by
+  construction.
+- **`GIVEABLE_ITEM_LIST` moved from being a private const inside
+  `inventoryUI.js`'s creative palette into `items.js` itself** (alongside
+  the new `itemCategory()`), so the Items tab and the existing creative
+  inventory palette share one definition of "what's giveable" instead of
+  two hand-copied lists that could silently diverge. `commands/` needed
+  it too (for `/dev giveall`), and `commands/` importing from `ui/` would
+  have been the wrong direction of dependency — `items.js` is the
+  correct shared home both already sit above.
+- **`/dev give` is a new, separate command from the existing `/give`,
+  not an extension of it** — `/give` (playerEntities.js) distributes a
+  count across multiple stack-capped slots via `Inventory.addItem`,
+  exactly right for ordinary play but unable to express "one slot, an
+  exact custom count beyond the normal cap, and/or an exact durability."
+  `/dev give <item> <count> <durability>` writes one slot directly
+  instead; `durability -1` is the sentinel for "leave it unset," matching
+  what a plain `/give` already produces (`Inventory.addItem`'s own
+  `durability` parameter is always `undefined` there). Every Items-tab
+  give (click, shift-click, the customizer) routes through this one
+  command.
+- **`/dev giveall [category]` composes `chunkManager.setBlock` +
+  `containerRegistry.getOrCreateChest` + `Inventory.addItem` by hand**
+  for overflow, since no single "place a chest with contents" helper
+  exists anywhere in this codebase — every existing call site (the Vault
+  Box restore path, worldgen loot chests) already does the same
+  three-step dance itself. The chest-placement search
+  (`findChestSpot`) is a plain expanding ring at the player's own y
+  level, best-effort (force-places at the last candidate if the whole
+  ring is somehow solid) since this is a dev tool, not a builder that
+  needs to respect existing structures.
+- **No `/equip` command existed anywhere** — armor has only ever been
+  wearable by dragging it into a slot in the inventory UI. `/dev equip
+  <material>` and `/dev cleararmor` are genuinely new shared-layer
+  surface for the one-click armor-set buttons, not wrappers around
+  something that already worked this way.
+- **Named inventory snapshots are per-world, not global** — unlike the
+  dev menu's own layout/presets (deliberately global, phase 1), a
+  snapshot's contents are only meaningful against the world they were
+  taken in. They live in `worldState.js`'s `invSnapshots` field, storing
+  each snapshot as a plain array of the 36 raw slot objects/nulls — the
+  exact same shape `player.inventory.slots` already is, matching how
+  `worldSave.js` already persists the player's own inventory (a raw
+  array, no per-slot wrapper class exists anywhere to reuse).
+  `worldState.js` has no generic deep-merge (unlike `settings.js`); every
+  field is copied by hand in `loadWorldState()`, so `invSnapshots`
+  needed its own explicit merge line or it would've been silently
+  dropped on every load — the same class of bug `settings.js`'s
+  `deepMerge` fix addressed in phase 1, just requiring a different fix
+  here since this file's load path works completely differently.
+- **The snapshot picker UI is hand-built DOM, not `registerControl`** —
+  it needs a free-form name input and a dynamically-refreshing
+  `<select>`, the same shape devMenu.js's own global preset picker
+  already has (mirrored closely: a blank placeholder option, rebuild the
+  option list from scratch on every save/delete), just per-world and
+  over raw inventory slots instead of control state.
+
 ## Notable honesty calls
 
 - Phase 1 shipped with zero real toggles in any of the five tabs — see
@@ -217,3 +294,30 @@ and commit before moving on. Pushing to `origin/main` after every commit.
   level-vs-points concept in this game to expose two different sliders
   for, so the one slider is labeled with the spec's wording but backs
   the one real field.
+- **No enchantment system exists** (`/enchant`'s own description already
+  says so, and `enchantmentId()` unconditionally errors — see
+  `argumentTypes.js`) — the item customizer has no enchantment picker.
+  Durability and stack-size-beyond-normal-limits are real and
+  implemented; enchantment levels have nothing to attach to.
+- **No item-naming system exists anywhere in this codebase** — no
+  anvil, no "custom name" field on the inventory slot shape
+  (`{itemId, count, durability}`, confirmed by reading every
+  construction site in `inventory.js`), nothing in the tooltip/HUD/name-
+  toast rendering that reads a per-item name. The spec's "custom name"
+  customizer field is skipped rather than adding a name field to every
+  slot and every place one gets displayed — a change disproportionate to
+  one dev-tool nicety, unlike durability and stack size, which slot
+  right into fields that already exist.
+- **No tag system and no per-item dimension linkage exist** — the
+  spec's "tag"/"dimension" filters have no backing data to filter by
+  (confirmed: no item ever declares which dimension it belongs to, and
+  there is nothing resembling Minecraft's item tags anywhere in
+  `items.js`/`blocks.js`). Only the real, existing `kind` field (surfaced
+  as "category") and free-text search are implemented; a "dimension"
+  dropdown that couldn't actually narrow anything would be worse than no
+  dropdown at all.
+- **"Clear Inventory" reuses the existing `/clear` command as-is**,
+  which only ever touched the 36 main inventory slots (never armor) —
+  matching its pre-existing, unrelated-to-this-phase behavior rather
+  than quietly changing what `/clear` does. "Clear Armor" is a
+  separate, explicit action for exactly that reason.

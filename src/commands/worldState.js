@@ -21,7 +21,15 @@ export function defaultWorldState() {
   // ladder (items.js's TOOL_MATERIAL: wood=1, stone=2, iron=3,
   // voidsteel=4; there's no "diamond" tier here, voidsteel is the
   // endgame equivalent) rather than a fabricated one.
-  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0 };
+  // invSnapshots: Dev Menu phase 3's named "save the whole inventory,
+  // restore it later" tool — per-world (unlike the dev menu's own
+  // layout/presets, which are deliberately global, see DEVMENU.md), since
+  // a snapshot's contents are only meaningful against the world they were
+  // taken in. Keyed by name -> an array of 36 raw slot objects/nulls,
+  // the same shape player.inventory.slots already is (see
+  // src/persistence/worldSave.js's own player-inventory save/load, which
+  // persists that array just as directly with no per-slot wrapper class).
+  return { weather: 'clear', weatherRemaining: 0, difficulty: 'normal', discoveredBiomes: [], discoveredDimensions: ['overworld'], discoveredStructures: [], highestToolTier: 0, invSnapshots: {} };
 }
 
 export function loadWorldState(saved) {
@@ -34,6 +42,11 @@ export function loadWorldState(saved) {
     if (Array.isArray(saved.discoveredDimensions)) out.discoveredDimensions = saved.discoveredDimensions;
     if (Array.isArray(saved.discoveredStructures)) out.discoveredStructures = saved.discoveredStructures;
     if (typeof saved.highestToolTier === 'number') out.highestToolTier = saved.highestToolTier;
+    // This file has no generic deep-merge (unlike settings.js, which had
+    // to special-case an empty-default dynamic-key object) — every field
+    // is copied over by hand, so a field left out here would be silently
+    // dropped on every load even though defaultWorldState() has it.
+    if (saved.invSnapshots && typeof saved.invSnapshots === 'object' && !Array.isArray(saved.invSnapshots)) out.invSnapshots = saved.invSnapshots;
   }
   return out;
 }
