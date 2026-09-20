@@ -1629,3 +1629,21 @@ painters.skyburst = (ctx, ox, oy) => {
   ctx.closePath();
   ctx.fill();
 };
+
+// --- Phase 10: Rift Chest ------------------------------------------------
+// Same layout as chest_top/chest_side above (a dark latch on a speckled
+// body), recolored into this game's established Hollow Reach/Rift purple
+// palette (see vault_box_top/side, rift_fruit) instead of wood brown.
+painters.rift_chest_top = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#4a3a6e', ['#3a2c58', '#5a4880'], 0.35, 930);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.fillRect(ox + 6, oy + 6, 4, 4);
+};
+painters.rift_chest_side = (ctx, ox, oy) => {
+  speckle(ctx, ox, oy, '#4a3a6e', ['#3a2c58', '#5a4880'], 0.35, 931);
+  ctx.strokeStyle = '#c9a7ff';
+  ctx.strokeRect(ox + 1, oy + 1, 14, 5);
+  ctx.strokeRect(ox + 1, oy + 7, 14, 7);
+  ctx.fillStyle = '#c9a7ff';
+  ctx.fillRect(ox + 6, oy + 5, 4, 3);
+};

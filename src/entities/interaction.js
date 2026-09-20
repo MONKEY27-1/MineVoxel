@@ -7,7 +7,7 @@ const PLACE_COOLDOWN = 0.2;
 
 // Right-clicking these opens a UI (see main.js's _openContainerFor)
 // instead of placing whatever's in the player's hand.
-export const CONTAINER_BLOCKS = new Set([BLOCKS.CRAFTING_TABLE, BLOCKS.FURNACE, BLOCKS.CHEST, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE, BLOCKS.VAULT_BOX]);
+export const CONTAINER_BLOCKS = new Set([BLOCKS.CRAFTING_TABLE, BLOCKS.FURNACE, BLOCKS.CHEST, BLOCKS.BREWING_STAND, BLOCKS.SMITHING_TABLE, BLOCKS.VAULT_BOX, BLOCKS.RIFT_CHEST]);
 
 function cubeOverlapsAABB(cx, cy, cz, position, size) {
   const halfW = size.width / 2;

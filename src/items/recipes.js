@@ -166,6 +166,11 @@ export const RECIPES = [
   // "Craftable from paper + gunpowder" — Cinder Powder is this game's
   // own established gunpowder stand-in (see the tnt recipe's own note).
   { id: 'skyburst', shapeless: true, ingredients: [item(ITEMS.PAPER.id), item(ITEMS.CINDER_POWDER.id)], outputId: ITEMS.SKYBURST.id, outputCount: 2 },
+  // Phase 10: Rift Chest — a shared inventory every instance opens (see
+  // riftChestRegistry.js), the vanilla Ender Chest idea. Shapeless, same
+  // as every other Hollow Reach material recipe above — no positional
+  // requirement is called for.
+  { id: 'rift_chest', shapeless: true, ingredients: [item(BLOCKS.OBSIDIAN), item(ITEMS.RIFT_SHARD.id)], outputId: BLOCKS.RIFT_CHEST, outputCount: 1 },
 ];
 
 function toolFamily(toolType, template) {

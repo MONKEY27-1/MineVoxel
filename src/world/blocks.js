@@ -417,6 +417,12 @@ export const BLOCKS = {
   // id, and merging two into one stack the normal way would silently
   // lose one of their two saved contents.
   VAULT_BOX: define({ name: 'vault_box', texture: { top: 'vault_box_top', side: 'vault_box_side', bottom: 'vault_box_top' }, hardness: 3, tool: 'pickaxe', maxStack: 1 }),
+  // Phase 10 (Rift Chest): a plain block otherwise — no maxStack
+  // override needed the way Vault Box has, since every Rift Chest opens
+  // the exact same shared inventory (riftChestRegistry.js) rather than
+  // each instance carrying its own id, so merging two into one stack
+  // loses nothing.
+  RIFT_CHEST: define({ name: 'rift_chest', texture: { top: 'rift_chest_top', side: 'rift_chest_side', bottom: 'rift_chest_top' }, hardness: 3, tool: 'axe' }),
 };
 
 export function getBlock(id) {

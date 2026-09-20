@@ -49,6 +49,7 @@ import { ITEMS, POTION_EFFECTS, getNonBlockItem, itemDisplayName } from './items
 import { rollLoot } from './items/lootTables.js';
 import { getOrCreateChest, getOrCreateFurnace, getOrCreateBrewingStand, getOrCreateSmithingTable, allFurnaces, allBrewingStands, allPendingLootChests } from './items/containerRegistry.js';
 import { getVault } from './items/vaultBoxRegistry.js';
+import { getGlobalRiftChestInventory } from './items/riftChestRegistry.js';
 import { allSpawners } from './world/structures/spawnerRegistry.js';
 import { EFFECT_TYPES, StatusEffectManager } from './entities/statusEffects.js';
 import { audioEngine } from './audio/audio.js';
@@ -1598,6 +1599,13 @@ function main() {
       inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Chest', { x, y, z });
     } else if (blockId === BLOCKS.VAULT_BOX) {
       inventoryUI.open('chest', { secondary: getOrCreateChest(x, y, z) }, 'Vault Box', { x, y, z });
+    } else if (blockId === BLOCKS.RIFT_CHEST) {
+      // The one shared inventory every Rift Chest opens (phase 10) —
+      // not a per-position getOrCreateChest(x,y,z) lookup, deliberately.
+      // containerPos is still this specific block's own position (not
+      // shared) so closeContainerUIIfDestroyed only auto-closes the UI
+      // when *this* Rift Chest instance is the one that got mined.
+      inventoryUI.open('chest', { secondary: getGlobalRiftChestInventory() }, 'Rift Chest', { x, y, z });
     } else {
       return;
     }

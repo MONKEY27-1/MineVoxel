@@ -21,7 +21,7 @@ be rewritten) lives at `src/ending/poem.txt`.
 - [x] Phase 7 — Far Gates and the void crossing (baseline outer-island terrain built here since phase 7 genuinely needs it — see below)
 - [x] Phase 8 — Outer islands, Pale Spires, and Skyships
 - [x] Phase 9 — Glidewings (the optional third-person pull-back camera while gliding is deferred to phase 12 — see below)
-- [ ] Phase 10 — Rift Chest
+- [x] Phase 10 — Rift Chest
 - [ ] Phase 11 — The ending sequence
 - [ ] Phase 12 — Integration
 
@@ -797,6 +797,61 @@ be rewritten) lives at `src/ending/poem.txt`.
   helper installed once), the same discipline `test-feel.js`'s own
   multi-hundred-iteration loops already use — not by trying to pause or
   out-race the live loop.
+
+## Architecture decisions (phase 10)
+
+- **The Rift Chest is a single shared `Inventory`, not a position-keyed
+  registry entry** — the vanilla Ender Chest idea, and the actual point
+  of the block. `riftChestRegistry.js` is a new, deliberately tiny
+  module: one module-level `Inventory(27)`, a `getGlobalRiftChestInventory()`
+  getter every placed instance calls into, and `toJSON`/`fromJSON`.
+  `main.js`'s `openContainer()` branches on `BLOCKS.RIFT_CHEST` to call
+  that getter instead of `containerRegistry.js`'s own `getOrCreateChest(x,y,z)`
+  — the same `inventoryUI.open('chest', { secondary: <Inventory> }, ...)`
+  call every other chest-shaped UI already uses, since the UI code only
+  ever cares that `secondary` looks like an `Inventory` (`.size`/`.slots`/
+  `.addItem`), never how it was looked up.
+- **Not modeled on `vaultBoxRegistry.js`, despite being the closest
+  looking precedent** — Vault Box is *many* small inventories (one per
+  instance, keyed by an id carried in the item's own `durability` field,
+  solving "survive being broken and picked back up"). Rift Chest is the
+  opposite shape: *one* inventory, shared by every instance, with no
+  per-block identity at all. Confirmed via a dedicated research pass
+  before writing any code that `riftwyrmState`/`gateRegistry`/
+  `commandData`'s own "one flat record per singleton concept" pattern in
+  `worldSave.js` is the real precedent for "one shared thing," not
+  Vault Box's own per-instance map.
+- **Persisted by folding into the existing `blockEntities` save record**
+  (`riftChest: serializeRiftChest()`, restored via `blockEntities?.riftChest`)
+  — the same choice Vault Box's own registry already made, and for the
+  same reason: it's conceptually container state too, just not keyed by
+  position, so a dedicated IndexedDB object store (and the version-bump
+  migration that would need) was judged unnecessary for one flat slots
+  array. Both directions default safely (`fromJSON` falls back to an
+  empty inventory when the field is missing), so no `SCHEMA_VERSION`
+  bump was needed either — a brand-new/pre-phase-10 save just loads with
+  the shared inventory already empty.
+- **Breaking a Rift Chest is deliberately excluded from
+  `destroyBlock.js`'s own `CONTAINER_BLOCKS` set** (the *destruction*-side
+  one, separate from `interaction.js`'s own set that gates opening the
+  UI on right-click — the two sets solve different problems and were
+  already independent before this phase). That set decides which blocks
+  get their container contents looked up, scattered as drops, and wiped
+  on break; running a Rift Chest through it would scatter/clear the
+  *shared* inventory just because one physical instance was mined, which
+  is exactly backwards — the whole point is that the contents belong to
+  no single block. Leaving it out means breaking one is just an ordinary
+  block removal (drops the Rift Chest item itself, shared inventory
+  completely untouched), confirmed by `test-rift-chest.js`'s own
+  dedicated check that `destroyBlock` never reports `containerDrops` for
+  it.
+- **`test-rift-chest.js` calls `destroyBlock` and `openContainer`
+  directly** (via the debug hook / dynamic imports), the same "thin,
+  well-understood dispatch, not worth fighting real pointer-lock click
+  timing for" reasoning `test-dup.js` already established for exercising
+  this exact function — the interesting, actually-new behavior under
+  test is the shared-inventory semantics, not the click-to-open wiring
+  (already covered generically by every other `CONTAINER_BLOCKS` member).
 
 ## Notable honesty calls
 

@@ -1,6 +1,7 @@
 import { STORES, dbPut, dbPutMany, dbGet, dbGetAll, dbGetByPrefix, dbDelete, dbDeleteByPrefix } from './db.js';
 import { serializeContainers, restoreContainers } from '../items/containerRegistry.js';
 import { toJSON as serializeVaultBoxes, fromJSON as restoreVaultBoxes } from '../items/vaultBoxRegistry.js';
+import { toJSON as serializeRiftChest, fromJSON as restoreRiftChest } from '../items/riftChestRegistry.js';
 import { pickSpawnPoint } from '../world/generator.js';
 
 export const SCHEMA_VERSION = 4;
@@ -173,8 +174,10 @@ export async function saveGame(worldId, { chunkManagers, player, dayNight, mobMa
   // Phase 8: vaultBoxRegistry.js's own small id->contents map rides
   // along in the same record — it's conceptually "container state" too,
   // just not keyed by position the way chests/furnaces are, so it
-  // doesn't need a dedicated store of its own.
-  await dbPut(STORES.blockEntities, { key: worldId, ...serializeContainers(), vaultBoxes: serializeVaultBoxes() });
+  // doesn't need a dedicated store of its own. Phase 10's single shared
+  // Rift Chest inventory (riftChestRegistry.js) is the same story, one
+  // step further — not even keyed by an id, just one flat slots array.
+  await dbPut(STORES.blockEntities, { key: worldId, ...serializeContainers(), vaultBoxes: serializeVaultBoxes(), riftChest: serializeRiftChest() });
 
   await dbPut(STORES.playerState, {
     worldId,
@@ -269,6 +272,7 @@ export async function loadGame(worldId, { chunkManager, dimensionId = 'overworld
   const blockEntities = await dbGet(STORES.blockEntities, worldId);
   restoreContainers(blockEntities ?? {});
   restoreVaultBoxes(blockEntities?.vaultBoxes);
+  restoreRiftChest(blockEntities?.riftChest);
 
   const playerState = await dbGet(STORES.playerState, worldId);
   const entities = await dbGet(STORES.entitySnapshots, worldId);
