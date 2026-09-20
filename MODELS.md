@@ -197,3 +197,117 @@ faked `fetch` — polling/diffing/error-resilience, plus `watchAnimation`
 end to end), `npm run test:animation-apply` and
 `npm run test:hot-reload-model` (both Playwright, for the two places
 this phase actually touches THREE).
+
+## Phase 3 — Debug model viewer
+
+**Files:** `src/debug/modelViewer.js`, `assets/models/debug_test.model.json`,
+`assets/animations/debug_walk.anim.json`, plus `index.html` (a
+`three/addons/` import-map alias), `styles/main.css`, and a few lines in
+`main.js` wiring F8. This is the first thing built on top of phases 1-2,
+deliberately *before* any real mob/player rebuild — exactly per the
+spec's own ordering, and it already earned that ordering back: it
+directly caught a real layout bug (below) that would otherwise have
+first shown up as "the panel is missing" while debugging an actual
+creature.
+
+**A new top-level `assets/` directory** — this project's first-ever
+on-disk data assets of any kind (everything before this was procedural
+JS). `assets/models/` and `assets/animations/` are where phase 4+ will
+put real player/mob files; the two `debug_*` files here exist purely so
+this phase (and its own author) had something real to point the viewer
+at, since no real model has been rebuilt yet.
+
+**Architecture decision: its own isolated THREE scene/renderer/canvas**,
+not reusing the main game's. A debug tool is exactly the kind of thing
+that's worth over-isolating — a bug in it should never be able to leak
+state into or steal frames from the real render loop. Gated behind the
+same `?debug=1` flag as `tuningPanel.js`, opened with the next free
+hardcoded function key (F6 = Dev Menu, F7 = tuningPanel, so F8).
+
+**Real bug found and fixed: a classic flexbox replaced-element
+min-width trap.** The panel (a fixed 300px flex child) was rendering
+entirely outside the viewport — Playwright's own "element is outside of
+the viewport" click failures are what surfaced it, not a visual glance.
+Root cause: a `<canvas>` is a replaced element with an implicit
+`min-width: auto`, which for replaced elements resolves to its own
+`width`/`height` *attributes* (the WebGL drawing-buffer size
+`renderer.setSize()` sets), not 0 — so the flex canvas refused to
+shrink below that size no matter how much `flex-shrink` allowed it to,
+pushing the side panel off-screen. Fixed with an explicit
+`min-width: 0; min-height: 0;` on `.mv-canvas` — the standard fix for
+this specific, well-known flexbox gotcha.
+
+**Manual pose sliders and a selected animation clip are mutually
+exclusive, not merely "disabled while playing."** The first
+implementation only disabled per-part rotation sliders while a clip was
+*actively playing*, but `_applyCurrentFrame()` applies a selected
+clip's sampled pose every frame regardless of play/pause (a paused
+clip at frame 0 is still a real pose) — so a slider edit made while
+merely paused got silently overwritten the very next frame, a
+edit-then-instantly-revert flash. Fixed by keying the sliders' disabled
+state on "is a clip selected at all," not "is it playing." While
+disabled, they still update live (see below), doubling as a read-only
+display of the actual animated angle per part.
+
+**Sliders always mirror the live bone rotation, every frame** — not
+just once, at the moment playback starts or stops. An earlier version
+only re-synced them from `_setPlaying()`, which went stale the instant
+anything else changed the pose afterward (scrubbing, or nudging a
+procedural-input slider while paused) — moved the sync into
+`_applyCurrentFrame()` itself so it can never fall out of date with
+whatever the mesh is actually doing.
+
+**Procedural-input sliders stand in for the live game values a real
+entity would supply.** `limbSwing`, `limbSwingAmount`, `headYaw`,
+`headPitch`, `velocity`, `groundSpeed`, and `age` — the exact variable
+names `animationFormat.js` documents — are each a slider here, so a
+procedural expression can be authored and tuned in complete isolation
+from any AI/movement code, before either exists.
+
+**Part visibility hides by zeroing bone scale**, not by trying to
+exclude vertices from a single shared draw call (which the whole
+single-mesh/single-draw-call architecture makes deliberately hard) —
+zero-scaling a bone collapses everything parented under it too, which
+reads as an acceptable, even useful, debug convenience ("hide body"
+hides the arms hanging off it) rather than a bug.
+
+**UV overlay reuses `computeBoxUV` directly** — the exact same function
+`modelBuilder.js` uses to place vertices — drawn as red rectangles over
+a 4x-scaled copy of the model's own procedurally generated UV-checker
+texture (a checkerboard, used as the default "texture" for any model
+opened here, so the UV toggle and the wireframe/normals toggles all
+have something meaningful to show even before any real texture
+generator exists). Any drift between what the geometry actually samples
+and what this overlay draws is structurally impossible, since both read
+from the same function.
+
+**Honesty call: the normals-helper toggle is bind-pose only.**
+`VertexNormalsHelper` reads `geometry.attributes.normal` transformed by
+the mesh's own `matrixWorld` — it has no idea the mesh is skinned, so it
+will not reflect how normals move under an actively posed/animated
+bone. Good enough to confirm Phase 1's own per-face normal directions
+(exactly what it was added for) but not a live per-bone normals
+preview.
+
+**Tests:** `npm run test:model-viewer`, Playwright, driving the real UI
+end to end — F8 to open, part tree + visibility + rotation sliders,
+animation picker/play/scrub, every overlay toggle (including asserting
+the UV canvas actually has non-blank pixel content and the wireframe
+toggle really does hit `material.wireframe`), and a genuine hot-reload
+round trip that edits the real fixture file on disk mid-test (restored
+in a `finally`, verified unmodified afterward) and confirms the live
+mesh's bind pose actually rebuilds to match — not just that the stored
+def object changed.
+
+**Notable test-writing lesson, not a product bug:** the first version of
+the hot-reload test edited the fixture file immediately after opening
+the viewer and consistently timed out. Root cause was in the *test*:
+`watchAsset` never fires `onChange` on its own first successful
+fetch — that fetch only establishes the baseline future polls diff
+against (by design, see `hotReload.js`) — so editing the file before
+that first poll completes makes the edit silently *become* the new
+baseline instead of ever triggering a reload. Fixed by waiting out a
+full poll interval before making the edit. Separately, `test-hot-reload.js`
+(phase 2) had real flakiness from a 15ms poll interval racing GC pauses
+under load from other tests running back-to-back — widened to 60ms
+with proportionally longer waits.

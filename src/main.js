@@ -60,6 +60,7 @@ import { playFootstep, playBlockBreak, playBlockPlace, playMobHit, playMobDeath,
 import { explode } from './world/explosion.js';
 import { DebugOverlay } from './ui/debugOverlay.js';
 import { TuningPanel } from './ui/tuningPanel.js';
+import { ModelViewer } from './debug/modelViewer.js';
 import { Hud } from './ui/hud.js';
 import { setCaptionsEnabled } from './ui/captions.js';
 import { InventoryUI } from './ui/inventoryUI.js';
@@ -85,6 +86,15 @@ import { ConsoleUI } from './ui/console.js';
 import { DevMenu } from './ui/devMenu.js';
 import { EndingSequence } from './ending/endingSequence.js';
 import { startEndingMusic, stopEndingMusic } from './audio/endingMusic.js';
+
+// Model and Animation Overhaul, phase 3 — the debug model viewer's
+// default target. Nothing real to view yet (no mob/player has been
+// rebuilt on the new format — that's phases 4-7), so these point at a
+// standalone fixture pair under assets/ that exists purely to give the
+// viewer, and its own author, something real to load. Swap/extend this
+// list as real assets exist.
+const MODEL_VIEWER_DEBUG_MODEL = '/assets/models/debug_test.model.json';
+const MODEL_VIEWER_DEBUG_ANIMATIONS = [{ name: 'walk', url: '/assets/animations/debug_walk.anim.json' }];
 
 const WORLD_SEED = 1337; // matches genWorker.js until the world-creation menu (phase 9) picks one
 const FIXED_DT = 1 / 60;
@@ -504,6 +514,9 @@ function main() {
     // debug-only TuningPanel off F6 (now hardcoded F7, unrebindable, same
     // as before) so both can coexist without a default-key collision.
     if (e.code === 'F7' && tuningPanel) tuningPanel.toggle();
+    if (e.code === 'F8' && modelViewer) {
+      modelViewer.toggle(MODEL_VIEWER_DEBUG_MODEL, MODEL_VIEWER_DEBUG_ANIMATIONS);
+    }
   });
   // Mute-on-blur: switching tabs/minimizing shouldn't keep playing audio
   // into a window the player isn't looking at. Suspending the whole
@@ -518,6 +531,9 @@ function main() {
   // Declared here (not `const` inside that block) so this listener,
   // registered earlier in setup, still sees it via closure once set.
   let tuningPanel = null;
+  // Same story for the Model and Animation Overhaul's debug model
+  // viewer (F8) — see the debugEnabled block below.
+  let modelViewer = null;
 
   // Apply every remaining loaded setting that doesn't need to be baked
   // into a constructor call above (those objects didn't exist yet then).
@@ -4041,7 +4057,9 @@ function main() {
     new URLSearchParams(location.search).get('debug') === '1' || localStorage.getItem('mv_debug') === '1';
   if (debugEnabled) {
     tuningPanel = new TuningPanel(TUNING);
+    modelViewer = new ModelViewer();
     const hook = {
+      modelViewer,
       world,
       player,
       input,

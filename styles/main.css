@@ -2076,3 +2076,140 @@ html, body {
   white-space: pre-wrap;
   font-family: inherit;
 }
+
+/* Model and Animation Overhaul, phase 3 — the debug model viewer (F8,
+   debug builds only). A full-viewport overlay with its own canvas/scene
+   on the left and a scrollable control panel on the right, styled to
+   match the Dev Menu's dark/monospace look rather than introducing a
+   third visual language. */
+#model-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  background: #000;
+}
+
+#model-viewer.hidden {
+  display: none;
+}
+
+#model-viewer .mv-canvas {
+  flex: 1 1 auto;
+  /* A <canvas> is a replaced element with an implicit min-width/height
+     of "auto", which for replaced elements resolves to its own
+     width/height attributes (the WebGL drawing-buffer size renderer.
+     setSize() sets) rather than 0 — without this override the canvas
+     refuses to flex-shrink below whatever size it was last rendered at,
+     pushing .mv-panel outside the viewport instead of sitting beside it. */
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  outline: none;
+}
+
+#model-viewer .mv-panel {
+  flex: 0 0 300px;
+  background: #1e1e22;
+  color: #e0e0e0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  overflow-y: auto;
+  padding: 10px;
+  border-left: 1px solid #333;
+}
+
+#model-viewer .mv-header {
+  font-size: 14px;
+  font-weight: bold;
+  color: #e0a23a;
+  margin-bottom: 10px;
+}
+
+#model-viewer .mv-hint {
+  float: right;
+  font-weight: normal;
+  font-size: 11px;
+  color: #888;
+}
+
+#model-viewer .mv-section {
+  background: #2b2b31;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+#model-viewer .mv-section-title {
+  font-weight: bold;
+  color: #c9a7ff;
+  margin-bottom: 6px;
+}
+
+#model-viewer .mv-part-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  flex-wrap: wrap;
+}
+
+#model-viewer .mv-part-vis {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 90px;
+}
+
+#model-viewer .mv-part-row label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+}
+
+#model-viewer .mv-part-row input[type='range'] {
+  width: 48px;
+}
+
+#model-viewer .mv-anim-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+#model-viewer .mv-anim-select,
+#model-viewer .mv-anim-scrub {
+  width: 100%;
+}
+
+#model-viewer .mv-proc-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+#model-viewer .mv-proc-row input[type='range'] {
+  flex: 1 1 auto;
+}
+
+#model-viewer .mv-proc-value {
+  width: 3em;
+  text-align: right;
+  color: #999;
+}
+
+#model-viewer .mv-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#model-viewer .mv-uv-canvas {
+  max-width: 100%;
+  image-rendering: pixelated;
+  border: 1px solid #444;
+}

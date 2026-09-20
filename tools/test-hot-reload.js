@@ -2,9 +2,20 @@
 // src/models/hotReload.js's polling/diffing behavior. Stubs the global
 // `fetch` rather than hitting a real server (this only needs to prove
 // the polling/diffing/error-handling logic is right, not exercise an
-// actual HTTP stack) and uses short real intervals with real timers —
-// no THREE/DOM dependency, runs as a plain Node script.
+// actual HTTP stack) and uses real intervals with real timers — no
+// THREE/DOM dependency, runs as a plain Node script.
+//
+// Timing is deliberately generous (a 60ms poll interval, waits of
+// several multiples of it) rather than the tightest values that pass in
+// isolation: this file previously used a 15ms interval with ~20-40ms
+// waits, which was flaky when run back-to-back with other heavy
+// Playwright-based tests competing for CPU/GC time on the same machine
+// (a real failure seen in practice, not a hypothetical) — a poller
+// racing a GC pause of a few tens of milliseconds is a bad test, not a
+// bug in hotReload.js itself.
 import { watchAsset, watchModel, watchAnimation } from '../src/models/hotReload.js';
+
+const INTERVAL = 60;
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -38,8 +49,8 @@ async function run() {
     let text = 'v1';
     const fake = fakeFetch(() => text);
     let changes = 0;
-    const watcher = watchAsset('x.json', { intervalMs: 15, onChange: () => changes++ });
-    await sleep(40);
+    const watcher = watchAsset('x.json', { intervalMs: INTERVAL, onChange: () => changes++ });
+    await sleep(INTERVAL * 5);
     watcher.stop();
     fake.restore();
     assert(changes === 0, `expected no onChange calls when the content never actually changes, got ${changes}`);
@@ -50,13 +61,13 @@ async function run() {
     let text = 'v1';
     const fake = fakeFetch(() => text);
     const seen = [];
-    const watcher = watchAsset('x.json', { intervalMs: 15, onChange: (t) => seen.push(t) });
-    await sleep(25);
+    const watcher = watchAsset('x.json', { intervalMs: INTERVAL, onChange: (t) => seen.push(t) });
+    await sleep(INTERVAL * 2.5); // past the first baseline poll, before any edit
     assert(seen.length === 0, 'no change yet');
     text = 'v2';
-    await sleep(30);
+    await sleep(INTERVAL * 4);
     text = 'v2'; // stays the same — should not re-fire for an unchanged value
-    await sleep(30);
+    await sleep(INTERVAL * 4);
     watcher.stop();
     fake.restore();
     assert(seen.length === 1, `expected exactly 1 change (v1->v2), got ${seen.length}: ${JSON.stringify(seen)}`);
@@ -68,11 +79,11 @@ async function run() {
     let text = 'v1';
     const fake = fakeFetch(() => text);
     let changes = 0;
-    const watcher = watchAsset('x.json', { intervalMs: 15, onChange: () => changes++ });
-    await sleep(20);
+    const watcher = watchAsset('x.json', { intervalMs: INTERVAL, onChange: () => changes++ });
+    await sleep(INTERVAL * 2.5);
     watcher.stop();
     text = 'v2';
-    await sleep(60); // long enough for several more polls if it were still running
+    await sleep(INTERVAL * 8); // long enough for several more polls if it were still running
     fake.restore();
     assert(changes === 0, `expected stop() to prevent any further onChange calls, got ${changes}`);
   }
@@ -83,8 +94,8 @@ async function run() {
       throw new Error('network down');
     });
     let errors = 0;
-    const watcher = watchAsset('x.json', { intervalMs: 15, onChange: () => {}, onError: () => errors++ });
-    await sleep(40);
+    const watcher = watchAsset('x.json', { intervalMs: INTERVAL, onChange: () => {}, onError: () => errors++ });
+    await sleep(INTERVAL * 5);
     watcher.stop();
     fake.restore();
     assert(errors >= 2, `expected the watcher to keep polling (and keep reporting errors) after a failure, got ${errors} error callbacks`);
@@ -96,10 +107,10 @@ async function run() {
     const fake = fakeFetch(() => text);
     let reloads = 0;
     let errors = 0;
-    const watcher = watchModel('m.json', { intervalMs: 15, onReload: () => reloads++, onError: () => errors++ });
-    await sleep(25);
+    const watcher = watchModel('m.json', { intervalMs: INTERVAL, onReload: () => reloads++, onError: () => errors++ });
+    await sleep(INTERVAL * 2.5);
     text = '{ this is not valid JSON';
-    await sleep(30);
+    await sleep(INTERVAL * 4);
     watcher.stop();
     fake.restore();
     assert(reloads === 0, `a syntactically broken edit should never trigger onReload, got ${reloads}`);
@@ -117,10 +128,10 @@ async function run() {
     let text = JSON.stringify(base);
     const fake = fakeFetch(() => text);
     const reloaded = [];
-    const watcher = watchAnimation('a.json', { intervalMs: 15, onReload: (clip) => reloaded.push(clip) });
-    await sleep(25);
+    const watcher = watchAnimation('a.json', { intervalMs: INTERVAL, onReload: (clip) => reloaded.push(clip) });
+    await sleep(INTERVAL * 2.5);
     text = JSON.stringify({ ...base, length: 2 });
-    await sleep(30);
+    await sleep(INTERVAL * 4);
     watcher.stop();
     fake.restore();
     assert(reloaded.length === 1, `expected exactly one reload, got ${reloaded.length}`);

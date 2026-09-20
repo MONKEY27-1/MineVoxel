@@ -61,6 +61,7 @@
     "test:animation-controller": "node tools/test-animation-controller.js",
     "test:hot-reload": "node tools/test-hot-reload.js",
     "test:hot-reload-model": "node tools/run-with-server.js tools/test-hot-reload-model.js",
+    "test:model-viewer": "node tools/run-with-server.js tools/test-model-viewer.js",
     "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js"
   },
   "devDependencies": {

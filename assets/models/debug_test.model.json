@@ -1,0 +1,47 @@
+{
+  "id": "debug_test",
+  "textureSize": [64, 64],
+  "parts": {
+    "body": {
+      "parent": null,
+      "pivot": [0, 24, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [{ "offset": [-4, -6, -2], "size": [8, 12, 4], "uv": [0, 16] }]
+    },
+    "head": {
+      "parent": "body",
+      "pivot": [0, 30, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [{ "offset": [-4, 0, -4], "size": [8, 8, 8], "uv": [0, 0] }]
+    },
+    "rightArm": {
+      "parent": "body",
+      "pivot": [-6, 30, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [{ "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [32, 0] }]
+    },
+    "leftArm": {
+      "parent": "body",
+      "pivot": [6, 30, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [{ "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [48, 0] }]
+    },
+    "rightLeg": {
+      "parent": "body",
+      "pivot": [-2, 18, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [{ "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [24, 16] }]
+    },
+    "leftLeg": {
+      "parent": "body",
+      "pivot": [2, 18, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [{ "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [40, 16] }]
+    }
+  },
+  "attachments": {
+    "hand.right": { "part": "rightArm", "pivot": [-6, 18, 0] },
+    "hand.left": { "part": "leftArm", "pivot": [6, 18, 0] },
+    "head.top": { "part": "head", "pivot": [0, 38, 0] }
+  }
+}

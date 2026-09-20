@@ -1,0 +1,21 @@
+{
+  "id": "debug_walk",
+  "length": 1.0,
+  "loop": true,
+  "tracks": [
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.6" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.6" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.5" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.5" },
+    {
+      "part": "head",
+      "channel": "rotation",
+      "axis": "y",
+      "keyframes": [
+        { "time": 0, "value": 0, "interp": "ease" },
+        { "time": 0.5, "value": 0.15, "interp": "ease" },
+        { "time": 1.0, "value": 0 }
+      ]
+    }
+  ]
+}
