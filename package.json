@@ -54,7 +54,14 @@
     "test:devmenu-debug": "node tools/run-with-server.js tools/test-devmenu-debug.js",
     "test:devmenu-integration": "node tools/run-with-server.js tools/test-devmenu-integration.js",
     "test:model-format": "node tools/test-model-format.js",
-    "test:model-builder": "node tools/run-with-server.js tools/test-model-builder.js"
+    "test:model-builder": "node tools/run-with-server.js tools/test-model-builder.js",
+    "test:expr": "node tools/test-expr.js",
+    "test:animation-format": "node tools/test-animation-format.js",
+    "test:animation-clip": "node tools/test-animation-clip.js",
+    "test:animation-controller": "node tools/test-animation-controller.js",
+    "test:hot-reload": "node tools/test-hot-reload.js",
+    "test:hot-reload-model": "node tools/run-with-server.js tools/test-hot-reload-model.js",
+    "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

@@ -235,6 +235,15 @@ export class Model {
   constructor(shared, material) {
     this.def = shared.def;
     this.partRanges = shared.partRanges;
+    // Plain-data rest pose (no THREE objects) — animationController.js
+    // is pure logic and seeds every frame's pose from this, so it never
+    // needs to touch a THREE.Bone or know this class exists.
+    this.restPose = new Map(
+      shared.boneDefs.map((bd) => [
+        bd.name,
+        { rotation: { x: bd.rotation[0], y: bd.rotation[1], z: bd.rotation[2] }, position: { x: bd.position.x, y: bd.position.y, z: bd.position.z }, scale: { x: 1, y: 1, z: 1 } },
+      ])
+    );
     const bones = shared.boneDefs.map((bd) => {
       const bone = new THREE.Bone();
       bone.name = bd.name;
