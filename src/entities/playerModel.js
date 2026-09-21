@@ -7,6 +7,7 @@ import { AnimationController } from '../models/animationController.js';
 import { applyPoseToModel } from '../models/animationApply.js';
 import { getProceduralSkin, loadCustomSkin } from './skinTexture.js';
 import { createSlimVariant } from './playerModelVariant.js';
+import { ArmorLayer } from './armorLayer.js';
 
 // Model and Animation Overhaul, phase 4 — the player's own third-person
 // body (and the source model the first-person arm in viewModel.js is
@@ -88,6 +89,8 @@ export class PlayerModel {
   constructor(atlasAssets, { seed = 1, armWidth = 'classic', customSkinDataUrl = null } = {}) {
     this.atlasAssets = atlasAssets;
     this.group = new THREE.Group();
+    this.armorLayer = new ArmorLayer(this.group);
+    this._armorKey = null;
 
     this._pendingItemId = undefined;
     this._pendingVisible = undefined;
@@ -204,17 +207,23 @@ export class PlayerModel {
   }
 
   /**
-   * Deliberately a no-op for now. The old flat-color implementation
-   * recolored a body part's own individual material — a trick that
-   * depended on every part being a separate THREE.Mesh with its own
-   * material, which the new single-draw-call SkinnedMesh (one shared
-   * material for the whole model) no longer has. Real armor rendering
-   * as its own model layer over the body, per material tier, is phase
-   * 6's job — see MODELS.md. Kept as a real (empty) method rather than
-   * removed so main.js's existing call site doesn't need touching
-   * twice across two phases.
+   * `armor` is player.armor — the 4-slot [helmet, chest, legs, boots]
+   * array of {itemId, durability}|null. Real armor rendering now (phase
+   * 6, replacing phase 4's documented no-op) — see armorLayer.js for
+   * why each piece is its own small Model kept in sync by copying bone
+   * transforms every frame, rather than the old per-part material
+   * recolor trick (impossible now that the body is one shared-material
+   * SkinnedMesh). Cheap to call every frame like main.js already does:
+   * a plain key comparison skips doing anything at all when nothing
+   * about the equipped armor actually changed, so this doesn't spawn a
+   * new async rebuild 60 times a second for no reason.
    */
-  setArmor(_armor) {}
+  setArmor(armor) {
+    const key = (armor ?? []).map((p) => (p ? `${p.itemId}` : '')).join('|');
+    if (key === this._armorKey) return;
+    this._armorKey = key;
+    this.armorLayer.setArmor(armor);
+  }
 
   // --- one-shot action triggers (phase 5) --------------------------------
   // Each interrupts and blends out of whatever locomotion state was
@@ -316,6 +325,7 @@ export class PlayerModel {
       age: 0,
     };
     applyPoseToModel(this.controller.computePose(vars), this.model);
+    this.armorLayer.sync(this);
   }
 
   /** The base-locomotion priority chain — only consulted when no one-shot/death is holding the state (see update()). Order matters: each condition below takes priority over everything listed after it. */
@@ -341,5 +351,6 @@ export class PlayerModel {
   dispose(scene) {
     scene.remove(this.group);
     this.model?.dispose();
+    this.armorLayer.dispose();
   }
 }

@@ -587,3 +587,103 @@ established discipline from phase 4, which is what actually caught the
 shared-clip validation failure above before it could ship. Full
 existing regression suite (smoke, player-model, devmenu-player, riding,
 feel, visual, devmenu-integration) re-verified green.
+
+## Phase 6 — Armor and equipment rendering
+
+**Files:** `assets/models/armor_{helmet,chest,legs,boots}.model.json`,
+`src/entities/armorVariant.js`, `src/entities/armorTexture.js`,
+`src/entities/armorLayer.js`, `src/entities/playerModel.js` (real
+`setArmor()`, replacing phase 4's documented no-op), two test files.
+
+**Scope was set by what this game actually has, checked before writing
+anything**, the same discipline phase 5 used for its own animation
+list: this game has exactly three real armor tiers (gold/iron/
+voidsteel — no leather, no diamond, confirmed against `items.js`'s own
+`ARMOR_MATERIAL`), no enchanting system at all (`player.js`'s own `xp`
+field comment says so directly: "a counter with nothing to spend it on
+yet"), and no offhand slot or shield item anywhere in the item roster.
+So this phase builds real armor-as-a-model-layer for the three tiers
+that exist, and does **not** build enchantment glint, offhand
+rendering, two-handed poses, or a shield-raise pose — there is nothing
+in this game to attach any of those four to. (Equipping armor visibly
+onto mobs, the spec's other bullet for this phase, is explicitly
+phase 7's own line item — "using the same system" it says, meaning this
+one — not duplicated here.)
+
+**Architecture decision: each equipped piece is its own independent
+`Model`, kept in lockstep by copying bone transforms every frame — not
+a shared skeleton.** The "real" way to bind two meshes to one skeleton
+(`SkinnedMesh.bind(skeleton)` accepts any `Skeleton` instance, so an
+armor mesh built against the *same* bones as the player's own would
+move for free with zero sync code) was considered and rejected for
+this phase: `modelBuilder.js`'s `createModelInstance` always builds a
+fresh, private skeleton, and teaching it to skin against someone else's
+existing skeleton is a real, separate feature with its own edge cases
+(bone-name matching across possibly-different model files, ownership of
+`boneInverses`, etc.) — more machinery than a 4-piece armor set
+justifies building today. Copying `rotation`/`position`/`scale` from
+each of the player's own posed bones onto the matching armor bone,
+every frame, is simpler, fully correct for this purpose, and easy to
+verify directly (the test asserts a manually-rotated head bone's value
+actually appears on the equipped helmet's own head bone after `sync()`).
+
+**Every armor slot model mirrors the player's full six-part hierarchy**
+(`body`/`head`/`rightArm`/`leftArm`/`rightLeg`/`leftLeg`), even though
+a single slot only ever puts boxes on the part(s) it actually covers —
+an empty-boxes part is still valid (`modelFormat.js` never required
+`boxes` to be non-empty) and exists purely to preserve the same parent
+chain the copy-per-frame sync above depends on: copying a *local*
+rotation only composes into the correct *world* result when both
+skeletons share the same hierarchy shape, not just the same part names.
+
+**Per-tier silhouette, not just color — via one shared shape and a
+data transform, not four hand-authored files per slot.**
+`armorVariant.js`'s `createArmorTierVariant` scales every box's
+`inflate` by a fixed per-tier factor (gold 0.5x, thinner/sleeker; iron
+1.0x, the baseline; voidsteel 1.6x, bulkier) — the same "one base file,
+N derived variants" approach `playerModelVariant.js`'s `createSlimVariant`
+already established for arm width. Verified directly, not just
+asserted: the test measures the actual built geometry's bounding-box
+width and confirms voidsteel is wider than iron at the same slot.
+
+**Procedural per-tier textures reuse one shared UV trick.** Every box
+across every armor slot model points at the same `[0, 0]` UV origin —
+deliberately, since there's no need for distinct named regions the way
+the multi-region player skin has; `armorTexture.js` just paints one
+small solid-color-plus-trim swatch per tier (colors matching this
+game's already-established gold/iron/voidsteel palette, so a worn
+piece reads as the same tier as its held/dropped item icon) and every
+box, at whatever size, samples the same look.
+
+**A material-name allowlist, not "anything in the chest slot," decides
+whether a piece renders a generic layer at all.** Glidewings
+(`ARMOR_MATERIAL`-shaped but `material.name === 'glidewings'`, not a
+real tier) sits in the chest slot with zero defense — it's a
+cosmetic/functional wing item, not iron-shaped chest armor, and
+rendering a generic plate over it would be wrong. `armorLayer.js`
+checks the equipped item's actual tier name against the three real
+tiers and renders nothing for anything else, preserving Glidewings'
+pre-existing "no generic armor visual" behavior exactly rather than
+inventing one it was never designed to have.
+
+**`setArmor()` is cheap to call every frame, deliberately** — `main.js`
+already calls `playerModel.setArmor(player.armor)` unconditionally each
+tick (unchanged from before this phase), so a plain serialized-itemId
+key comparison short-circuits before ever touching the async rebuild
+path when nothing actually changed, confirmed by the test asserting a
+durability-only change (irrelevant to rendering) rebuilds nothing at
+all.
+
+**Tests:** `npm run test:armor-variant` (pure Node — per-tier inflate
+ordering, distinct ids, non-mutation, a real thrown error for an
+unknown tier, and full model-def validity for every tier's output) and
+`npm run test:armor-layer` (16 Playwright assertions — building all 4
+slots, a genuine no-op on an unchanged loadout, a real geometry-size
+difference on a tier switch, unequip actually removing the mesh from
+the scene graph, Glidewings correctly rendering nothing, `sync()`
+actually propagating a manual bone rotation onto the equipped piece,
+and a standalone `ArmorLayer` usable outside `PlayerModel` — laying the
+groundwork phase 7 will reuse for mobs). Also manually verified via a
+real in-game screenshot (a full iron set, visibly bulkier than bare
+skin, correctly posed). Full existing regression suite re-verified
+green.

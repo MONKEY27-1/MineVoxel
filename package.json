@@ -65,6 +65,8 @@
     "test:player-model-variant": "node tools/test-player-model-variant.js",
     "test:player-model": "node tools/run-with-server.js tools/test-player-model.js",
     "test:player-animations": "node tools/run-with-server.js tools/test-player-animations.js",
+    "test:armor-variant": "node tools/test-armor-variant.js",
+    "test:armor-layer": "node tools/run-with-server.js tools/test-armor-layer.js",
     "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js"
   },
   "devDependencies": {
