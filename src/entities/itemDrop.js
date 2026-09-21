@@ -1,35 +1,48 @@
 import * as THREE from 'three';
-import { createAtlasMaterial } from '../mesh/atlasMaterial.js';
-import { itemIconTile, isVoidsteelItem } from '../items/items.js';
+import { getItemModel } from './heldItemModel.js';
+import { isVoidsteelItem } from '../items/items.js';
 import { isSolid, BLOCKS } from '../world/blocks.js';
 
+// Model and Animation Overhaul, phase 8 — dropped items now render the
+// exact same real 3D models (a real cube for blocks, an extruded sprite
+// for everything else) held items and the player's own hand use,
+// instead of the old bespoke flat-icon-textured box this file used to
+// build by hand. "Shares its cache" per the spec: getItemModel()'s own
+// module-level cache (heldItemModel.js) means every dropped stone
+// pickaxe, every held one, and every one a mob might someday hold all
+// reference the exact same built geometry — nothing here ever builds
+// per-entity geometry.
+//
+// A real, deliberate trade made switching: the old box used the atlas
+// material's own custom shader (sky/block-light-aware, dims at night —
+// see mesh/atlasMaterial.js), while getItemModel()'s own material is a
+// plain always-full-bright MeshBasicMaterial (no scene lighting exists
+// for held/dropped items — see heldItemModel.js's own doc comment).
+// Dropped loot is now visible at full brightness even in the dark —
+// judged an acceptable, even player-friendly change (finding your loot
+// in a dark cave is a real quality-of-life win), not a regression to
+// route around.
 const GRAVITY = 20;
 const MERGE_RADIUS = 1.2;
 const VACUUM_RADIUS = 3.5;
 const VACUUM_SPEED = 9;
 const PICKUP_RADIUS = 0.9;
 const PICKUP_DELAY = 0.4; // can't be immediately re-picked-up right after dropping (matches the vanilla feel)
+const DROP_SCALE = 0.55; // held items are scaled 0.7x their own model; a dropped-on-the-ground stack reads better a little smaller still
+const SPAWN_GROW_TIME = 0.25;
+const MERGE_PULSE_TIME = 0.25;
 
-function buildItemMesh(itemId, atlasUV, material) {
-  const geo = new THREE.BoxGeometry(0.32, 0.32, 0.32);
-  const rect = atlasUV.get(itemIconTile(itemId));
-  const count = geo.attributes.position.count;
-  const atlasRect = new Float32Array(count * 4);
-  const color = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    atlasRect.set([rect.u0, rect.v0, rect.u1, rect.v1], i * 4);
-    color.set([1, 1, 0], i * 3); // full shade, full sky light, no block light
-  }
-  geo.setAttribute('atlasRect', new THREE.BufferAttribute(atlasRect, 4));
-  geo.setAttribute('color', new THREE.BufferAttribute(color, 3));
-  return new THREE.Mesh(geo, material);
+/** 1 copy for a small stack, 2 for a real one, 3 for a big one — the classic "you can tell roughly how much is there without opening the tooltip" cue, per the spec's own "stack count shown by rendering two or three overlapping copies." */
+function copiesForCount(count) {
+  if (count >= 16) return 3;
+  if (count >= 2) return 2;
+  return 1;
 }
 
 export class ItemDropManager {
-  constructor(scene, atlasTexture, atlasUV, particles = null) {
+  constructor(scene, atlasAssets, particles = null) {
     this.scene = scene;
-    this.atlasUV = atlasUV;
-    this.material = createAtlasMaterial(atlasTexture);
+    this.atlasAssets = atlasAssets; // {atlasTexture, atlasCanvas, atlasUV} — see heldItemModel.js's getItemModel
     this.particles = particles; // optional — a brief sparkle on pickup, see update()
     this.drops = [];
     // Revision-pass section 8's "entity render distance" — dropped items
@@ -41,6 +54,25 @@ export class ItemDropManager {
     this._activeDimensionId = 'overworld';
   }
 
+  /** (Re)builds the 1-3 overlapping item-model copies for a stack's current count. Never disposes their geometry — see this file's own top-of-file note on why. */
+  _rebuildCopies(d) {
+    for (const c of d.copies) d.mesh.remove(c);
+    d.copies = [];
+    const n = copiesForCount(d.count);
+    for (let i = 0; i < n; i++) {
+      const itemMesh = getItemModel(d.itemId, this.atlasAssets);
+      itemMesh.scale.setScalar(DROP_SCALE);
+      if (n > 1) {
+        // A small, deterministic-per-slot spread so a stack reads as
+        // "several items sitting together," not one bigger item.
+        const angle = (i / n) * Math.PI * 2;
+        itemMesh.position.set(Math.cos(angle) * 0.09, i * 0.03, Math.sin(angle) * 0.09);
+      }
+      d.mesh.add(itemMesh);
+      d.copies.push(itemMesh);
+    }
+  }
+
   spawn(position, itemId, count, durability, dimensionId = this._activeDimensionId) {
     // Durability-bearing items (tools, maxStack 1) never merge — there's
     // no sensible "count: 2" for two tools with two different remaining
@@ -50,25 +82,32 @@ export class ItemDropManager {
       for (const d of this.drops) {
         if (d.itemId === itemId && d.durability === undefined && d.dimensionId === dimensionId && d.mesh.position.distanceTo(position) < MERGE_RADIUS) {
           d.count += count;
+          d._mergePulseT = 0; // a brief scale-pop cue, see update()
+          this._rebuildCopies(d);
           return;
         }
       }
     }
-    const mesh = buildItemMesh(itemId, this.atlasUV, this.material);
+    const mesh = new THREE.Group();
     mesh.position.copy(position);
     this.scene.add(mesh);
-    this.drops.push({
+    const d = {
       itemId,
       count,
       durability,
       dimensionId,
       mesh,
+      copies: [],
       physicsY: position.y,
       vy: 2 + Math.random(),
       resting: false,
       age: 0,
       pickupDelay: PICKUP_DELAY,
-    });
+      _spawnT: 0,
+      _mergePulseT: null,
+    };
+    this._rebuildCopies(d);
+    this.drops.push(d);
   }
 
   update(dt, playerFeetPos, chunkManager, onPickup, dimension) {
@@ -89,13 +128,17 @@ export class ItemDropManager {
       const dzp = d.mesh.position.z - playerFeetPos.z;
       if (dxp * dxp + dzp * dzp > this.despawnDist * this.despawnDist) {
         this.scene.remove(d.mesh);
-        d.mesh.geometry.dispose();
         this.drops.splice(i, 1);
         continue;
       }
 
       d.age += dt;
       d.pickupDelay = Math.max(0, d.pickupDelay - dt);
+      d._spawnT = Math.min(1, d._spawnT + dt / SPAWN_GROW_TIME);
+      if (d._mergePulseT !== null) {
+        d._mergePulseT += dt;
+        if (d._mergePulseT >= MERGE_PULSE_TIME) d._mergePulseT = null;
+      }
 
       if (!d.resting) {
         d.vy -= GRAVITY * dt;
@@ -132,11 +175,11 @@ export class ItemDropManager {
             d.pickupDelay = 0.5; // inventory's full — stop retrying every frame
           } else if (leftover <= 0) {
             this.scene.remove(d.mesh);
-            d.mesh.geometry.dispose();
             this.drops.splice(i, 1);
             continue;
           } else {
             d.count = leftover;
+            this._rebuildCopies(d);
           }
         }
         if (dist < VACUUM_RADIUS) {
@@ -151,15 +194,22 @@ export class ItemDropManager {
       const bob = d.resting ? Math.sin(d.age * 3) * 0.08 : 0;
       d.mesh.position.set(x, d.physicsY + bob, z);
       d.mesh.rotation.y += dt * 1.5;
+
+      // Scale-up on spawn (an ease-out pop from 0) and a brief pulse
+      // whenever two stacks merge — both just a scalar on the group, so
+      // they compose independently of the per-copy stack offsets above.
+      const growEase = Math.sin(Math.min(1, d._spawnT) * Math.PI * 0.5);
+      let mergePulse = 1;
+      if (d._mergePulseT !== null) {
+        const t = d._mergePulseT / MERGE_PULSE_TIME;
+        mergePulse = 1 + Math.sin(t * Math.PI) * 0.35;
+      }
+      d.mesh.scale.setScalar(growEase * mergePulse);
     }
   }
 
   dispose() {
-    for (const d of this.drops) {
-      this.scene.remove(d.mesh);
-      d.mesh.geometry.dispose();
-    }
+    for (const d of this.drops) this.scene.remove(d.mesh);
     this.drops.length = 0;
-    this.material.dispose();
   }
 }

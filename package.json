@@ -69,6 +69,8 @@
     "test:armor-layer": "node tools/run-with-server.js tools/test-armor-layer.js",
     "test:mob-model-shapes": "node tools/test-mob-model-shapes.js",
     "test:mob-model": "node tools/run-with-server.js tools/test-mob-model.js",
+    "test:item-drop-model": "node tools/run-with-server.js tools/test-item-drop-model.js",
+    "test:projectile-model": "node tools/run-with-server.js tools/test-projectile-model.js",
     "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js"
   },
   "devDependencies": {

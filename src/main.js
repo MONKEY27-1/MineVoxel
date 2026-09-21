@@ -433,7 +433,7 @@ function main() {
   const interaction = new InteractionController();
   const particles = new ParticleSystem(renderer.scene);
   particles.densityMultiplier = settings.graphics.particleDensity / 100;
-  const itemDrops = new ItemDropManager(renderer.scene, atlasTexture, atlasUV, particles);
+  const itemDrops = new ItemDropManager(renderer.scene, { atlasTexture, atlasCanvas, atlasUV }, particles);
   const fallingBlocks = new FallingBlockManager(renderer.scene, atlasTexture, atlasUV);
   const fluids = new FluidSimulator();
   const xpOrbs = new XPOrbManager(renderer.scene);
@@ -443,7 +443,7 @@ function main() {
   const debugOverlay = new DebugOverlay(debugEl);
   const hud = new Hud(atlasUV);
   const mobManager = new MobManager(renderer.scene, { particles, itemDrops, xpOrbs });
-  const projectiles = new ProjectileManager(renderer.scene, particles);
+  const projectiles = new ProjectileManager(renderer.scene, { atlasTexture, atlasCanvas, atlasUV }, particles);
   // The Hollow Reach's boss (phase 4) — a singleton, not a MobManager
   // entry (see riftwyrmManager.js's own note on why). `let`, not `const`:
   // startGame's load branch replaces it wholesale via
@@ -2842,6 +2842,7 @@ function main() {
       owner: 'player',
       damage: 0,
       dimensionId: activeDimension.id,
+      itemId: ITEMS.RIFT_SHARD.id, // a real thrown item (phase 8) — the real model, not a generic colored streak
       onHit: (hitPos) => {
         if (Math.random() < RIFT_SHARD_SHATTER_CHANCE) {
           particles.spawnBurst(hitPos, 0xc9a7ff, 10, 3);
@@ -2876,6 +2877,7 @@ function main() {
       owner: 'player',
       damage: 0,
       dimensionId: activeDimension.id,
+      itemId: ITEMS.RIFTPEARL.id, // a real thrown item (phase 8) — the real model, not a generic colored streak
       onHit: (hitPos) => {
         // Phase 7: a Far Gate is a thrown-at target, not a walk-through
         // portal — checked here rather than as a PORTAL_TRAVEL entry

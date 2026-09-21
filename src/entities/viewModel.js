@@ -148,7 +148,10 @@ export class ViewModel {
     this.currentItemId = itemId;
     if (this.currentMesh) {
       this.rightHand.remove(this.currentMesh);
-      this.currentMesh.geometry.dispose();
+      // NOT geometry.dispose() — see playerModel.js's identical fix and
+      // note: getItemModel()'s clones all share one cached geometry per
+      // item id, so disposing it here would corrupt every other holder
+      // of the same item.
       this.currentMesh = null;
     }
     if (itemId != null) {

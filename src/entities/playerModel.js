@@ -194,7 +194,13 @@ export class PlayerModel {
     this._currentItemId = itemId;
     if (this._currentItemMesh) {
       this.rightHand.remove(this._currentItemMesh);
-      this._currentItemMesh.geometry.dispose();
+      // NOT geometry.dispose(): getItemModel() caches its built geometry
+      // and hands out mesh.clone()s that all reference that same shared
+      // object (a real, pre-existing bug pattern found and fixed across
+      // every caller during phase 8 — see itemDrop.js's own note) —
+      // disposing it here would corrupt every other clone of this same
+      // item still in use (another mob holding it, a dropped stack, the
+      // next player who re-selects it).
       this._currentItemMesh = null;
     }
     if (itemId != null) {

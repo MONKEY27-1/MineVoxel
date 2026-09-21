@@ -817,3 +817,109 @@ posed, correctly-legged cow, both immediately recognizable). Full
 existing mob/AI/riding/boss regression suite re-verified green with
 zero changes to any of those test files — confirming this phase
 touched rendering only.
+
+## Phase 8 — Items, drops, and props
+
+**Files:** `src/entities/itemDrop.js` (rewritten), `src/entities/projectile.js`
+(rewritten), `src/entities/playerModel.js` and `src/entities/viewModel.js`
+(one-line bug fix each), `src/main.js` (wiring), two new test files.
+
+**Both dropped items and thrown projectiles now render the same real
+item models everything else in the game already uses**, instead of
+their own bespoke placeholder geometry — a ground drop and a thrown
+Rift Shard now look like the exact same object the player holds in
+their hand, because they're built from the exact same
+`getItemModel()` this game already uses for the third-person model,
+the first-person view model, and armor.
+
+**A real pre-existing bug found and fixed while building this:
+`getItemModel()`'s clones share one cached geometry (and material) per
+item id by reference, and two call sites were disposing that shared
+geometry out from under every other holder of the same item.**
+`playerModel.js` and `viewModel.js`'s `_applyItem()` both called
+`this._currentItemMesh.geometry.dispose()` / `this.currentMesh.geometry.dispose()`
+when swapping the held item away — harmless as long as nothing else
+was holding the same cached geometry at that moment, but a real,
+silent corruption risk the instant it was (e.g. a player swaps off an
+iron sword the instant after throwing a Rift Shard drop of the same
+kind onto the ground). Fixed by removing both disposal calls; the
+comment on each explains why, so a future edit doesn't reintroduce
+disposal by "cleaning up" what looks like a leak.
+
+**`itemDrop.js`: 1/2/3 stacked copies of the real item model, not a
+single scaled cube.** `copiesForCount()` picks 1 copy for a small
+stack, 2 for a medium one, 3 for a large one (mirroring how Minecraft's
+own drop stacks visually imply quantity without a numeric label), each
+a `getItemModel()` clone parented under the drop's own `THREE.Group`
+at a small hand-tuned offset so a 3-copy stack doesn't look like one
+fused blob. `_rebuildCopies(d)` runs once on spawn and again whenever
+a merge changes `d.count` across a copy-count threshold. Two purely
+cosmetic touches ported/added on top of the old flat-cube drop: a
+spawn grow-in (`SPAWN_GROW_TIME = 0.25`s, eased from 0 to `DROP_SCALE
+= 0.55`) so a drop doesn't just pop into existence, and a merge pulse
+(`MERGE_PULSE_TIME = 0.25`s, a brief scale bump) so absorbing a nearby
+stack has a visible beat instead of silently changing its copy count.
+Both are driven by `d.mesh.scale.setScalar(growEase * mergePulse)` —
+one scale multiply, not two independent animated properties.
+
+**`projectile.js`: an item-shaped projectile when it's thrown from a
+real item (Rift Shard, Riftpearl), a velocity-stretched streak
+otherwise.** `spawn()` gained an optional `itemId`; when given,
+`buildProjectileMesh()` returns a `getItemModel()` clone scaled to
+0.45 (a thrown object reads better a little smaller than its
+in-hand/on-ground size); when omitted (every mob projectile, which has
+no associated item), it falls back to the old
+`BoxGeometry(radius*1.6, radius*1.6, radius*4)` streak, now genuinely
+oriented rather than axis-locked. `orientToVelocity(mesh, velocity)`
+uses `THREE.Quaternion.setFromUnitVectors(localForwardAxis,
+normalizedVelocity)` so the mesh's local +Z always points along its
+current velocity, re-derived every tick — a thrown item now visibly
+tumbles/points along its actual arc instead of holding a fixed
+rotation.
+
+**The same shared-geometry hazard from `playerModel.js`/`viewModel.js`
+had to be guarded against here too, and the first pass only guarded
+half of it.** An item-shaped projectile's mesh shares both geometry
+*and* material with `getItemModel()`'s cache (the material carries the
+atlas texture reference), but the streak fallback owns both outright
+and must dispose them on cleanup. The flag controlling this was
+originally named `ownsGeometry` and only wrapped the
+`geometry.dispose()` call; renamed to `ownsResources` and now wraps
+both `geometry.dispose()` and `material.dispose()` under the same
+check, in both the on-hit cleanup path and `dispose()` — an item
+projectile's `material.dispose()` alone would have corrupted the atlas
+material for every other current holder of that item, the same class
+of bug as the `playerModel.js`/`viewModel.js` fix above, just on the
+material half instead of the geometry half.
+
+**Wiring:** `main.js`'s `ItemDropManager`/`ProjectileManager`
+constructors now take the same `{ atlasTexture, atlasCanvas, atlasUV }`
+bundle every other model-consuming system already receives, and
+`throwRiftShard()`/`throwRiftpearl()` now pass their own item's id
+into `spawn()` so those two specific throwables render as themselves
+rather than falling back to the generic streak.
+
+**Tests:** `npm run test:item-drop-model` (12 Playwright assertions —
+correct copy counts at 1/5/40 items, copies genuinely share
+`getItemModel()`'s cached geometry, merging combines counts and
+copy-count and starts a fresh pulse without creating a second drop
+entity, the spawn grow-in genuinely starts small and reaches full
+scale, disposal never corrupts the shared cache) and `npm run
+test:projectile-model` (7 Playwright assertions — an item-id spawn
+shares the cached geometry and reports `ownsResources === false`, a
+no-item spawn is genuinely stretched along its own local Z and reports
+`ownsResources === true`, orientation matches a straight-up velocity
+and correctly re-orients after a mid-flight velocity change, disposal
+never corrupts the shared cache). Full existing regression suite
+(`smoke`, `test:projectiles`, `test:hollowreach`, `test:voidsteel`,
+`test:dup`, `test:visual`, `test:mobs`, `test:player-model`) re-verified
+green with zero changes to any of those test files.
+
+**Scope check against the phase 8 spec: item frames, armor stands, and
+enchantment glint don't exist in this codebase and weren't invented for
+this phase.** This game has no item-frame or armor-stand entity type
+and no enchantment system (confirmed by searching, not assumed) —
+building rendering for gameplay systems that don't exist would be
+scope creep beyond "rebuild what's there on the new system," so this
+phase covers exactly the props that do exist: item drops and
+projectiles.
