@@ -112,7 +112,15 @@ export class ViewModel {
     // to-scale limb. Scaled down here rather than shrinking the shared
     // player_arm_fp model itself, which needs to stay real-world-sized
     // for its skin UV to keep matching the third-person arm exactly.
-    this.armModel.mesh.scale.setScalar(0.6);
+    // 0.45, not the original 0.6: at 0.6 and the idle pose's forward
+    // pitch (see ARM_STATE_ANIM_URLS.idle), the box sits close enough to
+    // the FP camera that one flat, undetailed face fills a large chunk
+    // of the corner — a real, reported "the arm looks bad" bug, verified
+    // (via a screenshot diff against the pre-model-overhaul commit) to
+    // predate this whole model/animation pass, not a regression from it.
+    // At 0.45 the same box reads as a small, recognizably 3D block in
+    // the corner instead, closer to vanilla Minecraft's own proportions.
+    this.armModel.mesh.scale.setScalar(0.45);
     this.group.add(this.armModel.mesh);
     this.rightHand = this.armModel.getAttachment('hand.right');
 
