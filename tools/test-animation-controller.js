@@ -117,6 +117,49 @@ function run() {
     assert(threw, 'a state clip referencing a part the model does not have should throw at construction');
   }
 
+  console.log('[test:animation-controller] pooled sample buffers never leak a stale offset from an earlier, unrelated clip after several transitions...');
+  {
+    // Model and Animation Overhaul, phase 9: computePose() reuses its
+    // sample buffers across frames/transitions instead of allocating
+    // fresh ones (see animationController.js's own comments). Three
+    // states, each touching a DIFFERENT part, deliberately set up so
+    // the buffer legD ends up sampling into is the same Map object legA
+    // wrote 'rightLeg' into two transitions earlier (setState swaps
+    // current<->previous's buffers on every transition, so with only
+    // two buffers total, the third transition always reuses the first
+    // one) — since sample() only ever overwrites entries for tracks its
+    // OWN clip has, a stale 'rightLeg' entry left over in that buffer
+    // from legA would otherwise still get iterated and applied by
+    // _addInto's own full-map walk, corrupting a part legD's clip never
+    // references at all. update(0) after each zero-crossfade setState
+    // fully resolves the blend (this.previous -> null) so every
+    // assertion below reads `this.current`'s own buffer directly,
+    // unmasked by blend=1's own pv-cancelling arithmetic.
+    const legA = clip({ length: 1, loop: true, tracks: [{ part: 'rightLeg', channel: 'rotation', axis: 'x', keyframes: [{ time: 0, value: 0.4 }] }] });
+    const headB = clip({ length: 1, loop: true, tracks: [{ part: 'head', channel: 'rotation', axis: 'y', keyframes: [{ time: 0, value: 0.9 }] }] });
+    const bodyD = clip({ length: 1, loop: true, tracks: [{ part: 'body', channel: 'rotation', axis: 'z', keyframes: [{ time: 0, value: 0.3 }] }] });
+    const c = new AnimationController(restPose(), new Map([
+      ['legA', { clip: legA }],
+      ['headB', { clip: headB }],
+      ['bodyD', { clip: bodyD }],
+    ]), { defaultCrossfade: 0 });
+
+    assert(approx(c.computePose({}).get('rightLeg').rotation.x, 0.4), 'starting state (legA) should show its own value');
+
+    c.setState('headB');
+    c.update(0);
+    const afterB = c.computePose({});
+    assert(approx(afterB.get('head').rotation.y, 0.9), 'headB should apply its own head rotation');
+    assert(approx(afterB.get('rightLeg').rotation.x, 0), 'headB has no rightLeg track — it must read as rest (0), not leak legA\'s old 0.4');
+
+    c.setState('bodyD');
+    c.update(0);
+    const afterD = c.computePose({});
+    assert(approx(afterD.get('body').rotation.z, 0.3), 'bodyD should apply its own body rotation');
+    assert(approx(afterD.get('rightLeg').rotation.x, 0), 'bodyD has no rightLeg track — it must read as rest (0), not leak legA\'s old 0.4 via a reused buffer');
+    assert(approx(afterD.get('head').rotation.y, 0), 'bodyD has no head track — it must read as rest (0), not leak headB\'s old 0.9');
+  }
+
   console.log('[test:animation-controller] setState to an unknown name throws...');
   {
     const idle = clip({ length: 1, loop: true, tracks: [] });

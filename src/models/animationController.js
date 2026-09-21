@@ -49,7 +49,23 @@ export class AnimationController {
     this.blend = 1;
     this.blendDuration = 0;
     this.blendElapsed = 0;
-    this.additive = new Map(); // name -> {clip, time, weight, speed}
+    this.additive = new Map(); // name -> {clip, time, weight, speed, sampleBuf}
+
+    // Model and Animation Overhaul, phase 9: computePose() used to
+    // allocate a fresh pose Map (plus 4 fresh objects per part) and a
+    // fresh sample Map (plus an entry object per track) on every single
+    // call — for a game with dozens of animated mobs each computing a
+    // pose every frame, that's a lot of garbage for objects that are
+    // read once and thrown away before the next frame. All of it is now
+    // owned by this controller instance and mutated in place instead;
+    // see computePose()/setState()'s own comments for why reusing
+    // `_currSampleBuf`/`_prevSampleBuf` across different clips is safe.
+    this._pose = new Map();
+    for (const [part, rest] of restPose) {
+      this._pose.set(part, { rotation: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 0, z: 0 }, scale: { x: 0, y: 0, z: 0 } });
+    }
+    this._currSampleBuf = new Map();
+    this._prevSampleBuf = new Map();
   }
 
   get currentStateName() {
@@ -68,6 +84,16 @@ export class AnimationController {
     const duration = crossfade ?? this.transitionTable.get(`${this.current?.name}>${name}`) ?? this.transitionTable.get(`*>${name}`) ?? this.defaultCrossfade;
     this.previous = this.current;
     this.current = { name, clip: def.clip, time: 0, speed: def.speed ?? 1 };
+    // `_currSampleBuf` already holds the old current clip's last-sampled
+    // values — exactly what `this.previous` (that same clip) needs, so it
+    // becomes `_prevSampleBuf` for free. The buffer that swaps in as the
+    // new `_currSampleBuf` may still hold some earlier, unrelated clip's
+    // entries (from two transitions ago), so it's cleared before the new
+    // current clip starts writing into it — see computePose()'s own note
+    // on why a stale leftover key there would be a real (if rare)
+    // blending bug, not just wasted memory.
+    [this._currSampleBuf, this._prevSampleBuf] = [this._prevSampleBuf, this._currSampleBuf];
+    this._currSampleBuf.clear();
     this.blendDuration = duration;
     this.blendElapsed = 0;
     this.blend = duration > 0 ? 0 : 1;
@@ -78,7 +104,13 @@ export class AnimationController {
     for (const track of clip.tracks) {
       if (!this.restPose.has(track.part)) throw new Error(`[animationController] additive layer "${name}" references part "${track.part}", which this model doesn't have`);
     }
-    this.additive.set(name, { clip, time: 0, weight, speed });
+    // `sampleBuf` is a fresh Map tied 1:1 to this specific layer object
+    // for its whole lifetime (until removeAdditive() drops the entry
+    // entirely) — safe to reuse every frame with no staleness risk,
+    // unlike current/previous's buffers above, since this layer's clip
+    // never changes out from under it the way setState()'s current/
+    // previous do.
+    this.additive.set(name, { clip, time: 0, weight, speed, sampleBuf: new Map() });
   }
 
   setAdditiveWeight(name, weight) {
@@ -106,22 +138,32 @@ export class AnimationController {
 
   /** Computes the full, absolute pose (rest + every active layer's contribution) for this frame. `vars` feeds procedural tracks (limbSwing, headYaw, velocity, etc.) — see animationFormat.js's doc comment for the expected input names. */
   computePose(vars = {}) {
-    const pose = new Map();
+    const pose = this._pose;
     for (const [part, rest] of this.restPose) {
-      pose.set(part, { rotation: { ...rest.rotation }, position: { ...rest.position }, scale: { ...rest.scale } });
+      const entry = pose.get(part);
+      entry.rotation.x = rest.rotation.x; entry.rotation.y = rest.rotation.y; entry.rotation.z = rest.rotation.z;
+      entry.position.x = rest.position.x; entry.position.y = rest.position.y; entry.position.z = rest.position.z;
+      entry.scale.x = rest.scale.x; entry.scale.y = rest.scale.y; entry.scale.z = rest.scale.z;
     }
 
     if (this.current) {
-      const currSample = this.current.clip.sample(this.current.time, vars);
+      // Reusing `_currSampleBuf`/`_prevSampleBuf` across frames is only
+      // correct because they're kept 1:1 with "whichever clip is
+      // current/previous right now" by setState() (see its own comment)
+      // — sample() only ever overwrites the entries its own clip's
+      // tracks touch, so a buffer that's ever held a *different* clip's
+      // leftover part/channel entries would silently keep contributing
+      // them to `pose` forever via `_blendInto`/`_addInto`'s unionKeys.
+      const currSample = this.current.clip.sample(this.current.time, vars, this._currSampleBuf);
       if (this.previous) {
-        const prevSample = this.previous.clip.sample(this.previous.time, vars);
+        const prevSample = this.previous.clip.sample(this.previous.time, vars, this._prevSampleBuf);
         this._blendInto(pose, prevSample, currSample, this.blend);
       } else {
         this._addInto(pose, currSample, 1);
       }
     }
     for (const [, a] of this.additive) {
-      this._addInto(pose, a.clip.sample(a.time, vars), a.weight);
+      this._addInto(pose, a.clip.sample(a.time, vars, a.sampleBuf), a.weight);
     }
     return pose;
   }

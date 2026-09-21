@@ -108,6 +108,7 @@ export class ChunkManager {
     // {cx,cz,sy,entryFace} objects every frame was real, avoidable GC
     // pressure on the hottest loop in the game.
     this._visFrustum = new THREE.Frustum();
+    this._visFrustumReady = false; // see getFrustum()'s own doc comment
     this._visMatrix = new THREE.Matrix4();
     this._visBox = new THREE.Box3();
     this._visVisited = new Set();
@@ -602,6 +603,23 @@ export class ChunkManager {
     }
 
     this._lastVisibleSections = visibleSections;
+    this._visFrustumReady = true;
+  }
+
+  /**
+   * Model and Animation Overhaul, phase 9: the same camera frustum this
+   * method already computes every rendered frame for section culling,
+   * reused by mobManager/mob.js to cheaply decide whether a distant mob
+   * is even on screen before spending a full animation pose update on
+   * it — see mob.js's `_updateAnimation`. Returns null until the first
+   * `updateVisibility()` call has actually run (a freshly-constructed
+   * `THREE.Frustum()` has no real planes yet, so treating "not ready" as
+   * "no frustum" — every mob just always in-frustum, same as no camera
+   * given at all — is the only safe reading of it, not an approximation
+   * of a real view).
+   */
+  getFrustum() {
+    return this._visFrustumReady ? this._visFrustum : null;
   }
 
   _disposeSectionMeshes(col, sy) {

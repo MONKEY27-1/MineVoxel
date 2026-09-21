@@ -923,3 +923,179 @@ building rendering for gameplay systems that don't exist would be
 scope creep beyond "rebuild what's there on the new system," so this
 phase covers exactly the props that do exist: item drops and
 projectiles.
+
+## Phase 9 — Performance
+
+**Files:** `src/models/animationController.js` (pose/sample buffers
+pooled), `src/models/animationClip.js` (per-call, not per-track, `vars`
+merge), `src/entities/mob.js` (distance/frustum animation LOD),
+`src/entities/mobManager.js`/`src/main.js` (frustum threaded through),
+`src/world/chunkManager.js` (`getFrustum()`), one new test in
+`tools/test-animation-controller.js`, one new test file
+(`tools/test-mob-animation-lod.js`), one new perf script
+(`tools/perf-mobs.js`).
+
+**`computePose()` used to allocate a fresh pose Map plus 4 fresh
+objects per part, and a fresh sample Map plus an entry object per
+track, on every single call — now it doesn't allocate at all in the
+steady state.** For a game where every animated entity (every mob,
+the player, the view-model arm) computes a pose every single frame,
+that was real, avoidable garbage for objects that are read once by
+`applyPoseToModel()` and thrown away before the next frame — exactly
+the kind of per-frame allocation `chunkManager.js`'s own
+`updateVisibility()` had already been written to avoid (see its
+"Scratch objects... reused every call instead of allocated fresh"
+comment from before this phase). `AnimationController` now owns a
+persistent `_pose` Map (mutated in place every `computePose()` call)
+and two persistent sample buffers, `_currSampleBuf`/`_prevSampleBuf`,
+passed into `AnimationClip.sample()`'s pre-existing (but previously
+unused) `out` parameter — that parameter's doc comment already
+described exactly this reuse pattern back in phase 2, just never
+connected to a real caller until now.
+
+**Reusing a sample buffer across different clips is only safe because
+`setState()` keeps each buffer paired with whichever clip actually
+last wrote into it.** `sample()` only ever overwrites the entries its
+own clip's tracks touch — it never clears stale entries left behind by
+some *earlier*, unrelated clip that used to own that same buffer
+object. On every `setState()` transition, the buffer that was
+`_currSampleBuf` (holding the outgoing clip's last-sampled values,
+still exactly correct for `this.previous`) is swapped to become
+`_prevSampleBuf`, and the buffer swapping *in* as the new
+`_currSampleBuf` — which may still hold some clip's leftover entries
+from two transitions ago — is explicitly cleared before the new
+current clip starts writing into it. Additive layers (`setAdditive()`)
+get their own dedicated buffer per layer object instead, since a named
+layer's clip never changes out from under it the way current/previous
+do, so there's no staleness risk there to guard against at all.
+
+**A real regression this reuse could have introduced if done wrong,
+caught by a dedicated test, not by inspection.** `test:animation-controller`
+now includes a case with three states, each touching a different,
+non-overlapping part, deliberately sequenced so the third transition
+reuses the exact same buffer object the first state wrote into — with
+only two buffers ever swapping back and forth, a third distinct
+transition always lands back on the first one. Verified this test
+actually catches the bug it's named for (not just a well-intentioned
+assertion that happens to always pass) by temporarily deleting the
+`_currSampleBuf.clear()` call and confirming the test fails with
+exactly the predicted symptom — a leaked, stale offset on a part the
+current clip has no track for at all — then restoring the fix and
+confirming it passes again.
+
+**A second, smaller allocation source: an expression track's `{
+...vars, time: t }` merge used to happen once per *track*, not once
+per *sample() call* — for a walk cycle with a dozen limbSwing-driven
+expression tracks, that's a dozen identical spreads of the exact same
+`{vars, time}` pair every single frame.** Moved the merge into
+`sample()` itself, computed once per call and handed to every track
+that needs it (skipped entirely for a purely-keyframed clip, which
+most death/idle poses are, via a `_hasExpressionTracks` flag computed
+once at clip-compile time).
+
+**Animation LOD: distance always throttles a mob's pose-update rate,
+and — when the caller has a camera frustum — being off-screen skips it
+entirely, but neither ever applies within melee/interaction range.**
+`mob.js`'s `_updateAnimation()` reuses the exact same player-to-mob
+`dist` it already computes for head-look targeting (no duplicate
+work) to pick a tier: under `NEAR_LOD_DIST` (24 blocks) a mob's pose is
+always recomputed every tick, regardless of the frustum, so nothing
+close to the player ever pops or looks throttled; from 24–48 blocks
+it's every 2nd tick; beyond that (up to `despawnDist`'s own 96-block
+cutoff, past which a mob doesn't exist at all) it's every 4th tick —
+*unless* a frustum was given and the mob genuinely isn't in it, in
+which case its pose isn't recomputed at all until it's back in view.
+Real elapsed time is still accumulated across every skipped tick and
+handed to `MobModel.update()` in one lump on the tick that actually
+runs, so a throttled walk cycle still plays at the correct real-world
+speed — it's recomputed and reapplied less often, never slowed down.
+None of this touches walk/idle/death *state* transitions, which still
+evaluate every tick regardless of LOD tier — only how often the
+resulting pose is actually computed and written onto the bones.
+
+**The frustum is the exact same one `chunkManager.js` already computes
+every rendered frame for section culling, exposed via a new
+`getFrustum()` rather than recomputed.** `mobManager.update()` gained
+an optional trailing `frustum` parameter (every existing caller/test
+that omits it keeps working unchanged — `mob.js` treats no frustum the
+same as "always in frustum," never as "always cull"), threaded down to
+`mob.js`'s LOD check. `getFrustum()` returns `null` until
+`updateVisibility()` has actually run at least once, rather than a
+freshly-constructed `THREE.Frustum()` with no real planes set yet — a
+real distinction, not a defensive nicety, since the wrong reading
+("empty planes = contains nothing") would silently cull every mob in
+the game for the first several frames of every session.
+
+**Shared geometry/materials: already true before this phase, verified
+rather than assumed.** `mobModel.js` builds each model def under the
+id `mob_${typeId}` (not `mob_${typeId}_${instanceId}`), so
+`modelBuilder.js`'s own `buildSharedModelData()` cache — keyed by
+`def.id`, built once, reused forever — already means every zombie on
+screen shares one cached geometry buffer regardless of how many exist;
+this was true since phase 7 (its own comment already called this out
+"ahead of actually needing to optimize for it") and phase 9 just
+confirms it rather than needing to build it. Materials are
+deliberately *not* shared per instance — each `MobModel` gets its own
+`MeshBasicMaterial` — but this is correct, not a gap: a `SkinnedMesh`
+needs a unique skeleton/bone-uniform binding per instance regardless
+of material sharing, so it can't be draw-call-batched across instances
+either way, and a future hurt-flash/tint effect (phase 10) needs each
+mob's material genuinely independent so one zombie can flash red
+without every other zombie on screen flashing with it.
+
+**Batching real skeletal meshes across independently-posed instances
+is a real, accepted non-goal, not an oversight.** GPU instancing or
+draw-call batching for skinned geometry needs either a shared skeleton
+(defeats the entire point of independently-animated mobs) or hardware
+instanced skinning (a substantially larger rendering-architecture
+change, well beyond a performance *pass* over an already-shipped
+system). One draw call per visible animated entity is the accepted
+cost of this architecture, same as it was before this phase — the
+work here is entirely about the CPU-side cost of computing each of
+those draw calls' bone poses, not the draw-call count itself.
+
+**Measured, not assumed: a dedicated `npm run perf:mobs` script,
+separate from the git-tracked `npm run perf`.** `perf.js` flies a
+mob-free route through terrain and diffs its own `perf-baseline.json`
+release to release — adding 50 mobs to that scenario would silently
+change what that baseline means for every future terrain-only
+comparison, so this phase's own measurement lives in a separate,
+non-tracked script instead. It also measures differently: this
+headless swiftshader (software GL) environment's own rasterization
+cost is large and highly variable on its own (perf-baseline.json shows
+frame times ranging from roughly 30ms to 400ms on a completely empty
+scene) — enough to bury a genuinely small CPU-side delta in noise if
+measured via end-to-end frame time the way `perf.js` does. `perf:mobs`
+instead times `mobManager.update()` itself directly (300 back-to-back
+calls via `performance.now()`, no rendering involved), with 50 mobs
+clustered within `NEAR_LOD_DIST` of a stationary player specifically
+to defeat this phase's own animation LOD — the deliberate worst case,
+every mob animating at full rate, not the common one. Result on this
+machine: **0.013ms per `mobManager.update()` call with 0 mobs, 0.030ms
+with 50 fully-animated mobs — a ~0.017ms/tick cost for 50 mobs
+(~0.0003ms per mob)**, well inside the phase's own "a few ms" target
+with substantial headroom to spare.
+
+**Tests:** `test:animation-controller` gained the pooled-buffer
+staleness regression above; `npm run test:mob-animation-lod` (5
+Playwright assertions against a real `Mob`, calling `_updateAnimation`
+directly rather than the full physics-dependent `update()` — a mob
+within `NEAR_LOD_DIST` updates every tick regardless of a
+frustum that claims it's never visible, a far mob genuinely outside a
+given frustum never recomputes its pose at all, a far but on-screen
+mob updates less often than every tick but not zero times and loses no
+accumulated animation time to the throttling, and a mid-distance mob
+with no frustum given at all falls back to distance-only throttling).
+Full existing regression suite (`smoke`, `test:dup`, `test:voidsteel`,
+`test:visual`, `test:mobs`, `test:hollowreach-mobs`, `test:riding`,
+`test:player-model`, `test:player-animations`, `test:mob-model`,
+`test:mob-model-shapes`, every model/animation-format/animation-clip/
+model-builder/model-viewer/hot-reload test, `test:item-drop-model`,
+`test:projectile-model`) re-verified green with zero changes to any of
+those test files. `test:projectiles` intermittently failed twice
+during this phase's own regression runs, on two different assertions
+in its Cinder Wraith step, both confirmed non-reproducing by
+immediately re-running with zero code changes — a pre-existing
+real-time-polling-vs-simulation-time race in that test file, unrelated
+to this phase's own changes (flagged separately for a deterministic
+fix rather than patched inline here).

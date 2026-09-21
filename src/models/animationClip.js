@@ -44,10 +44,12 @@ function evalKeyframes(keyframes, t) {
 function compileTrack(track) {
   if (track.expression !== undefined) {
     const fn = compileExpression(track.expression);
-    return { part: track.part, channel: track.channel, axis: track.axis, eval: (t, vars) => fn({ ...vars, time: t }) };
+    // `mergedVars` (built once per sample() call below, not once per
+    // track — see sample()'s own comment) already has `time` merged in.
+    return { part: track.part, channel: track.channel, axis: track.axis, isExpression: true, eval: (t, mergedVars) => fn(mergedVars) };
   }
   const keyframes = track.keyframes;
-  return { part: track.part, channel: track.channel, axis: track.axis, eval: (t) => evalKeyframes(keyframes, t) };
+  return { part: track.part, channel: track.channel, axis: track.axis, isExpression: false, eval: (t) => evalKeyframes(keyframes, t) };
 }
 
 /**
@@ -66,6 +68,10 @@ export class AnimationClip {
     this.blendWeight = def.blendWeight ?? 1;
     this.priority = def.priority ?? 0;
     this.tracks = def.tracks.map(compileTrack);
+    // Model and Animation Overhaul, phase 9: skip building `mergedVars`
+    // below entirely for a purely-keyframed clip (most death/idle poses)
+    // — only an expression track ever reads it.
+    this._hasExpressionTracks = this.tracks.some((t) => t.isExpression);
   }
 
   /** Wraps (looping clips) or clamps (non-looping) a raw, possibly-overshooting local time into this clip's valid [0, length] range. */
@@ -76,13 +82,18 @@ export class AnimationClip {
 
   sample(time, vars = {}, out = new Map()) {
     const t = this.wrapTime(time);
+    // Built once per sample() call rather than once per expression
+    // track (compileTrack used to do `{ ...vars, time: t }` per track —
+    // a walk cycle with a dozen expression tracks meant a dozen spreads
+    // for the exact same {vars, time} pair every single sample()).
+    const mergedVars = this._hasExpressionTracks ? { ...vars, time: t } : null;
     for (const track of this.tracks) {
       let entry = out.get(track.part);
       if (!entry) {
         entry = { rotation: {}, position: {}, scale: {} };
         out.set(track.part, entry);
       }
-      entry[track.channel][track.axis] = track.eval(t, vars);
+      entry[track.channel][track.axis] = track.eval(t, mergedVars);
     }
     return out;
   }

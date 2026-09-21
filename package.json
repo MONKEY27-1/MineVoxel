@@ -8,6 +8,7 @@
     "serve": "node tools/devserver.js",
     "smoke": "node tools/run-with-server.js tools/smoke.js",
     "perf": "node tools/run-with-server.js tools/perf.js",
+    "perf:mobs": "node tools/run-with-server.js tools/perf-mobs.js",
     "soak": "node tools/run-with-server.js tools/soak.js",
     "test:gen": "node tools/run-with-server.js tools/test-gen.js",
     "test:save": "node tools/run-with-server.js tools/test-save.js",
@@ -71,7 +72,8 @@
     "test:mob-model": "node tools/run-with-server.js tools/test-mob-model.js",
     "test:item-drop-model": "node tools/run-with-server.js tools/test-item-drop-model.js",
     "test:projectile-model": "node tools/run-with-server.js tools/test-projectile-model.js",
-    "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js"
+    "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js",
+    "test:mob-animation-lod": "node tools/run-with-server.js tools/test-mob-animation-lod.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

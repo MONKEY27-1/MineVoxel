@@ -12,6 +12,19 @@ const AZURECAP_BLOCKS = new Set([
 const AZURECAP_SCAN_RADIUS = 5;
 const AZURECAP_CHECK_INTERVAL = 1; // scanning a ~11^3 radius every tick per tuskbeast would add up — once a second is plenty for a flee reaction
 
+// Model and Animation Overhaul, phase 9 — animation LOD: full per-frame
+// bone animation only actually reads as different from every-other-frame
+// once a mob is close enough to fill a meaningful chunk of the screen, so
+// distance (and, when the caller has one — see mobManager.update's
+// `frustum` param — whether it's on screen at all) throttles how often
+// _updateAnimation() actually recomputes and reapplies a pose, without
+// ever affecting the walk/idle/death *state* logic itself (still
+// evaluated every tick). Never applied inside NEAR_LOD_DIST regardless of
+// the frustum check, so nothing close to the player ever pops.
+const NEAR_LOD_DIST = 24;
+const MID_LOD_DIST = 48;
+const _lodPoint = { x: 0, y: 0, z: 0 }; // scratch for the frustum.containsPoint check below — see chunkManager.js's own identical pooled-scratch pattern
+
 /** Any GOLD-tier armor piece equipped, any slot — Ashkin's neutrality check only cares that gold is worn somewhere, not which piece. */
 function playerWearsGold(player) {
   const armor = player.armor;
@@ -301,7 +314,7 @@ export class Mob {
     return this.despawning && this._deathT >= 1;
   }
 
-  update(dt, chunkManager, player, projectiles) {
+  update(dt, chunkManager, player, projectiles, frustum = null) {
     if (this.despawning) {
       this._deathT = Math.min(1, this._deathT + dt / 0.6);
       // Rotate onto its side as it despawns, then let physics keep it
@@ -341,7 +354,7 @@ export class Mob {
     // AI entirely rather than have it immediately overwrite that steering.
     if (!this.riddenBy) this._updateAI(dt, player, chunkManager, projectiles);
     this._updatePhysics(dt, chunkManager);
-    this._updateAnimation(dt, player);
+    this._updateAnimation(dt, player, frustum);
     this._syncMesh();
   }
 
@@ -604,7 +617,7 @@ export class Mob {
     this.onGround = result.onGround;
   }
 
-  _updateAnimation(dt, player) {
+  _updateAnimation(dt, player, frustum = null) {
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     const moving = speed > 0.3;
     // Amplitude scales with actual speed (capped) instead of a flat
@@ -637,7 +650,33 @@ export class Mob {
     this._headYaw = (this._headYaw ?? 0) + (targetYawOffset - (this._headYaw ?? 0)) * Math.min(1, dt * 6);
     this._headPitch = (this._headPitch ?? 0) + (targetPitch - (this._headPitch ?? 0)) * Math.min(1, dt * 6);
 
-    this.modelInstance.update(dt, { moving, limbSwingAmount, headYaw: this._headYaw, headPitch: this._headPitch, dead: false });
+    // Animation LOD (see NEAR_LOD_DIST's own doc comment above): `dist`
+    // here is the exact same player-to-mob distance already computed
+    // above for head-look, reused rather than recomputed. Real elapsed
+    // time is still accumulated across skipped ticks and handed to
+    // modelInstance.update() in one lump on the tick that actually runs,
+    // so a throttled walk cycle still plays at the correct real-world
+    // speed — just recomputed/reapplied less often.
+    this._animAccumDt = (this._animAccumDt ?? 0) + dt;
+    let skipPose = false;
+    if (dist >= NEAR_LOD_DIST) {
+      _lodPoint.x = this.position.x;
+      _lodPoint.y = this.position.y + this.size.height * 0.5;
+      _lodPoint.z = this.position.z;
+      const inFrustum = !frustum || frustum.containsPoint(_lodPoint);
+      if (!inFrustum) {
+        skipPose = true;
+      } else {
+        const lodStep = dist < MID_LOD_DIST ? 2 : 4;
+        this._animLodTick = ((this._animLodTick ?? 0) + 1) % lodStep;
+        skipPose = this._animLodTick !== 0;
+      }
+    }
+    if (skipPose) return;
+
+    const animDt = this._animAccumDt;
+    this._animAccumDt = 0;
+    this.modelInstance.update(animDt, { moving, limbSwingAmount, headYaw: this._headYaw, headPitch: this._headPitch, dead: false });
   }
 
   _syncMesh() {

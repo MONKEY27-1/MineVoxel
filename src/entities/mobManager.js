@@ -104,7 +104,15 @@ export class MobManager {
     return mob;
   }
 
-  update(dt, player, chunkManager, dayNight, dimension, projectiles) {
+  /**
+   * `frustum` (Model and Animation Overhaul, phase 9, optional — every
+   * existing caller/test that omits it keeps working exactly as before)
+   * is the camera's current view frustum, forwarded straight to each
+   * mob's own animation-LOD decision — see mob.js's `_updateAnimation`
+   * and chunkManager.getFrustum()'s doc comment for why it's always
+   * safe to pass or omit.
+   */
+  update(dt, player, chunkManager, dayNight, dimension, projectiles, frustum = null) {
     this.justKilled = null;
     this.justActivated = null;
     this._activeDimensionId = dimension.id;
@@ -159,7 +167,7 @@ export class MobManager {
       // exact same "pause a mob whose world isn't valid right now"
       // pattern already used for a mob left behind in another dimension.
       if (!this.frozen && chunkManager.isColumnLoaded(mob.position.x, mob.position.z)) {
-        mob.update(dt, chunkManager, player, projectiles);
+        mob.update(dt, chunkManager, player, projectiles, frustum);
         if (mob._justTeleported) {
           mob._justTeleported = false;
           this.particles?.spawnBurst(

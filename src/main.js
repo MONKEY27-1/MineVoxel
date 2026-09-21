@@ -3681,7 +3681,7 @@ function main() {
           mob.takeDamage(mDmg, { x: (mob.position.x - fuse.x) * mkb, z: (mob.position.z - fuse.z) * mkb });
         }
       }
-      mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension, projectiles);
+      mobManager.update(FIXED_DT, player, chunkManager, dayNight, activeDimension, projectiles, chunkManager.getFrustum());
       projectiles.update(FIXED_DT, chunkManager, player, mobManager, activeDimension);
       // The Riftwyrm only ever exists in the Hollow Reach — there's no
       // "left behind in another dimension" concept to handle (unlike
