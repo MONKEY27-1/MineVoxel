@@ -4,6 +4,7 @@ import { MOB_TYPES } from './mobTypes.js';
 import { MobModel } from './mobModel.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
 import { ARMOR_MATERIAL, getNonBlockItem } from '../items/items.js';
+import { createNametagSprite, disposeNametagSprite } from './nametag.js';
 
 const AZURECAP_BLOCKS = new Set([
   BLOCKS.AZURECAP_STEM, BLOCKS.AZURECAP_HYPHAE, BLOCKS.AZURECAP_CAP,
@@ -24,6 +25,26 @@ const AZURECAP_CHECK_INTERVAL = 1; // scanning a ~11^3 radius every tick per tus
 const NEAR_LOD_DIST = 24;
 const MID_LOD_DIST = 48;
 const _lodPoint = { x: 0, y: 0, z: 0 }; // scratch for the frustum.containsPoint check below — see chunkManager.js's own identical pooled-scratch pattern
+
+// Model and Animation Overhaul, phase 10 — the settings panel's own
+// "Animation detail" graphics control (see menus.js's GRAPHICS_APPLIERS
+// and settings.js's DEFAULT_GRAPHICS.animationDetail) scales how
+// aggressively a distant, already-throttled mob's update rate is cut
+// further on a lower-end machine — multiplying the every-2nd/every-4th
+// tick steps above, never NEAR_LOD_DIST itself, so lowering this never
+// costs any fidelity on a mob actually worth watching up close.
+const LOD_STEP_SCALE_BY_TIER = { low: 4, medium: 2, high: 1 };
+let lodStepScale = 1;
+export function setAnimationDetail(tier) {
+  lodStepScale = LOD_STEP_SCALE_BY_TIER[tier] ?? 1;
+}
+
+// Model and Animation Overhaul, phase 10 — nametag distance fade: fully
+// opaque up close, fully invisible past NAMETAG_FADE_END, so a named
+// mob's label doesn't just hard-pop in/out as the player wanders around.
+const NAMETAG_FADE_START = 16;
+const NAMETAG_FADE_END = 32;
+const _nametagWorldPos = new THREE.Vector3(); // scratch — see _syncMesh's own nametag block
 
 /** Any GOLD-tier armor piece equipped, any slot — Ashkin's neutrality check only cares that gold is worn somewhere, not which piece. */
 function playerWearsGold(player) {
@@ -316,6 +337,11 @@ export class Mob {
 
   update(dt, chunkManager, player, projectiles, frustum = null) {
     if (this.despawning) {
+      // A dying mob's nametag isn't kept in sync with the death-flop
+      // pose below (that's `_syncMesh()`'s job, not called during
+      // despawn) — simplest to just hide it for the animation's brief
+      // duration rather than track a stale, slightly-wrong position.
+      if (this._nametag) this._nametag.visible = false;
       this._deathT = Math.min(1, this._deathT + dt / 0.6);
       // Rotate onto its side as it despawns, then let physics keep it
       // grounded — no AI/attacks/movement once death has started.
@@ -355,7 +381,7 @@ export class Mob {
     if (!this.riddenBy) this._updateAI(dt, player, chunkManager, projectiles);
     this._updatePhysics(dt, chunkManager);
     this._updateAnimation(dt, player, frustum);
-    this._syncMesh();
+    this._syncMesh(player);
   }
 
   _updateAI(dt, player, chunkManager, projectiles) {
@@ -667,7 +693,7 @@ export class Mob {
       if (!inFrustum) {
         skipPose = true;
       } else {
-        const lodStep = dist < MID_LOD_DIST ? 2 : 4;
+        const lodStep = (dist < MID_LOD_DIST ? 2 : 4) * lodStepScale;
         this._animLodTick = ((this._animLodTick ?? 0) + 1) % lodStep;
         skipPose = this._animLodTick !== 0;
       }
@@ -679,7 +705,7 @@ export class Mob {
     this.modelInstance.update(animDt, { moving, limbSwingAmount, headYaw: this._headYaw, headPitch: this._headPitch, dead: false });
   }
 
-  _syncMesh() {
+  _syncMesh(player) {
     this.mesh.position.set(this.position.x, this.position.y, this.position.z);
     this.mesh.rotation.y = this.yaw;
     // Idle breathing moved into the animation system itself
@@ -689,6 +715,9 @@ export class Mob {
     const squash = 1 - (this._hurtFlash / 0.15) * 0.25;
     const baseScale = this.baby ? BABY_SCALE : 1;
     this.mesh.scale.set(baseScale * (1 / squash), baseScale * squash, baseScale * (1 / squash));
+
+    this._syncNametag(player);
+
     // Red hurt flash: MeshBasicMaterial.color multiplies the texture, so
     // tinting it red-and-bright then easing back to white over the same
     // window as the squash reads as a hit flash without needing a
@@ -701,7 +730,59 @@ export class Mob {
     this.modelInstance.material.color.setRGB(1, 1 - flashT * 0.7, 1 - flashT * 0.7);
   }
 
+  /**
+   * Model and Animation Overhaul, phase 10 — a floating name label,
+   * shown only once the mob has a real `customName` (set via the new
+   * `/name` command — see playerEntities.js), matching vanilla's own
+   * "only named mobs show one" behavior. Parented under `this.mesh`
+   * (added to/removed from the scene for free alongside it) but NOT
+   * under any bone — a bone's rotation would tilt the label out of its
+   * always-camera-facing billboard, and `this.mesh`'s own hurt-
+   * squash/baby scale (set just above) would visibly warp/shrink it, so
+   * its own scale is recomputed every call to cancel that out, leaving
+   * only its head-tracking *position* inherited from the mesh hierarchy.
+   */
+  _syncNametag(player) {
+    if (!this.customName || !this.modelInstance.ready) {
+      if (this._nametag) {
+        disposeNametagSprite(this._nametag);
+        this.mesh.remove(this._nametag);
+        this._nametag = null;
+      }
+      return;
+    }
+    if (!this._nametag || this._nametag.userData.text !== this.customName) {
+      if (this._nametag) {
+        disposeNametagSprite(this._nametag);
+        this.mesh.remove(this._nametag);
+      }
+      this._nametag = createNametagSprite(this.customName);
+      this.mesh.add(this._nametag);
+    }
+
+    const head = this.modelInstance.model.getAttachment('head.top');
+    head.getWorldPosition(_nametagWorldPos);
+    this.mesh.worldToLocal(_nametagWorldPos);
+    _nametagWorldPos.y += 0.15; // a little clearance above the head box itself
+    this._nametag.position.copy(_nametagWorldPos);
+
+    const base = this._nametag.userData.baseScale;
+    this._nametag.scale.set(base.x / this.mesh.scale.x, base.y / this.mesh.scale.y, 1);
+
+    if (player) {
+      const dx = player.position.x - this.position.x;
+      const dz = player.position.z - this.position.z;
+      const dist = Math.hypot(dx, dz);
+      const fade = 1 - Math.max(0, Math.min(1, (dist - NAMETAG_FADE_START) / (NAMETAG_FADE_END - NAMETAG_FADE_START)));
+      this._nametag.material.opacity = fade;
+      this._nametag.visible = fade > 0.01;
+    } else {
+      this._nametag.visible = true;
+    }
+  }
+
   dispose() {
+    if (this._nametag) disposeNametagSprite(this._nametag);
     // modelInstance.dispose() only frees this instance's own material —
     // geometry is shared across every mob of this same type (see
     // mobModel.js/modelBuilder.js's own cache) and must never be

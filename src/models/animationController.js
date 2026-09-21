@@ -13,6 +13,22 @@
 
 const CHANNELS = ['rotation', 'position', 'scale'];
 
+// Model and Animation Overhaul, phase 10 — the settings panel's
+// "Animation smoothness" control (see menus.js's GRAPHICS_APPLIERS and
+// settings.js's DEFAULT_GRAPHICS.animationSmoothness) scales every
+// crossfade duration this module ever computes, module-wide rather than
+// per instance: every AnimationController in the game (the player,
+// every mob, the first-person arm) is constructed fresh per entity with
+// no central registry to push a live setting onto, so a shared,
+// live-read multiplier here reaches every one of them for free instead.
+// 0 snaps every transition instantly (recreating, in spirit, the old
+// pre-animation-system hand-rolled rig's own lack of blending); 1 is
+// every clip's own authored crossfade duration, unscaled.
+let crossfadeScale = 1;
+export function setCrossfadeScale(scale) {
+  crossfadeScale = Math.max(0, scale);
+}
+
 function unionKeys(mapA, mapB) {
   const s = new Set(mapA.keys());
   for (const k of mapB.keys()) s.add(k);
@@ -81,7 +97,7 @@ export class AnimationController {
     if (this.current?.name === name) return;
     const def = this.states.get(name);
     if (!def) throw new Error(`[animationController] unknown state "${name}"`);
-    const duration = crossfade ?? this.transitionTable.get(`${this.current?.name}>${name}`) ?? this.transitionTable.get(`*>${name}`) ?? this.defaultCrossfade;
+    const duration = (crossfade ?? this.transitionTable.get(`${this.current?.name}>${name}`) ?? this.transitionTable.get(`*>${name}`) ?? this.defaultCrossfade) * crossfadeScale;
     this.previous = this.current;
     this.current = { name, clip: def.clip, time: 0, speed: def.speed ?? 1 };
     // `_currSampleBuf` already holds the old current clip's last-sampled

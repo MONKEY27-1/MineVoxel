@@ -1614,21 +1614,148 @@ override gate in `pickLandBiome()` and must be excluded from
    happened to check biome, which isn't deterministic-from-origin-alone
    the way everything else here is.
 
-### Adding a mob
+### Models and animation
 
-Add an entry to `MOB_TYPES` in `src/entities/mobTypes.js`, wrapped in
-`hostile({...})` or `passive({...})`: `name`, a `shape` (`biped`,
-`quadruped`, `bird`, or `spider` — one of `mob.js`'s `BUILDERS`, which
-determines the blocky body it gets assembled from), `size`, `maxHealth`,
-`walkSpeed`, `attackDamage`/`attackRange`/`attackCooldown`, `aggroRange`,
-a `particleColor` (used for its hit/death particle burst), and a `drops`
-list (`{ itemId, min, max, chance }`, each rolling independently — see the
-file's own comment on `lootingBoost`/`playerKillOnly` for the two optional
-flags). No texture reference is needed — `mobTexture.js` procedurally
-generates one per type name the same way `atlas.js` does for blocks.
-`mobManager.js`'s spawn logic picks from `MOB_TYPES` automatically; a
-structure can also spawn one directly via a `spawner: {mobType}` entry in
-its blueprint (see "Adding a discrete structure" above).
+Every posable thing in the game (the player, all 18 mobs, the
+first-person arm) is a real, shared-skeleton model rather than
+hand-assembled boxes — see `MODELS.md` for the full phase-by-phase
+build log of how this replaced the old approach. This section is the
+reference for using the system day to day: the two file formats, the
+full list of procedural animation inputs, the attachment convention,
+and a worked example of adding a brand-new mob on top of it.
+
+**Model format** (`src/models/modelFormat.js`/`modelBuilder.js`,
+`.model.json`): a flat map of named **parts**, each with a `parent`
+(or `null` for a root), a `pivot` (`[x,y,z]`, absolute in model-root
+space, not relative to the parent — see the format's own doc comment),
+an optional `rotation`, and one or more axis-aligned `boxes`
+(`{offset, size, uv, inflate?, tint?}`, in 1/16-block units). Parts
+form a real parent/child bone hierarchy — a torso-lean animation
+carries the head and limbs with it for free, unlike the old flat-
+sibling rig. `attachments` is a separate map of named points
+(`{part, pivot, rotation?}`) — see "Attachments" below.
+`buildSharedModelData()` builds and caches one set of vertex buffers
+per model `id` forever; `createModelInstance()` (cheap: a fresh bone
+hierarchy + `Skeleton` + `SkinnedMesh` wrapper only) is what you call
+per spawned instance, so a hundred zombies share one geometry buffer
+and one hundred independent skeletons. A model can be **generated**
+at runtime instead of hand-authored as JSON — see mobModelShapes.js's
+`createDefBuilder()`/`packUV()` below.
+
+**Animation format** (`src/models/animationFormat.js`/`animationClip.js`,
+`.anim.json`): a set of **tracks**, each targeting exactly one
+`(part, channel, axis)` triple (`channel` is `rotation`/`position`/
+`scale`, `axis` is `x`/`y`/`z`) and either `keyframes`
+(`{time, value, interp?}`, `interp` one of `linear`/`ease`/`step`/
+`catmullrom`) or a procedural `expression` string (a small safe
+arithmetic language — `+ - * / %`, parens, `sin/cos/tan/abs/min/max/
+sqrt/pow/sign/floor/ceil/clamp/lerp`, see `expr.js`). A track's value
+is always an **offset** from that part's bind-pose rest transform, not
+an absolute value, so additive layers (breathing, head look-at) can
+sum on top of a base pose without knowing what that base pose was.
+
+An expression can reference any of these procedural inputs, fed in
+every frame by whichever entity owns the `AnimationController`
+(`mobModel.js`'s/`playerModel.js`'s own `update()` — see either for
+the authoritative call site):
+
+| variable          | meaning                                                              |
+| ----------------- | --------------------------------------------------------------------|
+| `time`            | the clip's own local playback time in seconds (injected automatically by `AnimationClip.sample()` — never set by the caller) |
+| `limbSwing`       | a monotonically-increasing phase accumulator, its own rate scaled by how fast the entity is actually moving — drives the walk-cycle's `sin(limbSwing)` |
+| `limbSwingAmount` | 0..1, how large the walk cycle should read (capped speed / max walk speed) — lets a slow wander swing less than a full sprint |
+| `headYaw`/`headPitch` | radians, fed into the permanent `headLook` additive layer for a "notice and glance at the player" head-turn |
+| `velocity`/`groundSpeed` | current speed (blocks/sec) — separate names since a future rig could reasonably want horizontal-only vs. full 3D speed |
+| `age`             | reserved for a future "grows over time" use — always `0` today, real for neither the player nor any mob yet |
+
+**Attachments**: a named point on a model (`{part, pivot, rotation?}`)
+that anything outside the model system can hang something off of via
+`model.getAttachment(name)` — a `THREE.Object3D` parented under that
+part's own bone, so it tracks the part's live animated position/
+rotation for free. `getAttachment`/`getPart` both throw a named error
+for an unknown attachment/part rather than silently returning
+`undefined` — "never hardcode an offset where an attachment point
+belongs" is a real discipline here, not just a comment. The player
+model defines `hand.right`/`hand.left` (held items — see
+`heldItemModel.js`), `head.top` (the phase 10 nametag — not shown for
+the player, only named mobs), `mouth`, and `back`; every mob shape
+defines `head.top` only (mobs never hold items in this game). Add a
+new attachment the same way any other part is added — a name, its
+parent part, and a pivot — nothing about the attachment map itself
+needs touching elsewhere.
+
+**Adding a new mob**: `src/entities/mobModelShapes.js` generates all
+18 existing mobs' geometry from exactly four shape functions
+(`buildBipedDef`/`buildQuadrupedDef`/`buildBirdDef`/`buildSpiderDef`)
+rather than one hand-authored `.model.json` per creature — for a new
+mob that fits one of those four silhouettes, no new model file is
+needed at all:
+
+1. Add an entry to `MOB_TYPES` in `src/entities/mobTypes.js`, wrapped
+   in `hostile({...})` or `passive({...})`: `name`, a `shape`
+   (`biped`/`quadruped`/`bird`/`spider` — picks which of the four
+   generator functions above builds its geometry), `size`
+   (`{width, height}`, fed straight into that generator), `maxHealth`,
+   `walkSpeed`, `attackDamage`/`attackRange`/`attackCooldown`,
+   `aggroRange`, a `particleColor` (hit/death particle burst), and a
+   `drops` list (`{itemId, min, max, chance}`, each rolling
+   independently — see the file's own comment on `lootingBoost`/
+   `playerKillOnly` for the two optional flags).
+2. Give it a real color identity in `src/entities/mobModelTexture.js`'s
+   `MOB_PALETTES`: a base color, an optional accent color plus which
+   real part name(s) it paints onto (must be an actual part the chosen
+   shape generates — `mobModelShapes.js`'s own `SHAPE_BUILDERS` shows
+   each shape's part names; a typo here silently no-ops rather than
+   crashing, a real bug two existing entries had before it was
+   caught — see `MODELS.md`'s phase 7 section). No texture file to
+   draw — `paintMobTexture()` paints by part-name convention
+   (`head`/`body`/else-`limb`) plus your accent, cached per
+   `${typeId}:${defId}:${variantSeed}`.
+3. That's it for rendering — no new `.model.json`, no new geometry
+   code. `mob.js`'s constructor already does
+   `new MobModel(typeId, this.def.shape, this.def.size, ...)` for
+   every mob type generically. It shares the existing per-shape
+   `mob_biped_idle.anim.json`/`_walk`/`_death`/`head_look.anim.json`
+   clips too — a new mob doesn't get its own animation files unless it
+   needs to move genuinely differently from every other creature of
+   its shape (a real, deliberate scope cut from phase 7: per-mob
+   bespoke animation flourishes gave way to per-*shape* clips).
+4. Test it: `mobManager.js`'s spawn logic picks up a new `MOB_TYPES`
+   entry automatically — `/summon <yourMobId>` in a running world (or
+   a structure's `spawner: {mobType}` blueprint entry, see "Adding a
+   discrete structure" above) is the fastest way to actually see it.
+   `npm run test:mob-model-shapes`/`test:mob-model` both iterate every
+   real `MOB_TYPES` entry automatically, so a new one is covered by
+   the existing test suite with zero test-file changes needed.
+
+A genuinely new *silhouette* (not biped/quadruped/bird/spider) needs a
+real new generator function in `mobModelShapes.js` (or a hand-authored
+`.model.json` if it's a one-off) plus its own idle/walk/death clips —
+a bigger job than the four steps above, but the model/animation
+*pipeline* underneath (shared geometry cache, `AnimationController`,
+the procedural vars table above) doesn't care either way.
+
+The phase 3 debug model viewer (F8, `src/debug/modelViewer.js`) is
+useful for checking a model/clip in isolation without spawning a full
+mob — it's wired to a fixed debug model/clip pair (`main.js`'s
+`MODEL_VIEWER_DEBUG_MODEL`/`_DEBUG_ANIMATIONS` constants) rather than
+a live in-UI picker, so pointing it at something new means editing
+those two constants (or calling `modelViewer.toggle(url, anims)`
+directly from the console) rather than a menu option.
+
+**Settings**: the Settings panel's Graphics tab has a real "Animation
+detail" (Low/Medium/High) and "Animation smoothness" (0-200%) pair —
+the former scales how aggressively a distant mob's pose update is
+throttled beyond `mob.js`'s own always-full-rate melee range (never
+free on a mob actually worth watching up close — see `MODELS.md`'s
+phase 9/10 sections), the latter scales every state-transition
+crossfade duration in the game at once, module-wide
+(`animationController.js`'s `setCrossfadeScale` — 0% snaps every
+transition instantly, 100% is each clip's own authored blend time).
+Arm width (classic/slim) and skin (procedural seed or an imported
+image) live in the Player tab, and first-/third-person camera mode is
+its own dedicated keybind (F5) rather than a settings-panel toggle,
+matching a standard Minecraft-style control rather than a menu option.
 
 ### Adding a recipe
 

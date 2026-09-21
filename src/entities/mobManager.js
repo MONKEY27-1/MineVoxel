@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Mob } from './mob.js';
+import { Mob, setAnimationDetail as setMobAnimationDetail } from './mob.js';
 import { MOB_TYPES, HOSTILE_MOB_IDS, PASSIVE_MOB_IDS } from './mobTypes.js';
 import { attackDamageFor, ITEMS } from '../items/items.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
@@ -102,6 +102,11 @@ export class MobManager {
     this.scene.add(mob.mesh);
     this.mobs.push(mob);
     return mob;
+  }
+
+  /** Model and Animation Overhaul, phase 10 — the settings panel's "Animation detail" control (menus.js's GRAPHICS_APPLIERS.animationDetail); forwards straight to mob.js's own module-level LOD scale since every mob shares one global setting, not a per-instance one. */
+  setAnimationDetail(tier) {
+    setMobAnimationDetail(tier);
   }
 
   /**

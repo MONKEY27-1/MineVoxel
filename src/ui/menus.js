@@ -5,6 +5,7 @@ import { showConfirm, showPrompt, trapFocus } from './modal.js';
 import { setCaptionsEnabled } from './captions.js';
 import { GRAPHICS_PRESETS, DEFAULT_GRAPHICS, DEFAULT_PERFORMANCE, DEFAULT_CONTROLS, DEFAULT_PLAYER, DEFAULT_AUDIO, detectPreset, saveSettings as persistSettings } from '../settings/settings.js';
 import { loadCustomSkin } from '../entities/skinTexture.js';
+import { setCrossfadeScale } from '../models/animationController.js';
 
 // Phase 9: start screen (seed + game mode), and a settings panel reachable
 // both from the start screen and from the existing pointer-lock-overlay
@@ -52,6 +53,8 @@ const GRAPHICS_APPLIERS = {
   mipmapping: (v, ctx) => ctx._applyMipmapping(v),
   antialiasing: (v, ctx) => (ctx.renderer.fxaa.enabled = v === 'fxaa'),
   shadowQuality: (v, ctx) => ctx.onShadowQualityChange?.(v),
+  animationDetail: (v, ctx) => ctx.mobManager.setAnimationDetail(v),
+  animationSmoothness: (v, ctx) => ctx._setAnimationSmoothness(v),
   smoothLighting: (v, ctx) => ctx.chunkManager.setAoStrength(v / 100),
   cloudsEnabled: (v, ctx) => ctx.clouds.setEnabled(v),
   cloudHeight: (v, ctx) => ctx.clouds.setHeight(v),
@@ -336,6 +339,10 @@ export class MenuController {
     applyMipmapping(this.atlasTexture, this.renderer.three, enabled);
   }
 
+  _setAnimationSmoothness(percent) {
+    setCrossfadeScale(percent / 100);
+  }
+
   _applyPreset(name) {
     const patch = GRAPHICS_PRESETS[name];
     if (!patch) return;
@@ -393,6 +400,8 @@ export class MenuController {
     this._wireGraphicsCheckbox('mipmapping-toggle', 'mipmapping');
     this._wireGraphicsChoice('antialiasing-choice', 'antialiasing');
     this._wireGraphicsChoice('shadow-quality-choice', 'shadowQuality');
+    this._wireGraphicsChoice('animation-detail-choice', 'animationDetail');
+    this._wireGraphicsSlider('animation-smoothness-slider', 'animation-smoothness-val', 'animationSmoothness', (v) => `${v}%`);
     this._wireGraphicsSlider('smooth-lighting-slider', 'smooth-lighting-val', 'smoothLighting', (v) => `${v}%`);
     this._wireGraphicsCheckbox('clouds-toggle', 'cloudsEnabled');
     this._wireGraphicsSlider('cloud-height-slider', 'cloud-height-val', 'cloudHeight');
@@ -438,6 +447,9 @@ export class MenuController {
     document.getElementById('mipmapping-toggle').checked = g.mipmapping;
     setChoiceSelected(document.getElementById('antialiasing-choice'), g.antialiasing);
     setChoiceSelected(document.getElementById('shadow-quality-choice'), g.shadowQuality);
+    setChoiceSelected(document.getElementById('animation-detail-choice'), g.animationDetail);
+    document.getElementById('animation-smoothness-slider').value = g.animationSmoothness;
+    document.getElementById('animation-smoothness-val').textContent = `${g.animationSmoothness}%`;
     document.getElementById('smooth-lighting-slider').value = g.smoothLighting;
     document.getElementById('smooth-lighting-val').textContent = `${g.smoothLighting}%`;
     document.getElementById('clouds-toggle').checked = g.cloudsEnabled;

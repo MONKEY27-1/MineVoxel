@@ -13,6 +13,17 @@ export const DEFAULT_GRAPHICS = {
   mipmapping: false,
   antialiasing: 'off', // 'off' | 'fxaa'
   shadowQuality: 'off', // 'off' | 'low' | 'medium' | 'high'
+  // Model and Animation Overhaul, phase 10 — how aggressively a distant
+  // (but still on-screen) mob's pose recompute is throttled beyond
+  // mob.js's own always-full-rate near range; never affects anything
+  // within melee/interaction distance regardless of tier. See mob.js's
+  // `setAnimationDetail`.
+  animationDetail: 'high', // 'low' | 'medium' | 'high'
+  // Model and Animation Overhaul, phase 10 — a live multiplier on every
+  // state-transition crossfade duration in the game (0% snaps instantly,
+  // 100% is every clip's own authored blend time, unscaled). See
+  // animationController.js's `setCrossfadeScale`.
+  animationSmoothness: 100, // %
   smoothLighting: 100, // %, blends AO between flat (0) and full (100)
   cloudsEnabled: true,
   cloudHeight: 148,
@@ -197,6 +208,7 @@ export const GRAPHICS_PRESETS = {
     mipmapping: false,
     antialiasing: 'off',
     shadowQuality: 'off',
+    animationDetail: 'low',
     smoothLighting: 0,
     cloudsEnabled: false,
     waterQuality: 'low',
@@ -210,6 +222,7 @@ export const GRAPHICS_PRESETS = {
     mipmapping: false,
     antialiasing: 'off',
     shadowQuality: 'off',
+    animationDetail: 'low',
     smoothLighting: 50,
     cloudsEnabled: false,
     waterQuality: 'low',
@@ -223,6 +236,7 @@ export const GRAPHICS_PRESETS = {
     mipmapping: false,
     antialiasing: 'off',
     shadowQuality: 'low',
+    animationDetail: 'medium',
     smoothLighting: 100,
     cloudsEnabled: true,
     waterQuality: 'medium',
@@ -237,6 +251,7 @@ export const GRAPHICS_PRESETS = {
     mipmapping: true,
     antialiasing: 'fxaa',
     shadowQuality: 'medium',
+    animationDetail: 'high',
     smoothLighting: 100,
     cloudsEnabled: true,
     waterQuality: 'high',
@@ -251,6 +266,7 @@ export const GRAPHICS_PRESETS = {
     mipmapping: true,
     antialiasing: 'fxaa',
     shadowQuality: 'high',
+    animationDetail: 'high',
     smoothLighting: 100,
     cloudsEnabled: true,
     waterQuality: 'high',

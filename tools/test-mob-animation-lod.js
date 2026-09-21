@@ -5,9 +5,12 @@
 // mob genuinely off-screen (frustum given, containsPoint always false)
 // never recomputes its pose at all until it's back in view — see
 // mob.js's `_updateAnimation` for the exact thresholds and reasoning.
-// THREE-dependent (Mob/MobModel build real geometry), runs inside a real
-// page; calls `_updateAnimation` directly rather than the full `update()`
-// so this test needs no chunkManager/physics setup at all.
+// Also covers phase 10's "Animation detail" settings control
+// (setAnimationDetail), which scales that same distance throttle further
+// without ever touching NEAR_LOD_DIST itself. THREE-dependent
+// (Mob/MobModel build real geometry), runs inside a real page; calls
+// `_updateAnimation` directly rather than the full `update()` so this
+// test needs no chunkManager/physics setup at all.
 import { launchBrowser, newGamePage, closeAll } from './harness.js';
 
 export default async function run(baseUrl) {
@@ -86,6 +89,33 @@ export default async function run(baseUrl) {
           if (mob.modelInstance.controller.current.time !== t0) updates++;
         }
         assert(updates === N / 2, `a mid-distance mob with no frustum given should fall back to every-2nd-tick, expected ${N / 2}, got ${updates}`);
+      }
+
+      // --- the settings panel's "Animation detail" control scales the throttle, not NEAR_LOD_DIST itself ---
+      {
+        const { setAnimationDetail } = await import('/src/entities/mob.js');
+        try {
+          setAnimationDetail('low'); // 4x the base step
+          const midMob = await makeMovingMob(35); // every-2nd-tick at 'high' -> every-8th-tick at 'low'
+          let midUpdates = 0;
+          for (let i = 0; i < 8; i++) {
+            const t0 = midMob.modelInstance.controller.current.time;
+            midMob._updateAnimation(dt, player, null);
+            if (midMob.modelInstance.controller.current.time !== t0) midUpdates++;
+          }
+          assert(midUpdates === 1, `'low' animation detail should quarter the mid-distance update rate on top of the base every-2nd-tick (expected 1 update in 8 ticks), got ${midUpdates}`);
+
+          const nearMob = await makeMovingMob(5); // within NEAR_LOD_DIST — must stay full-rate regardless of detail tier
+          let nearUpdates = 0;
+          for (let i = 0; i < 6; i++) {
+            const t0 = nearMob.modelInstance.controller.current.time;
+            nearMob._updateAnimation(dt, player, null);
+            if (nearMob.modelInstance.controller.current.time !== t0) nearUpdates++;
+          }
+          assert(nearUpdates === 6, `'low' animation detail must never throttle a mob within NEAR_LOD_DIST, expected 6/6, got ${nearUpdates}/6`);
+        } finally {
+          setAnimationDetail('high'); // restore the default so it doesn't leak into whatever runs next on this page
+        }
       }
 
       return checks;

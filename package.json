@@ -73,7 +73,8 @@
     "test:item-drop-model": "node tools/run-with-server.js tools/test-item-drop-model.js",
     "test:projectile-model": "node tools/run-with-server.js tools/test-projectile-model.js",
     "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js",
-    "test:mob-animation-lod": "node tools/run-with-server.js tools/test-mob-animation-lod.js"
+    "test:mob-animation-lod": "node tools/run-with-server.js tools/test-mob-animation-lod.js",
+    "test:mob-nametag": "node tools/run-with-server.js tools/test-mob-nametag.js"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

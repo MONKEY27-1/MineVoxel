@@ -220,6 +220,22 @@ export function register(dispatcher) {
           .then(literal('list').executes((context, args) => runTag(context, args.target, 'list', null)))
       )
   );
+
+  // Model and Animation Overhaul, phase 10 — the only way to actually
+  // set `customName` (mob.js/player.js's own field, already read by
+  // entityAdapter.js's `.name` and main.js's death message, but nothing
+  // in this codebase ever wrote it before this command existed). Setting
+  // it on a mob is what makes mob.js's floating nametag sprite appear at
+  // all — see mob.js's `_syncNametag`.
+  dispatcher.register(
+    literal('name')
+      .describes("Sets or clears an entity's custom name (shown as a floating nametag above a named mob)")
+      .then(
+        argument('target', entitySelector())
+          .then(literal('clear').executes((context, args) => runName(context, args.target, null)))
+          .then(argument('name', string('greedy')).executes((context, args) => runName(context, args.target, args.name)))
+      )
+  );
 }
 
 function runGamemode(context, mode, selector) {
@@ -452,5 +468,16 @@ function runTag(context, selector, action, tag) {
     affected++;
   }
   context.success(`${action === 'add' ? 'Added' : 'Removed'} tag "${tag}" ${action === 'add' ? 'to' : 'from'} ${affected} entit${affected === 1 ? 'y' : 'ies'}.`);
+  return { success: true, affected };
+}
+
+function runName(context, selector, name) {
+  const entities = requireOneEntity(context, selector, 'entity');
+  let affected = 0;
+  for (const e of entities) {
+    e.ref.customName = name;
+    affected++;
+  }
+  context.success(name ? `Named ${affected} entit${affected === 1 ? 'y' : 'ies'} "${name}".` : `Cleared the custom name of ${affected} entit${affected === 1 ? 'y' : 'ies'}.`);
   return { success: true, affected };
 }

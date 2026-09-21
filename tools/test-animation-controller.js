@@ -4,7 +4,7 @@
 // the one THREE-touching step, tested separately via Playwright).
 import { validateAnimationDef } from '../src/models/animationFormat.js';
 import { AnimationClip } from '../src/models/animationClip.js';
-import { AnimationController } from '../src/models/animationController.js';
+import { AnimationController, setCrossfadeScale } from '../src/models/animationController.js';
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -158,6 +158,34 @@ function run() {
     assert(approx(afterD.get('body').rotation.z, 0.3), 'bodyD should apply its own body rotation');
     assert(approx(afterD.get('rightLeg').rotation.x, 0), 'bodyD has no rightLeg track — it must read as rest (0), not leak legA\'s old 0.4 via a reused buffer');
     assert(approx(afterD.get('head').rotation.y, 0), 'bodyD has no head track — it must read as rest (0), not leak headB\'s old 0.9');
+  }
+
+  console.log('[test:animation-controller] setCrossfadeScale scales every transition\'s blend duration, including explicit overrides...');
+  {
+    // Model and Animation Overhaul, phase 10 — the settings panel's
+    // "Animation smoothness" control. Module-wide by design (see
+    // animationController.js's own comment on why), so it must be reset
+    // to 1 afterward or every OTHER test in this file (and this file's
+    // own two earlier crossfade tests, which assume the untouched
+    // default) would silently start failing depending on run order.
+    const idle = clip({ length: 1, loop: true, tracks: [{ part: 'rightLeg', channel: 'rotation', axis: 'x', keyframes: [{ time: 0, value: 0 }] }] });
+    const walk = clip({ length: 1, loop: true, tracks: [{ part: 'rightLeg', channel: 'rotation', axis: 'x', keyframes: [{ time: 0, value: 1 }] }] });
+    try {
+      setCrossfadeScale(0.5); // half of every authored crossfade duration
+      const c = new AnimationController(restPose(), new Map([['idle', { clip: idle }], ['walk', { clip: walk }]]), { defaultCrossfade: 1 });
+      c.setState('walk'); // authored as a 1s crossfade -> 0.5s at this scale
+      c.update(0.5); // exactly at the scaled duration, not the authored one
+      const v = c.computePose({}).get('rightLeg').rotation.x;
+      assert(approx(v, 1), `expected a 1s crossfade scaled to 0.5x to have fully resolved after 0.5s, got ${v}`);
+
+      const c2 = new AnimationController(restPose(), new Map([['idle', { clip: idle }], ['walk', { clip: walk }]]), { defaultCrossfade: 1 });
+      c2.setState('walk', { crossfade: 1 }); // an explicit per-call override, also authored as 1s
+      c2.update(0.5);
+      const v2 = c2.computePose({}).get('rightLeg').rotation.x;
+      assert(approx(v2, 1), `setCrossfadeScale should scale an explicit crossfade override too, not just the default — expected fully resolved at 0.5s, got ${v2}`);
+    } finally {
+      setCrossfadeScale(1); // restore the default so no other test in this file is affected
+    }
   }
 
   console.log('[test:animation-controller] setState to an unknown name throws...');

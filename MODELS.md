@@ -1099,3 +1099,162 @@ immediately re-running with zero code changes — a pre-existing
 real-time-polling-vs-simulation-time race in that test file, unrelated
 to this phase's own changes (flagged separately for a deterministic
 fix rather than patched inline here).
+
+## Phase 10 — Polish and integration
+
+**Files:** `src/models/modelBuilder.js` (`castShadow`), new
+`src/entities/nametag.js`, `src/entities/mob.js` (nametag lifecycle +
+new `setAnimationDetail`), `src/entities/mobManager.js` (forwarding
+method), `src/models/animationController.js` (`setCrossfadeScale`),
+`src/settings/settings.js`/`src/ui/menus.js`/`index.html` (two new
+graphics settings), `src/commands/commands/playerEntities.js` (new
+`/name` command), `README.md` (a full rewrite of the stale "Adding a
+mob" section into a real models/animation reference), two new test
+files.
+
+**Real shadow casting, not a blob-decal system — because the real
+infrastructure this needed already existed.** The revision pass before
+this whole overhaul already built a working single-`DirectionalLight`
+shadow map with a hand-rolled receiver shader for terrain (see this
+README's own "Shadows" note) — it just never had anything cast into
+it, since every entity was `MeshBasicMaterial` and nothing set
+`castShadow`. `Model`'s constructor (`modelBuilder.js`) now sets
+`this.mesh.castShadow = true` once, covering the player, every mob,
+and the first-person arm (harmless there — its `ViewModel` lives in a
+wholly separate `THREE.Scene`, never lit by `sunLight` at all) for
+free, with zero shader work: three.js's shadow depth pre-pass renders
+any `castShadow` object with its own internal depth material
+regardless of the object's real material or whether it's a
+`SkinnedMesh`, so a mob correctly casts its own animated, correctly-
+posed silhouette. No additional cost when shadows are off in settings
+(`off` is the actual default) or for anything outside the shadow
+camera's own fixed 40-block frustum around the player — three.js skips
+both already. Mobs still don't *receive* shadows onto themselves (the
+terrain's hand-rolled shadow sampling was deliberately wired into only
+the opaque terrain material in the original pass) — a real, pre-
+existing, documented scope line from before this overhaul, not
+something this phase needed or tried to extend.
+
+**Hurt-flash was already real, already correct, verified rather than
+rebuilt.** `mob.js`'s `_syncMesh()` already tints
+`modelInstance.material.color` red-and-bright then eases back to white
+over the hurt-squash window — genuine per-instance material state,
+exactly the "material parameters" approach the phase asked for,
+shipped back in phase 7. Nothing to add here.
+
+**Invisibility-fade, glow-outline, and potion-tint: verified as
+non-existent mechanics, not silently skipped.** Searched the entire
+status-effect system (`src/entities/statusEffects.js`'s `EFFECT_TYPES`:
+strength/speed/night_vision/slow_falling/regeneration/
+fire_resistance/decay) and found no invisibility effect, no glowing
+effect, and no potion-effect-to-visual-tint mapping anywhere in this
+codebase. Building material-parameter support for gameplay mechanics
+that don't exist would be inventing new systems under a "polish" label
+— exactly the scope discipline phases 7/8 already established (verify
+before building). If a future phase adds any of these three as real
+mechanics, the hurt-flash code above is the template: a per-instance
+material, tinted/faded by a plain numeric state field already updated
+every tick.
+
+**A floating nametag, real end to end — including the one piece of
+missing infrastructure it actually needed.** `nametag.js`'s
+`createNametagSprite()` builds a canvas-rendered `THREE.Sprite` (billboards
+toward the camera automatically — three.js cancels a sprite's inherited
+*rotation* for rendering, though not inherited *scale*, which is why
+`mob.js`'s `_syncNametag()` explicitly recomputes the sprite's own
+scale against `this.mesh.scale` every call, canceling out hurt-squash/
+baby-shrink so the label never visibly warps with them). Parented
+under `this.mesh` (added/removed with it for free, no separate scene
+reference needed in `mob.js`) but positioned via the model's real
+`head.top` attachment — the exact attachment point convention phases
+1/4/7 already established, not a hand-tuned offset. Shown only for a
+mob with a real `customName` (matching vanilla's own "only named mobs
+show one" behavior), with a 16-32 block linear opacity fade.
+
+**Discovered while wiring this up: `customName` was a real, already-
+read field with no way to ever set it.** `mob.js`/`player.js` both
+already had a `customName` field (read by `entityAdapter.js`'s `.name`
+getter and main.js's death message), clearly anticipating a naming
+feature — but nothing in the entire codebase ever wrote to it; `/tag`
+(the only superficially-similar existing command) operates on a
+completely different field (`tags`, a `Set`). Added a small, symmetric
+`/name <selector> <text...>` / `/name <selector> clear` command
+(`playerEntities.js`), mirroring `/tag`'s own existing structure
+exactly, so the nametag feature is actually reachable in real play
+rather than infrastructure with nothing plugged into it.
+
+**Animation detail and animation smoothness: two new settings, one
+scaling phase 9's own LOD throttle, one scaling every crossfade in the
+game.** `mob.js`'s `setAnimationDetail(tier)` multiplies the existing
+every-2nd/every-4th-tick LOD steps from phase 9 by 1x/2x/4x
+(high/medium/low) — deliberately never touching `NEAR_LOD_DIST` itself,
+so a lower detail tier can never cost fidelity on a mob actually worth
+watching up close, only on ones already far enough to be throttled.
+`animationController.js`'s `setCrossfadeScale(scale)` is a module-wide
+multiplier (not a per-instance setting) applied to every computed
+blend duration in `setState()` — including an explicit per-call
+override, not just the fallback default — because every
+`AnimationController` in the game (the player's, every mob's, the
+first-person arm's) is constructed fresh per entity with no central
+registry to push a live setting onto individually; a shared, live-read
+module-level value reaches all of them for free instead. Both wired
+into `settings.js`/`menus.js`/`index.html` following the exact existing
+`GRAPHICS_APPLIERS` table pattern (a settings key -> one function that
+pushes it onto whatever live system owns that behavior) — `animationDetail`
+included in every graphics preset (a real fidelity/performance tier,
+like `shadowQuality`); `animationSmoothness` deliberately left out of
+every preset, matching `handSide`/`viewmodelFov`'s own precedent for
+"a personal preference, not a hardware-fidelity tradeoff."
+
+**Camera preference, arm style, and skin selection: already real,
+already in the settings panel, verified rather than rebuilt.**
+`player.cameraMode`'s F5 cycle (first/third-person), the Player tab's
+arm-width choice (classic/slim — phase 4/6's own
+`createSlimVariant`/`createArmorTierVariant` pattern), and its
+skin controls (a procedural seed with a "randomize" reroll, or an
+imported custom skin image) all predate this phase. Camera mode stays
+a dedicated keybind rather than gaining a settings-panel toggle too —
+a standard Minecraft-style control, not a gap.
+
+**README.md's "Adding a mob" section was stale and has been fully
+rewritten as "Models and animation."** It referenced `mob.js`'s
+`BUILDERS` and `mobTexture.js` — both deleted in phase 7 — and said
+nothing about the model/animation system a new mob (or any other new
+posable thing) actually needs to know: the model format's field
+reference, the animation format plus a complete table of every
+procedural variable an expression track can read (`time`, `limbSwing`,
+`limbSwingAmount`, `headYaw`/`headPitch`, `velocity`/`groundSpeed`,
+`age`), the attachment convention and every attachment point the
+player/mob models actually define, and a worked step-by-step "add a
+new mob" example using the real, current `mobModelShapes.js`
+generator-function system (no new `.model.json` needed for a mob that
+fits one of the four existing shapes) rather than the old per-mob
+hand-authored approach the previous text described.
+
+**Tests:** `test:animation-controller` gained a `setCrossfadeScale`
+case (a 1s crossfade scaled to 0.5x fully resolves at 0.5s — checked
+against both the state-machine's own default fallback and an explicit
+per-call override, since a naive implementation could easily scale
+only one of the two). `npm run test:mob-nametag` (15 Playwright
+assertions against a real mob and the real `/name` command via the
+live dispatcher — no nametag before naming, a real sprite with the
+right text and parent after, full opacity up close, a full fade at
+distance with `visible` correctly following `opacity`, renaming
+rebuilds the sprite, clearing removes it entirely, and disposing a
+still-named mob never throws). `test:mob-animation-lod` gained two
+more assertions covering `setAnimationDetail('low')`: a mid-distance
+mob's already-throttled rate quarters further, while a mob within
+`NEAR_LOD_DIST` stays completely unaffected regardless of tier. Full
+existing regression suite (`smoke`, `test:a11y`, `test:commands`,
+`test:command-parser`, `test:mobs`, `test:riding`, `test:player-model`,
+`test:player-animations`, `test:mob-model`, `test:mob-model-shapes`,
+`test:model-builder`, `test:model-viewer`, `test:hot-reload-model`,
+`test:armor-layer`) re-verified green with zero changes to any of
+those test files.
+
+This closes out the Model and Animation Overhaul's 10-phase spec: a
+real data-driven model/animation system (phases 1-3), the player and
+every mob rebuilt on it (phases 4-7), items/drops/projectiles/armor
+using it too (phases 6/8), measured and genuinely fast (phase 9), and
+the loose ends — shadows, nametags, settings, and a real reference
+doc — tied off (phase 10).

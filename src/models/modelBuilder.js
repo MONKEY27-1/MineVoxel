@@ -258,6 +258,18 @@ export class Model {
     });
 
     this.mesh = new THREE.SkinnedMesh(shared.geometry, material);
+    // Model and Animation Overhaul, phase 10: the real single-
+    // DirectionalLight shadow map (main.js/README's own "Shadows" note)
+    // already re-centers on the player every frame and only ever needs
+    // terrain to *receive* — every real model built through this system
+    // (the player, every mob, the first-person arm, which lives in its
+    // own separate never-shadowed scene anyway) casting into it is a
+    // free, correctly-silhouetted, correctly-slope-following shadow on
+    // the ground under them, not a separate blob-decal system. No cost
+    // when shadows are off in settings (`shadowMap.enabled` false) or
+    // for anything outside the shadow camera's own fixed 40-block
+    // frustum around the player — three.js skips both cases already.
+    this.mesh.castShadow = true;
     for (const rb of rootBones) this.mesh.add(rb);
     this.skeleton = new THREE.Skeleton(bones, shared.boneInverses);
     this.mesh.bind(this.skeleton);
