@@ -409,7 +409,10 @@ function main() {
   player.pitch = -0.35;
   player.setGameMode('creative');
 
-  const viewModel = new ViewModel({ atlasTexture, atlasCanvas, atlasUV });
+  const viewModel = new ViewModel(
+    { atlasTexture, atlasCanvas, atlasUV },
+    { seed: settings.player.skinSeed, armWidth: settings.player.armWidth, customSkinDataUrl: settings.player.customSkinDataUrl }
+  );
   renderer.onResize = (w, h) => {
     player.setAspect(w / h);
     viewModel.setAspect(w / h);
@@ -420,7 +423,10 @@ function main() {
   // The player's own visible body — third-person modes only (F5, see
   // player.cycleCameraMode); first person keeps using the view model's
   // own separate arm instead, same as every other first-person game.
-  const playerModel = new PlayerModel({ atlasTexture, atlasCanvas, atlasUV });
+  const playerModel = new PlayerModel(
+    { atlasTexture, atlasCanvas, atlasUV },
+    { seed: settings.player.skinSeed, armWidth: settings.player.armWidth, customSkinDataUrl: settings.player.customSkinDataUrl }
+  );
   renderer.scene.add(playerModel.group);
   playerModel.setVisible(false);
 
@@ -2747,6 +2753,7 @@ function main() {
     chunkManager,
     player,
     viewModel,
+    playerModel,
     hud,
     mobManager,
     itemDrops,

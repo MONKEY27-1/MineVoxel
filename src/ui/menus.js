@@ -3,7 +3,8 @@ import { applyMipmapping } from '../mesh/atlas.js';
 import { listWorlds, createWorld, renameWorld, deleteWorld, duplicateWorld } from '../persistence/worldSave.js';
 import { showConfirm, showPrompt, trapFocus } from './modal.js';
 import { setCaptionsEnabled } from './captions.js';
-import { GRAPHICS_PRESETS, DEFAULT_GRAPHICS, DEFAULT_PERFORMANCE, DEFAULT_CONTROLS, DEFAULT_AUDIO, detectPreset, saveSettings as persistSettings } from '../settings/settings.js';
+import { GRAPHICS_PRESETS, DEFAULT_GRAPHICS, DEFAULT_PERFORMANCE, DEFAULT_CONTROLS, DEFAULT_PLAYER, DEFAULT_AUDIO, detectPreset, saveSettings as persistSettings } from '../settings/settings.js';
+import { loadCustomSkin } from '../entities/skinTexture.js';
 
 // Phase 9: start screen (seed + game mode), and a settings panel reachable
 // both from the start screen and from the existing pointer-lock-overlay
@@ -135,6 +136,7 @@ export class MenuController {
     chunkManager,
     player,
     viewModel,
+    playerModel,
     hud,
     mobManager,
     itemDrops,
@@ -154,6 +156,7 @@ export class MenuController {
     this.chunkManager = chunkManager;
     this.player = player;
     this.viewModel = viewModel;
+    this.playerModel = playerModel;
     this.hud = hud;
     this.mobManager = mobManager;
     this.itemDrops = itemDrops;
@@ -201,6 +204,7 @@ export class MenuController {
     this._wireGraphicsTab();
     this._wireAudioTab();
     this._wireControlsTab();
+    this._wirePlayerTab();
     this._wirePerformanceTab();
     this._wireResetButtons();
     this._wireButtons();
@@ -582,6 +586,80 @@ export class MenuController {
     }
   }
 
+  // --- player tab (Model and Animation Overhaul, phase 4) ----------------
+  // Unlike graphics/controls/audio, these don't hot-apply through a
+  // generic APPLIERS table — changing a skin/arm-width means rebuilding
+  // the player's actual model geometry, which is exactly what
+  // PlayerModel/ViewModel's own reskin() does. Both are rebuilt together
+  // so third- and first-person always agree.
+
+  _reskinLive() {
+    const opts = { seed: this.settings.player.skinSeed, armWidth: this.settings.player.armWidth, customSkinDataUrl: this.settings.player.customSkinDataUrl };
+    this.playerModel?.reskin(opts);
+    this.viewModel?.reskin(opts);
+  }
+
+  _refreshSkinLabel() {
+    const label = document.getElementById('skin-current-label');
+    if (label) label.textContent = this.settings.player.customSkinDataUrl ? 'Using an imported custom skin.' : 'Using a procedurally generated skin.';
+  }
+
+  _wirePlayerTab() {
+    setChoiceSelected(document.getElementById('arm-width-choice'), this.settings.player.armWidth);
+    for (const btn of document.getElementById('arm-width-choice').querySelectorAll('.mode-btn')) {
+      btn.addEventListener('click', () => {
+        playUIClick();
+        setChoiceSelected(document.getElementById('arm-width-choice'), btn.dataset.value);
+        this.settings.player.armWidth = btn.dataset.value;
+        this._persist();
+        this._reskinLive();
+      });
+    }
+
+    this._refreshSkinLabel();
+
+    document.getElementById('randomize-skin-btn').addEventListener('click', () => {
+      playUIClick();
+      this.settings.player.skinSeed = Math.floor(Math.random() * 0xffffffff);
+      this.settings.player.customSkinDataUrl = null; // a fresh roll always means "go back to procedural," not "reroll the seed behind an imported skin nobody will see"
+      this._refreshSkinLabel();
+      document.getElementById('skin-import-error').textContent = '';
+      this._persist();
+      this._reskinLive();
+    });
+
+    const fileInput = document.getElementById('import-skin-file');
+    document.getElementById('import-skin-btn').addEventListener('click', () => {
+      playUIClick();
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = ''; // allow re-selecting the exact same file later (e.g. after fixing it) — a change event won't fire twice on an unchanged value otherwise
+      if (!file) return;
+      const errorEl = document.getElementById('skin-import-error');
+      errorEl.textContent = '';
+      try {
+        // Validate first (loadCustomSkin rejects anything not exactly
+        // 64x64 with a clear message) before committing to persisting
+        // it — a bad file should never overwrite a working skin choice.
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that file.'));
+          reader.readAsDataURL(file);
+        });
+        await loadCustomSkin(dataUrl);
+        this.settings.player.customSkinDataUrl = dataUrl;
+        this._refreshSkinLabel();
+        this._persist();
+        this._reskinLive();
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    });
+  }
+
   // --- performance tab ---------------------------------------------------
 
   _wirePerformanceTab() {
@@ -692,6 +770,18 @@ export class MenuController {
       document.getElementById('glide-third-person-toggle').checked = this.settings.controls.glideThirdPerson;
       document.getElementById('void-warning-toggle').checked = this.settings.controls.voidWarningEnabled;
       setChoiceSelected(document.getElementById('fullscreen-hold-duration-choice'), this.settings.controls.fullscreenHoldMs);
+    } else if (tab === 'player') {
+      this.settings.player = structuredClone(DEFAULT_PLAYER);
+      // DEFAULT_PLAYER.skinSeed is null — a load-time sentinel meaning
+      // "roll one and persist it" (see settings.js's loadSettings), not
+      // a real seed getProceduralSkin can use. "Reset to defaults" here
+      // means the same thing a first-ever launch means: a fresh random
+      // procedural look, not literally seed 0 for every player who resets.
+      this.settings.player.skinSeed = Math.floor(Math.random() * 0xffffffff);
+      setChoiceSelected(document.getElementById('arm-width-choice'), this.settings.player.armWidth);
+      document.getElementById('skin-import-error').textContent = '';
+      this._refreshSkinLabel();
+      this._reskinLive();
     } else if (tab === 'audio') {
       this.settings.audio = structuredClone(DEFAULT_AUDIO);
       for (const key of Object.keys(this.settings.audio)) AUDIO_APPLIERS[key](this.settings.audio[key], this);

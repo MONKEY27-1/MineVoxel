@@ -171,6 +171,7 @@
         <button type="button" class="settings-tab-btn active" data-tab="graphics">Graphics</button>
         <button type="button" class="settings-tab-btn" data-tab="audio">Audio</button>
         <button type="button" class="settings-tab-btn" data-tab="controls">Controls</button>
+        <button type="button" class="settings-tab-btn" data-tab="player">Player</button>
         <button type="button" class="settings-tab-btn" data-tab="performance">Performance</button>
       </div>
 
@@ -416,6 +417,30 @@
           <div id="keybind-list"></div>
         </div>
         <button class="menu-secondary-btn settings-reset-btn" data-reset="controls">Reset Controls to defaults</button>
+      </div>
+
+      <div class="settings-tab-content hidden" id="tab-player">
+        <div class="settings-row">
+          <label>Arm width</label>
+          <div class="mode-choice" id="arm-width-choice">
+            <button type="button" class="mode-btn selected" data-value="classic">Classic</button>
+            <button type="button" class="mode-btn" data-value="slim">Slim</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label>Skin</label>
+          <div class="settings-hint" id="skin-current-label">Using a procedurally generated skin.</div>
+        </div>
+        <div class="settings-row settings-player-skin-actions">
+          <button type="button" class="menu-secondary-btn" id="randomize-skin-btn">Randomize skin</button>
+          <button type="button" class="menu-secondary-btn" id="import-skin-btn">Import skin (64x64 PNG)...</button>
+          <input type="file" id="import-skin-file" accept="image/png" class="hidden" />
+        </div>
+        <div class="settings-row settings-hint" id="skin-import-error"></div>
+        <div class="settings-hint">
+          Changes here rebuild your character model immediately — check the mirror by switching to third-person (the camera-cycle key).
+        </div>
+        <button class="menu-secondary-btn settings-reset-btn" data-reset="player">Reset Player to defaults</button>
       </div>
 
       <div class="settings-tab-content hidden" id="tab-performance">

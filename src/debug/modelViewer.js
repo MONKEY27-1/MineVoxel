@@ -258,15 +258,44 @@ export class ModelViewer {
   async _loadModel(url) {
     this._modelWatcher?.stop();
     const def = await loadModelDef(url);
-    this._setModelDef(def);
+    this._setModelDef(def, { autoFrame: true });
     this.modelUrl = url;
     this._modelWatcher = watchModel(url, {
+      // autoFrame only on the initial load, not every hot-reload — an
+      // in-progress edit-and-tweak session shouldn't keep yanking the
+      // camera back to a default framing every time the file changes.
       onReload: (newDef) => this._setModelDef(newDef),
       onError: (e) => console.warn(`[modelViewer] hot reload: ${e.message}`),
     });
   }
 
-  _setModelDef(def) {
+  /**
+   * Points the orbit camera at the model's actual bounding sphere,
+   * preserving the current *viewing angle* (direction from target to
+   * camera) but rescaling the distance to comfortably frame whatever
+   * just loaded — a fixed default distance only ever looks right for
+   * one specific model size. Real bug found the hard way: phase 3's
+   * own verification never included an actual rendered screenshot (only
+   * DOM/property assertions), so a much-too-close hardcoded default
+   * distance went unnoticed until phase 4 loaded a real, differently-
+   * proportioned model into it.
+   */
+  _frameModel() {
+    const sphere = this.model.mesh.geometry.boundingSphere;
+    if (!sphere || sphere.radius <= 0) return;
+    const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+    if (dir.lengthSq() < 1e-8) dir.set(1, 0.6, 1);
+    dir.normalize();
+    // R/sin(halfFov) is the *tight* fit (the sphere's silhouette exactly
+    // touches the frustum edges) — *1.4 backs off for actual breathing
+    // room instead of a bug-for-bug edge-clipped framing.
+    const distance = (sphere.radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov) / 2)) * 1.4;
+    this.controls.target.copy(sphere.center);
+    this.camera.position.copy(sphere.center).addScaledVector(dir, distance);
+    this.controls.update();
+  }
+
+  _setModelDef(def, { autoFrame = false } = {}) {
     if (this.model) {
       this.scene.remove(this.model.mesh);
       this.model.dispose();
@@ -295,6 +324,7 @@ export class ModelViewer {
     this._rebuildHelpers(def);
     this._redrawUVOverlay(def);
     this._applyToggleVisibility();
+    if (autoFrame) this._frameModel();
   }
 
   _rebuildPartTree(def) {

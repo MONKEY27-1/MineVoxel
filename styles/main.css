@@ -2213,3 +2213,16 @@ html, body {
   image-rendering: pixelated;
   border: 1px solid #444;
 }
+
+/* Model and Animation Overhaul, phase 4 — the settings panel's Player tab. */
+.settings-player-skin-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+#skin-import-error:not(:empty) {
+  color: #e05a5a;
+  opacity: 1;
+}

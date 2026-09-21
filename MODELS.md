@@ -311,3 +311,147 @@ full poll interval before making the edit. Separately, `test-hot-reload.js`
 (phase 2) had real flakiness from a 15ms poll interval racing GC pauses
 under load from other tests running back-to-back — widened to 60ms
 with proportionally longer waits.
+
+## Phase 4 — The player model
+
+**Files:** `assets/models/player.model.json`, `assets/models/player_arm_fp.model.json`,
+`assets/animations/player_{idle,walk,head_look}.anim.json`,
+`src/entities/skinTexture.js`, `src/entities/playerModelVariant.js`,
+`src/entities/playerModel.js` (rewritten in place),
+`src/entities/viewModel.js` (rewritten in place), `src/settings/settings.js`
+(new `player` namespace), `src/ui/menus.js` + `index.html` + `styles/main.css`
+(a new Player settings tab), plus one test file per concern.
+
+This is where the new format stops being pure infrastructure and starts
+replacing something the player actually sees every time they play —
+`playerModel.js` and `viewModel.js` were rewritten in place rather than
+added alongside, on the theory that a permanent fork ("legacy body" vs.
+"new body") would only ever be more code to maintain, never less.
+
+**The player model box UV is the real vanilla Minecraft 64x64 skin
+layout**, not an approximation — head/body/arms/legs each get a main
+layer plus an inflated overlay (hat/jacket/sleeves/trousers), at the
+exact same UV coordinates Minecraft's own skin format uses. This was
+the entire point of phase 1's box-UV choice: a real skin painted in an
+external tool (Blockbench, or any pixel editor following the standard
+template) drops onto this model with zero remapping, verified by
+actually importing a real-shape (if solid-color, for the test) 64x64
+image and confirming it renders.
+
+**Classic/slim arm width is a runtime data transform
+(`playerModelVariant.js`'s `createSlimVariant`), not two hand-authored
+model files.** Deliberately split into its own THREE-free module (it's
+pure array math) rather than living in `skinTexture.js`, purely so it —
+and its tests — never need a browser; `skinTexture.js` itself imports
+THREE for `CanvasTexture` and only resolves in a page. Narrows
+symmetrically (0.5 units off each side) rather than trimming a specific
+"inner" edge: the right and left arm share the exact same local box
+offset/size in `player.model.json` (their pivots alone put them on
+opposite sides of the body), so "inner" is a different local direction
+for each of the two, and a symmetric shrink sidesteps needing to know
+which is which.
+
+**The procedural skin is painted using the model's own `computeBoxUV`
+calls**, not hand-guessed pixel offsets — the same function
+`modelBuilder.js` uses to place vertices. Any drift between what the
+geometry samples and what the painter fills is structurally impossible.
+Always painted at classic arm width regardless of the actual toggle:
+the slim model's box UV is just a narrower sub-rect of the same
+classic-sized region, so a flat-filled classic paint still reads
+correctly under a slim arm with no separate slim-only paint path.
+
+**`reskin()` is the one entry point for building AND rebuilding**, on
+both `PlayerModel` and `ViewModel` — the constructor's initial load and
+a later live settings change (arm width, randomize, import) go through
+the exact same method, so there's only one place that has to get
+"dispose the old mesh/material first, then restore whatever item was
+held" right, not two.
+
+**Armor rendering is a deliberate, documented no-op for this phase.**
+The old flat-color implementation recolored a body part's own
+individual material — only possible because every part used to be a
+separate `THREE.Mesh` with its own material. The new model is one
+shared-material `SkinnedMesh` (that's the whole point — one draw call),
+so that trick simply cannot work anymore. Real armor as its own model
+layer per equipped piece is explicitly phase 6's job; `setArmor()` is
+kept as a real, callable no-op (not removed) so `main.js`'s existing
+call site doesn't need editing twice across two phases. This is a real,
+visible regression between phase 4 and phase 6 landing — armor
+currently gives no visual feedback at all — accepted deliberately
+rather than half-building a throwaway version now.
+
+**Head/body yaw split, implemented as described:** the head can lead
+the body by up to ~75°; past that, the body snaps just enough to keep
+the head within the limit (so a fast look-around never breaks the
+clamp), and separately eases back under the head the rest of the time.
+Layered onto the animation system as a permanent additive layer
+(`player_head_look.anim.json`, two procedural tracks reading `headYaw`/
+`headPitch` directly) rather than special-cased in `update()` — exactly
+the "additive layers... stack on top of any base state" use case phase
+2's animation system was built for.
+
+**Sneak pose is still the old crude approximation** (a forward lean +
+whole-body Y drop), not a real sculpted "lowered, tilted" state — that,
+like the rest of the named animation list (walk/run/jump/fall/attack/
+mine/etc.), is phase 5's job. Phase 4 only builds `idle` and `walk`
+(procedural limb-swing, matching the spec's own canonical expression
+example) — just enough for the new model to not look frozen before
+phase 5 lands the real set.
+
+**Real bug found and fixed: the phase 3 debug viewer's default camera
+was far too close for any properly-scaled model**, and nobody had
+actually looked at a rendered screenshot of it before now — phase 3's
+own verification was 100% DOM/property assertions, zero visual
+screenshots. Loading the real player model into it produced an
+extreme, unusable close-up. Root cause was a genuine sign/direction
+bug: the intended "back off 60% for headroom" was written as
+`distance / 1.6` (shrinks the distance) instead of `distance * 1.4`
+(grows it) — the opposite of the intended effect. Replaced the fixed
+default distance entirely with an auto-frame-to-bounding-sphere on
+every fresh `open()` (not on hot-reload, which now deliberately
+preserves the camera so an edit-and-tweak session doesn't keep getting
+yanked back to a default view).
+
+**Real tuning problem, resolved empirically: the first-person arm
+initially rendered as a huge, badly-angled blob.** The arm's real
+in-world thickness (a full 0.25×0.25-unit box cross-section) reads as
+oversized at view-model distance — worked around with a `0.6` scale-down
+on the view-model copy specifically (not the shared model itself, which
+must stay real-world-sized so its UV keeps matching the third-person
+arm exactly), the same kind of visual cheat real Minecraft's own
+view-model arm uses. The exact rest-pose rotation was tuned by eye
+against real screenshots, not derived analytically — get one more real
+pass once phase 5 actually animates this arm to mirror the third-person
+swing, per the spec's own explicit requirement.
+
+**Notable scope cut: no live rotating 3D skin preview in the settings
+panel.** The spec asks for one; given the player can already see their
+real model by switching to third-person in the actual running game
+(a real, always-available preview, just not embedded in the menu),
+building a second, separate render pipeline just for the settings
+panel was judged not worth the engineering time against the seven
+phases still ahead. The settings tab does show live text feedback
+(procedural vs. imported) and every change (arm width, randomize,
+import) rebuilds the live model immediately via `reskin()`.
+
+**Custom skin storage: a full `data:` URL in settings, not a
+filename.** This project has no file storage of its own for an
+uploaded asset to live at — persisting the complete data URL in
+`localStorage` (via `settings.player.customSkinDataUrl`) is what makes
+an imported skin survive a page reload with no new storage mechanism
+needed; a 64x64 PNG is small enough that this is a non-issue for
+`localStorage`'s size limits.
+
+**Tests:** `npm run test:player-model-variant` (pure Node — the slim
+transform's symmetry, non-mutation, distinct id, and multi-box
+handling) and `npm run test:player-model` (Playwright, 25 assertions —
+seeded skin determinism, custom-skin dimension validation with the
+exact error wording, real parts/attachments on the built model,
+head/body yaw clamping under a sudden large look-around, live `reskin()`
+producing genuinely new geometry with the expected classic-vs-slim
+width difference, and the view-model arm's real hand.right attachment).
+Also manually verified via real in-game screenshots (not just
+automated assertions) in third-person (both camera modes), first-person,
+and the debug viewer — this is what actually caught both bugs above.
+Full existing regression suite (smoke, devmenu-player, riding, feel,
+visual, devmenu-integration) re-verified green.

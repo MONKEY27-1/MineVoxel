@@ -114,6 +114,22 @@ export const DEFAULT_CONTROLS = {
   voidWarningEnabled: true,
 };
 
+// Model and Animation Overhaul, phase 4 — the player's own appearance.
+// `skinSeed` is generated once (see loadSettings below) and then kept
+// forever, which is what "the same player always looks the same"
+// actually means for a game with no account/profile system: there's no
+// server identity to key off, just this one local install's own
+// persisted choice. `customSkinDataUrl` is a full data: URL (not a
+// filename/path — nothing else in this project persists an uploaded
+// file anywhere a path could survive a reload) so a real imported skin
+// survives a refresh without needing its own storage mechanism; null
+// means "use the procedural one."
+export const DEFAULT_PLAYER = {
+  skinSeed: null,
+  armWidth: 'classic', // 'classic' | 'slim'
+  customSkinDataUrl: null,
+};
+
 export const DEFAULT_AUDIO = {
   master: 60,
   footstep: 100,
@@ -159,6 +175,7 @@ export const DEFAULT_SETTINGS = {
   graphics: DEFAULT_GRAPHICS,
   performance: DEFAULT_PERFORMANCE,
   controls: DEFAULT_CONTROLS,
+  player: DEFAULT_PLAYER,
   audio: DEFAULT_AUDIO,
   console: DEFAULT_CONSOLE,
   autosaveIntervalSec: 60,
@@ -265,13 +282,22 @@ function deepMerge(defaults, saved) {
 
 /** Loads persisted settings merged onto current defaults, so a settings.js update that adds a field never crashes an old save. */
 export function loadSettings() {
+  let settings;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(DEFAULT_SETTINGS);
-    return deepMerge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw));
+    settings = raw ? deepMerge(structuredClone(DEFAULT_SETTINGS), JSON.parse(raw)) : structuredClone(DEFAULT_SETTINGS);
   } catch {
-    return structuredClone(DEFAULT_SETTINGS);
+    settings = structuredClone(DEFAULT_SETTINGS);
   }
+  // First run (or an old save from before player.skinSeed existed):
+  // pick a real seed once and persist it immediately, rather than
+  // re-rolling a new one on every load — "the same player always looks
+  // the same" only holds if this actually sticks.
+  if (settings.player.skinSeed === null) {
+    settings.player.skinSeed = Math.floor(Math.random() * 0xffffffff);
+    saveSettings(settings);
+  }
+  return settings;
 }
 
 export function saveSettings(settings) {

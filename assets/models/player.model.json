@@ -1,0 +1,67 @@
+{
+  "id": "player_classic",
+  "textureSize": [64, 64],
+  "parts": {
+    "body": {
+      "parent": null,
+      "pivot": [0, 24, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [
+        { "offset": [-4, -12, -2], "size": [8, 12, 4], "uv": [16, 16] },
+        { "offset": [-4, -12, -2], "size": [8, 12, 4], "uv": [16, 32], "inflate": 0.25 }
+      ]
+    },
+    "head": {
+      "parent": "body",
+      "pivot": [0, 24, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [
+        { "offset": [-4, 0, -4], "size": [8, 8, 8], "uv": [0, 0] },
+        { "offset": [-4, 0, -4], "size": [8, 8, 8], "uv": [32, 0], "inflate": 0.5 }
+      ]
+    },
+    "rightArm": {
+      "parent": "body",
+      "pivot": [-6, 24, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [40, 16] },
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [40, 32], "inflate": 0.25 }
+      ]
+    },
+    "leftArm": {
+      "parent": "body",
+      "pivot": [6, 24, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [32, 48] },
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [48, 48], "inflate": 0.25 }
+      ]
+    },
+    "rightLeg": {
+      "parent": "body",
+      "pivot": [-2, 12, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [0, 16] },
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [0, 32], "inflate": 0.25 }
+      ]
+    },
+    "leftLeg": {
+      "parent": "body",
+      "pivot": [2, 12, 0],
+      "rotation": [0, 0, 0],
+      "boxes": [
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [16, 48] },
+        { "offset": [-2, -12, -2], "size": [4, 12, 4], "uv": [0, 48], "inflate": 0.25 }
+      ]
+    }
+  },
+  "attachments": {
+    "hand.right": { "part": "rightArm", "pivot": [-6, 12, 0] },
+    "hand.left": { "part": "leftArm", "pivot": [6, 12, 0] },
+    "head.top": { "part": "head", "pivot": [0, 32, 0] },
+    "mouth": { "part": "head", "pivot": [0, 26, -4] },
+    "back": { "part": "body", "pivot": [0, 24, 2] }
+  }
+}

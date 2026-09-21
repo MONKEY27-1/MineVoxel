@@ -1,0 +1,9 @@
+{
+  "id": "player_head_look",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "head", "channel": "rotation", "axis": "y", "expression": "headYaw" },
+    { "part": "head", "channel": "rotation", "axis": "x", "expression": "headPitch" }
+  ]
+}
