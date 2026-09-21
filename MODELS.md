@@ -687,3 +687,133 @@ groundwork phase 7 will reuse for mobs). Also manually verified via a
 real in-game screenshot (a full iron set, visibly bulkier than bare
 skin, correctly posed). Full existing regression suite re-verified
 green.
+
+## Phase 7 — Rebuild every mob
+
+**Files:** `src/entities/mobModelShapes.js`, `src/entities/mobModelTexture.js`,
+`src/entities/mobModel.js`, `src/entities/mob.js` (rewired, old
+`BUILDERS`/flat-mesh code removed), `src/entities/mobTexture.js`
+(deleted — fully superseded), 6 shared `assets/animations/mob_*.anim.json`
+files, two test files.
+
+**All 18 mobs across all 4 existing shapes (biped/quadruped/bird/spider
+— mob.js's own established shape roster) now run on the real model
+system**, verified end to end: every mob type in `MOB_TYPES` builds
+valid geometry and a real palette-driven texture, and the *entire*
+pre-existing gameplay/AI regression suite — `test:mobs`,
+`test:hollowreach-mobs`, `test:riftwyrm`, `test:riding` — passes
+unmodified against the new rendering underneath, proving the rewrite
+touched rendering only, not behavior.
+
+**Architecture decision: parameterized shape generators, not 18
+hand-authored model files.** `mobModelShapes.js` has exactly four
+functions (`buildBipedDef`/`buildQuadrupedDef`/`buildBirdDef`/
+`buildSpiderDef`), each taking a `(width, height)` and producing a
+complete, valid model-def *object* at runtime — the same "one
+generator, many derived results" pattern `playerModelVariant.js`/
+`armorVariant.js` already established, just generating a whole model
+instead of a variant of one. The proportional math inside each
+generator is ported directly from mob.js's own old `buildBiped`/
+`buildQuadruped`/`buildBird`/`buildSpider` functions (already tuned,
+already shipped) — this is a rendering-architecture rebuild, not a
+proportions redesign. One real structural improvement over the old
+code: parts now form a genuine parent/child bone hierarchy (head/limbs
+as children of body) instead of the old flat siblings-under-one-group
+layout, which is what makes a body-lean animation (a run, a death flop)
+correctly carry the whole upper body with it — something the old rig
+structurally couldn't do.
+
+**UV placement is a generic packer, not per-mob hand math.** Eighteen
+differently-proportioned creatures means eighteen different sets of box
+sizes; `mobModelShapes.js`'s `packUV` lays out each box's footprint
+left-to-right with row wrapping and hands back a self-consistent
+`textureSize` — the same role `player.model.json`'s hand-placed UV
+coordinates play, just computed instead of authored, because hand-
+placing UV for 18 creatures' worth of differently-shaped boxes isn't
+practical.
+
+**Real, deliberate loss accepted: per-mob bespoke texture flourishes
+became a generic, per-part-name-convention painter.** The old
+`mobTexture.js` had one bespoke hand-tuned paint function per mob
+(the zombie's sawtooth tattered hem, the cow's cracked-mud freckling,
+etc.) into a shared 4x4 region grid every box of a kind reused. The new
+box-UV system gives every individual box its own unique rect (no shared
+regions to paint into), so `mobModelTexture.js` instead paints *by
+convention* — a part named "head" gets face detail, "body" gets body
+coloring, everything else is a limb — plus one configurable accent
+band per mob, using each mob's own already-established color identity
+ported directly from the old palette (an ashkin still reads as the same
+warm brown-and-gold ashkin). The one-off bespoke flourishes are gone;
+the color-identity-plus-speckle-plus-accent silhouette they lived in is
+not — traded deliberately, given "silhouette first" (this phase's own
+stated priority) depends on proportions and color, not on one specific
+mob's sawtooth edge pattern.
+
+**Two real bugs found by testing every accent against a real shape,
+not just eyeballing the palette table**: `cow`'s accent list referenced
+`rightLeg`/`leftLeg` (biped part names) on a *quadruped*, and
+`cinder_wraith`'s referenced a part literally named `"limb"` (a texture-
+painting *category*, from `partKind()`, never an actual part name in
+any generated model) — both silently no-op'd rather than crashing,
+which is exactly why they went unnoticed until specifically checked.
+Fixed by retargeting both to real part names for their actual shape.
+
+**Per-shape death animations, not one universal fall-over** — a biped
+falls to the side (reusing the exact convention `playerModel.js`'s own
+death clip already established), a quadruped's legs buckle outward as
+the body drops, a bird crumples with its wings splaying, a spider's
+eight legs curl inward. Built at the *shape* level (4 clips), not per
+individual mob (18 clips) — a deliberate, reasonable scope match for a
+detail that reads primarily by silhouette shape, not by the specific
+creature wearing it.
+
+**Wings are real geometry now, not a documented gap.** The old bird
+shape had no wing boxes at all (a "flying" mob like Hollow Drifter or
+Cinder Wraith read as a legged ground-bird shape with no visual
+indication it flies). `buildBirdDef` adds a real thin `wingRight`/
+`wingLeft` box per side, hinged at the shoulder, with genuine flap
+motion in both `mob_bird_idle` (a slow idle fold) and `mob_bird_walk`
+(a faster flap tied to `limbSwing`) — one of the few places this phase
+added real new geometry rather than porting the old shape as-is.
+
+**A `dead` input must be a true one-way latch, not "whatever was
+passed most recently" — caught by testing the exact failure mode, not
+just the happy path.** The first version of `MobModel.update()`
+documented itself as a one-way latch but didn't actually implement one
+— passing `dead: false` after `dead: true` would silently resume
+locomotion animation mid-despawn. Never reachable through the real
+`mob.js` call site (a despawning mob is never "revived"), but the test
+suite deliberately checks the failure mode anyway, the same way
+`playerModel.js`'s own death handling was verified in phase 5 — caught
+and fixed to genuinely latch, matching the documented intent and
+`playerModel.js`'s identical, already-correct design.
+
+**Head/body-lean baby-mob scaling is a real, accepted regression, not
+silently dropped.** The old code additionally scaled a baby mob's head
+1.35x larger than its body (the "big-headed baby animal" look). The new
+animation system resets every bone's scale to its authored rest value
+(1) on every single frame it runs, so a one-off manual
+`head.scale.setScalar(1.35)` would just get overwritten the very next
+tick — properly supporting this needs a per-part authored rest scale in
+the model format itself, which doesn't exist yet. Accepted as a real,
+minor visual loss (documented in the code, not just here) rather than
+building format support for one cosmetic detail on baby passive mobs,
+with the seven phases still ahead in mind.
+
+**Tests:** `npm run test:mob-model-shapes` (pure Node — every one of
+the 4 shapes validates at 10 real sizes pulled directly from
+`mobTypes.js`, correct part counts per shape, every attachment resolves,
+geometry genuinely scales with input size, no shared mutable state
+between two differently-sized instances) and `npm run test:mob-model`
+(87 Playwright assertions — literally every mob type in the real
+`MOB_TYPES` registry builds valid geometry and has a defined palette,
+two mobs of the same type share cached geometry but never bones, the
+full idle/walk/death state chain with death's terminal latch, the head-
+look additive genuinely moving the head bone, the quadruped's diagonal-
+pair gait moving the correct legs together and the other pair
+oppositely, and an unknown shape failing loudly by name). Also manually
+verified via real in-game screenshots (a zombie face and a fully
+posed, correctly-legged cow, both immediately recognizable). Full
+existing mob/AI/riding/boss regression suite re-verified green with
+zero changes to any of those test files — confirming this phase
+touched rendering only.

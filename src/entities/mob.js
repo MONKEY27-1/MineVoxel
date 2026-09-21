@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sweepAABB, aabbFits } from './physics.js';
 import { MOB_TYPES } from './mobTypes.js';
-import { getMobTextureSheet, setBoxFaceUVs } from './mobTexture.js';
+import { MobModel } from './mobModel.js';
 import { BLOCKS, isSolid } from '../world/blocks.js';
 import { ARMOR_MATERIAL, getNonBlockItem } from '../items/items.js';
 
@@ -127,130 +127,12 @@ const KNOCKBACK_UP = 4;
 const BABY_SCALE = 0.55;
 const RARE_VARIANT_CHANCE = 0.05;
 
-// --- Blocky body builders --------------------------------------------
-// Revision-pass section 5: each mob now carries a real procedural
-// texture (mobTexture.js) instead of a flat MeshBasicMaterial color —
-// one shared material per mob instance, with each box's faces UV-mapped
-// onto the appropriate named region (head-front carries the face, other
-// head faces + body/limb get their own regions). "Limbs" (and the head,
-// for look-at rotation) are wrapped in a pivot Group offset to the
-// joint so rotating the pivot swings/turns the part like a real hinge
-// instead of spinning around its own center.
-
-function addStaticBox(parent, dims, pos, material, region, frontRegion) {
-  const geo = new THREE.BoxGeometry(...dims);
-  setBoxFaceUVs(geo, region, frontRegion);
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(...pos);
-  parent.add(mesh);
-  return mesh;
-}
-
-function addLimb(parent, dims, jointPos, material, region, frontRegion) {
-  const pivot = new THREE.Group();
-  pivot.position.set(...jointPos);
-  const geo = new THREE.BoxGeometry(...dims);
-  setBoxFaceUVs(geo, region, frontRegion);
-  const mesh = new THREE.Mesh(geo, material);
-  mesh.position.set(0, -dims[1] / 2, 0);
-  pivot.add(mesh);
-  parent.add(pivot);
-  return pivot;
-}
-
-/** Humanoid: zombie, skeleton. */
-function buildBiped(size, uv, material) {
-  const legH = size.height * 0.42;
-  const bodyH = size.height * 0.36;
-  const headH = size.height * 0.22;
-  const legW = size.width * 0.3;
-  const bodyW = size.width * 0.6;
-  const bodyD = size.width * 0.38;
-  const headW = size.width * 0.62;
-
-  const group = new THREE.Group();
-  const legL = addLimb(group, [legW, legH, legW], [-legW * 0.55, legH, 0], material, uv.limb);
-  const legR = addLimb(group, [legW, legH, legW], [legW * 0.55, legH, 0], material, uv.limb);
-  addStaticBox(group, [bodyW, bodyH, bodyD], [0, legH + bodyH / 2, 0], material, uv.body);
-  const armL = addLimb(group, [legW, bodyH, legW], [-(bodyW / 2 + legW / 2), legH + bodyH, 0], material, uv.limb);
-  const armR = addLimb(group, [legW, bodyH, legW], [bodyW / 2 + legW / 2, legH + bodyH, 0], material, uv.limb);
-  const head = addLimb(group, [headW, headH, headW], [0, legH + bodyH + headH, 0], material, uv.headSide, uv.headFront);
-  return { group, head, swingPairs: [[legL, 1], [armR, 1], [legR, -1], [armL, -1]] };
-}
-
-/** Four-legged: cow, pig. Diagonal-pair gait (front-left+back-right together). */
-function buildQuadruped(size, uv, material) {
-  const legH = size.height * 0.45;
-  const bodyH = size.height * 0.42;
-  const bodyW = size.width * 0.6;
-  const bodyLen = size.width * 1.15;
-  const legW = size.width * 0.18;
-  const legOffX = bodyW / 2 - legW * 0.5;
-  const legOffZ = bodyLen / 2 - legW * 1.2;
-
-  const group = new THREE.Group();
-  const legFL = addLimb(group, [legW, legH, legW], [-legOffX, legH, -legOffZ], material, uv.limb);
-  const legFR = addLimb(group, [legW, legH, legW], [legOffX, legH, -legOffZ], material, uv.limb);
-  const legBL = addLimb(group, [legW, legH, legW], [-legOffX, legH, legOffZ], material, uv.limb);
-  const legBR = addLimb(group, [legW, legH, legW], [legOffX, legH, legOffZ], material, uv.limb);
-  addStaticBox(group, [bodyW, bodyH, bodyLen], [0, legH + bodyH / 2, 0], material, uv.body);
-  const headSize = size.width * 0.42;
-  const head = addLimb(group, [headSize, headSize, headSize], [0, legH + bodyH * 0.75 + headSize / 2, -bodyLen / 2], material, uv.headSide, uv.headFront);
-  return {
-    group,
-    head,
-    swingPairs: [
-      [legFL, 1],
-      [legBR, 1],
-      [legFR, -1],
-      [legBL, -1],
-    ],
-  };
-}
-
-/** Chicken. */
-function buildBird(size, uv, material) {
-  const legH = size.height * 0.35;
-  const bodyH = size.height * 0.5;
-  const bodyW = size.width * 0.8;
-  const bodyLen = size.width * 1.2;
-  const legW = size.width * 0.12;
-  const legOffZ = bodyLen * 0.15;
-
-  const group = new THREE.Group();
-  const legL = addLimb(group, [legW, legH, legW], [-legW, legH, legOffZ], material, uv.limb);
-  const legR = addLimb(group, [legW, legH, legW], [legW, legH, legOffZ], material, uv.limb);
-  addStaticBox(group, [bodyW, bodyH, bodyLen], [0, legH + bodyH / 2, 0], material, uv.body);
-  const headSize = size.width * 0.5;
-  const headY = legH + bodyH + headSize * 0.3;
-  const head = addLimb(group, [headSize, headSize, headSize], [0, headY + headSize / 2, -bodyLen / 2], material, uv.headSide, uv.headFront);
-  return { group, head, swingPairs: [[legL, 1], [legR, -1]] };
-}
-
-/** Spider: static (unanimated) legs — a deliberate simplification, see README. */
-function buildSpider(size, uv, material) {
-  const bodyH = size.height * 0.7;
-  const abdomenSize = size.width * 0.5;
-  const headSize = size.width * 0.32;
-
-  const group = new THREE.Group();
-  addStaticBox(group, [abdomenSize, abdomenSize * 0.85, abdomenSize], [0, bodyH / 2, abdomenSize * 0.25], material, uv.body);
-  const headZ = -abdomenSize / 2 - headSize / 2 + abdomenSize * 0.25;
-  const head = addLimb(group, [headSize, headSize * 0.8, headSize], [0, bodyH / 2 + headSize * 0.4, headZ], material, uv.headSide, uv.headFront);
-
-  const legLen = size.width * 0.55;
-  const legW = size.width * 0.06;
-  for (let i = 0; i < 4; i++) {
-    const zOff = (i - 1.5) * abdomenSize * 0.28;
-    for (const side of [-1, 1]) {
-      const leg = addStaticBox(group, [legLen, legW, legW], [side * (abdomenSize / 2 + (legLen / 2) * 0.6), bodyH * 0.55, zOff], material, uv.limb);
-      leg.rotation.z = side * 0.5;
-    }
-  }
-  return { group, head, swingPairs: [] };
-}
-
-const BUILDERS = { biped: buildBiped, quadruped: buildQuadruped, bird: buildBird, spider: buildSpider };
+// Model and Animation Overhaul, phase 7 — the old hand-assembled
+// flat-box BUILDERS (buildBiped/buildQuadruped/buildBird/buildSpider)
+// used to live right here; they're now mobModelShapes.js's own
+// data-driven generators (same proportions, ported directly, not
+// redesigned), and mobModel.js is what turns one into a real animated
+// Mob instance. See MODELS.md's phase 7 notes.
 
 let nextMobId = 1;
 
@@ -310,7 +192,6 @@ export class Mob {
     this._forcedAggroTimer = 0;
     this._hurtFlash = 0;
     this._deathT = 0;
-    this._breathPhase = Math.random() * Math.PI * 2;
     // Emberstrider riding (mobTypes.js's `rideable`) — per-instance
     // state, not shared def config, since a specific Emberstrider gets
     // tamed/saddled/ridden, not the species as a whole. `riddenBy` being
@@ -320,7 +201,6 @@ export class Mob {
     this.tamed = false;
     this.saddled = false;
     this.riddenBy = null;
-    this.walkCycle = 0;
 
     // Hollow Reach phase 3 (Hollowkin/Stoneskitter) — always initialized,
     // not lazily, so they're harmless no-ops for every mob type that
@@ -337,23 +217,25 @@ export class Mob {
     this._burrowed = false;
     this._alertedTimer = 0; // Stoneskitter: forces a chase regardless of aggroRange while > 0 — see mobTypes.js's callsAlliesOnHit
 
-    const sheet = getMobTextureSheet(typeId, this.isRareVariant ? 1 : 0);
-    this.material = new THREE.MeshBasicMaterial({ map: sheet.texture, color: 0xffffff });
-
-    const built = BUILDERS[this.def.shape](this.def.size, sheet.uv, this.material);
-    this.mesh = built.group;
-    this.head = built.head;
-    this.swingPairs = built.swingPairs;
+    // modelInstance builds asynchronously (fetching model/animation
+    // JSON) but .group exists immediately, empty, so this constructor
+    // stays fully synchronous for every caller — the real mesh fades in
+    // a frame or two later, same pattern as playerModel.js/viewModel.js.
+    this.modelInstance = new MobModel(typeId, this.def.shape, this.def.size, { rareVariant: this.isRareVariant });
+    this.mesh = this.modelInstance.group;
     this.mesh.position.set(position.x, position.y, position.z);
     this.mesh.rotation.y = this.yaw;
-    if (this.sizeScale !== 1) {
-      this.mesh.scale.setScalar(this.sizeScale);
-      // The proportionally-larger head only reads right at "baby" scale
-      // specifically (real Minecraft's baby-animal look) — a split Magma
-      // Slug shrinking generation to generation should look like a
-      // smaller whole slug, not a big-headed one.
-      if (this.baby && this.head) this.head.scale.setScalar(1.35);
-    }
+    if (this.sizeScale !== 1) this.mesh.scale.setScalar(this.sizeScale);
+    // Note: the old code also proportionally enlarged a baby's head
+    // specifically (real Minecraft's baby-animal look) — dropped here,
+    // not ported: the animation system resets every bone's scale to its
+    // authored rest value (1) each frame it runs, so a one-off manual
+    // `head.scale.setScalar(...)` would just get overwritten on the very
+    // next tick. Doing this properly needs a per-part authored rest
+    // scale in the model format itself, which doesn't exist yet — a
+    // real, if minor, visual regression versus the old flat-mesh code,
+    // accepted rather than half-fixed with a value that'd silently stop
+    // applying after one frame.
   }
 
   get size() {
@@ -431,9 +313,19 @@ export class Mob {
       this.position = result.position;
       this.velocity = result.velocity;
       this.mesh.position.set(this.position.x, this.position.y, this.position.z);
-      this.mesh.rotation.z = (this.yaw > 0 ? 1 : -1) * (Math.PI / 2) * Math.min(1, this._deathT * 1.5);
+      this.mesh.rotation.y = this.yaw;
+      // The actual fall-over motion is now a real per-shape death clip
+      // (mob_biped_death.anim.json etc. — a biped falls to the side, a
+      // quadruped's legs buckle, a bird crumples, a spider's legs curl —
+      // see mobModelShapes.js/MODELS.md's phase 7 notes) instead of one
+      // universal hand-computed rotation.z, satisfying "death animations
+      // per creature rather than a universal fall-over" at the shape
+      // level. Position/scale-fade stay here, at the group level, same
+      // as before — they're despawn bookkeeping, not part of the pose.
+      this.modelInstance.update(dt, { moving: false, limbSwingAmount: 0, headYaw: 0, headPitch: 0, dead: true });
       const fade = 1 - this._deathT;
-      this.mesh.scale.set((this.baby ? BABY_SCALE : 1) * fade + 0.001, (this.baby ? BABY_SCALE : 1) * fade + 0.001, (this.baby ? BABY_SCALE : 1) * fade + 0.001);
+      const baseScale = this.baby ? BABY_SCALE : 1;
+      this.mesh.scale.set(baseScale * fade + 0.001, baseScale * fade + 0.001, baseScale * fade + 0.001);
       if (this._deathT >= 1) this.dead = true;
       return;
     }
@@ -715,65 +607,69 @@ export class Mob {
   _updateAnimation(dt, player) {
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     const moving = speed > 0.3;
-    if (moving) this.walkCycle += dt * 8;
-    // Amplitude now scales with actual speed (capped) instead of a flat
+    // Amplitude scales with actual speed (capped) instead of a flat
     // moving/not-moving switch, so a slow wander swings less than a full
-    // chase sprint.
-    // Vaultling (phase 8) is stationary — walkSpeed: 0 would otherwise
-    // divide by zero here (0/0 = NaN, silently propagating into every
-    // limb's rotation forever).
-    const target = this.def.walkSpeed > 0 ? Math.min(1, speed / this.def.walkSpeed) * 0.9 : 0;
-    const lerpT = Math.min(1, dt * 12);
-    for (const [part, sign] of this.swingPairs) {
-      const targetAngle = Math.sin(this.walkCycle) * sign * target;
-      part.rotation.x += (targetAngle - part.rotation.x) * lerpT;
-    }
+    // chase sprint. Vaultling (phase 8) is stationary — walkSpeed: 0
+    // would otherwise divide by zero here (0/0 = NaN, silently
+    // propagating into every limb's rotation forever).
+    const limbSwingAmount = this.def.walkSpeed > 0 ? Math.min(1, speed / this.def.walkSpeed) * 0.9 : 0;
 
     // Head look-at: turn toward the player when they're roughly in
     // front, within a reach-ish radius — cheap approximation of "notice
     // and glance at nearby players" without a full head-tracking rig.
-    if (this.head) {
-      let targetYawOffset = 0;
-      let targetPitch = 0;
-      const dx = player.position.x - this.position.x;
-      const dz = player.position.z - this.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 8 && dist > 0.01) {
-        const worldYaw = Math.atan2(-dx, -dz);
-        let rel = worldYaw - this.yaw;
-        rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi,pi]
-        targetYawOffset = Math.max(-0.7, Math.min(0.7, rel));
-        const dy = player.position.y - this.position.y;
-        targetPitch = Math.max(-0.5, Math.min(0.5, Math.atan2(dy, dist) * 0.5));
-      }
-      this.head.rotation.y += (targetYawOffset - this.head.rotation.y) * Math.min(1, dt * 6);
-      this.head.rotation.x += (targetPitch - this.head.rotation.x) * Math.min(1, dt * 6);
+    // The smoothing/clamping logic is unchanged from before this phase;
+    // only the destination changed — it now feeds the animation
+    // system's permanent headLook additive layer (see mobModel.js)
+    // instead of setting a bone's rotation directly.
+    let targetYawOffset = 0;
+    let targetPitch = 0;
+    const dx = player.position.x - this.position.x;
+    const dz = player.position.z - this.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 8 && dist > 0.01) {
+      const worldYaw = Math.atan2(-dx, -dz);
+      let rel = worldYaw - this.yaw;
+      rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to [-pi,pi]
+      targetYawOffset = Math.max(-0.7, Math.min(0.7, rel));
+      const dy = player.position.y - this.position.y;
+      targetPitch = Math.max(-0.5, Math.min(0.5, Math.atan2(dy, dist) * 0.5));
     }
+    this._headYaw = (this._headYaw ?? 0) + (targetYawOffset - (this._headYaw ?? 0)) * Math.min(1, dt * 6);
+    this._headPitch = (this._headPitch ?? 0) + (targetPitch - (this._headPitch ?? 0)) * Math.min(1, dt * 6);
 
-    // Idle breathing: a very small body-scale pulse when not moving.
-    this._breathPhase += dt * 1.5;
-    this._idleBreath = moving ? 0 : Math.sin(this._breathPhase) * 0.02;
+    this.modelInstance.update(dt, { moving, limbSwingAmount, headYaw: this._headYaw, headPitch: this._headPitch, dead: false });
   }
 
   _syncMesh() {
     this.mesh.position.set(this.position.x, this.position.y, this.position.z);
     this.mesh.rotation.y = this.yaw;
+    // Idle breathing moved into the animation system itself
+    // (mob_*_idle.anim.json's own body.scale.y track) — no longer a
+    // group-level scale pulse here, so it doesn't stack with a
+    // shape-appropriate hurt squash below.
     const squash = 1 - (this._hurtFlash / 0.15) * 0.25;
-    const breath = 1 + (this._idleBreath ?? 0);
     const baseScale = this.baby ? BABY_SCALE : 1;
-    this.mesh.scale.set(baseScale * breath * (1 / squash), baseScale * squash, baseScale * breath * (1 / squash));
+    this.mesh.scale.set(baseScale * (1 / squash), baseScale * squash, baseScale * (1 / squash));
     // Red hurt flash: MeshBasicMaterial.color multiplies the texture, so
     // tinting it red-and-bright then easing back to white over the same
     // window as the squash reads as a hit flash without needing a
-    // separate shader or duplicate materials.
+    // separate shader or duplicate materials. Guarded on the material
+    // actually existing yet — modelInstance loads asynchronously, so a
+    // mob hurt in the same tick it spawned might not have one for a
+    // frame or two.
+    if (!this.modelInstance.material) return;
     const flashT = this._hurtFlash / 0.15;
-    this.material.color.setRGB(1, 1 - flashT * 0.7, 1 - flashT * 0.7);
+    this.modelInstance.material.color.setRGB(1, 1 - flashT * 0.7, 1 - flashT * 0.7);
   }
 
   dispose() {
-    this.mesh.traverse((obj) => {
-      if (obj.geometry) obj.geometry.dispose();
-    });
-    this.material.dispose();
+    // modelInstance.dispose() only frees this instance's own material —
+    // geometry is shared across every mob of this same type (see
+    // mobModel.js/modelBuilder.js's own cache) and must never be
+    // disposed per-instance, or every other zombie on screen would lose
+    // its mesh too. mobManager.js removes `mob.mesh` from the scene
+    // separately (this method never touched the scene graph even in
+    // the old flat-mesh version).
+    this.modelInstance.dispose();
   }
 }

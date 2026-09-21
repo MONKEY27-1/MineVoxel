@@ -1,0 +1,6 @@
+{
+  "id": "mob_biped_death",
+  "length": 0.6,
+  "loop": false,
+  "tracks": [{ "part": "body", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 1.5708 }] }]
+}

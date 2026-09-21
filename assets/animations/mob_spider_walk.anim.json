@@ -1,0 +1,8 @@
+{
+  "id": "mob_spider_walk",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "body", "channel": "position", "axis": "y", "expression": "abs(sin(limbSwing * 2)) * limbSwingAmount * 0.03" }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "mob_spider_death",
+  "length": 0.6,
+  "loop": false,
+  "tracks": [
+    { "part": "body", "channel": "position", "axis": "y", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.2 }] },
+    { "part": "leg0R", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.9 }] },
+    { "part": "leg0L", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.9 }] },
+    { "part": "leg1R", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.9 }] },
+    { "part": "leg1L", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.9 }] },
+    { "part": "leg2R", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.9 }] },
+    { "part": "leg2L", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.9 }] },
+    { "part": "leg3R", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.9 }] },
+    { "part": "leg3L", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.9 }] }
+  ]
+}

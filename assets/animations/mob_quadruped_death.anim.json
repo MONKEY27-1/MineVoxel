@@ -1,0 +1,13 @@
+{
+  "id": "mob_quadruped_death",
+  "length": 0.6,
+  "loop": false,
+  "tracks": [
+    { "part": "body", "channel": "rotation", "axis": "x", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 1.2 }] },
+    { "part": "body", "channel": "position", "axis": "y", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.3 }] },
+    { "part": "legFrontLeft", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.6 }] },
+    { "part": "legFrontRight", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.6 }] },
+    { "part": "legBackLeft", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.6 }] },
+    { "part": "legBackRight", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.6 }] }
+  ]
+}

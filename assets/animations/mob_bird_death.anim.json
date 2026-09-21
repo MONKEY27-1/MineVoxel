@@ -1,0 +1,11 @@
+{
+  "id": "mob_bird_death",
+  "length": 0.6,
+  "loop": false,
+  "tracks": [
+    { "part": "body", "channel": "rotation", "axis": "x", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 1.4 }] },
+    { "part": "body", "channel": "position", "axis": "y", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.25 }] },
+    { "part": "wingRight", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": 0.9 }] },
+    { "part": "wingLeft", "channel": "rotation", "axis": "z", "keyframes": [{ "time": 0, "value": 0, "interp": "ease" }, { "time": 0.6, "value": -0.9 }] }
+  ]
+}

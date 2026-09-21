@@ -1,0 +1,11 @@
+{
+  "id": "mob_biped_walk",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.9" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.9" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.7" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.7" }
+  ]
+}

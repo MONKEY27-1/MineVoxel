@@ -1,0 +1,11 @@
+{
+  "id": "mob_quadruped_walk",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "legFrontLeft", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.7" },
+    { "part": "legBackRight", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.7" },
+    { "part": "legFrontRight", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.7" },
+    { "part": "legBackLeft", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.7" }
+  ]
+}

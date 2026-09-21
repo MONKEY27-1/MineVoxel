@@ -6,9 +6,9 @@ import { ITEMS } from '../items/items.js';
 // currently active, instead of every mob spawning everywhere.
 
 // Data-driven mob registry (phase 8) — mirrors world/blocks.js's pattern:
-// stats + a `shape` tag (which builder in mob.js assembles the blocky
-// body). Textures are procedural (mobTexture.js), keyed by type name, so
-// no per-type texture reference lives here.
+// stats + a `shape` tag (which shape generator in mobModelShapes.js
+// builds the real model). Textures are procedural (mobModelTexture.js),
+// keyed by type name, so no per-type texture reference lives here.
 //
 // `drops` entries roll independently (chance each, not a shared weighted
 // pool like items/lootTables.js — mob drops in vanilla are simple

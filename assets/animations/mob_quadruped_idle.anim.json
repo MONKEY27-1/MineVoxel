@@ -1,0 +1,6 @@
+{
+  "id": "mob_quadruped_idle",
+  "length": 3,
+  "loop": true,
+  "tracks": [{ "part": "body", "channel": "scale", "axis": "y", "expression": "sin(time * 2.0944) * 0.015" }]
+}

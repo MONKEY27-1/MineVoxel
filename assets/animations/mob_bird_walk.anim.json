@@ -1,0 +1,11 @@
+{
+  "id": "mob_bird_walk",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "legRight", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.8" },
+    { "part": "legLeft", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.8" },
+    { "part": "wingRight", "channel": "rotation", "axis": "z", "expression": "sin(limbSwing * 3) * limbSwingAmount * 0.3" },
+    { "part": "wingLeft", "channel": "rotation", "axis": "z", "expression": "-sin(limbSwing * 3) * limbSwingAmount * 0.3" }
+  ]
+}
