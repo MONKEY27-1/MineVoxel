@@ -1,0 +1,13 @@
+{
+  "id": "player_sneak",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "body", "channel": "rotation", "axis": "x", "expression": "0.35" },
+    { "part": "body", "channel": "position", "axis": "y", "expression": "-0.08" },
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "0.15 + sin(limbSwing) * limbSwingAmount * 0.5" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "0.15 + sin(limbSwing + PI) * limbSwingAmount * 0.5" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "0.3 + sin(limbSwing + PI) * limbSwingAmount * 0.4" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "0.3 + sin(limbSwing) * limbSwingAmount * 0.4" }
+  ]
+}

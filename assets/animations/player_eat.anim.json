@@ -1,0 +1,35 @@
+{
+  "id": "player_eat",
+  "length": 0.9,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "rightArm",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": 0, "interp": "ease" },
+        { "time": 0.15, "value": -2.1, "interp": "step" },
+        { "time": 0.35, "value": -1.9, "interp": "step" },
+        { "time": 0.5, "value": -2.1, "interp": "step" },
+        { "time": 0.65, "value": -1.9, "interp": "step" },
+        { "time": 0.75, "value": -2.1, "interp": "ease" },
+        { "time": 0.9, "value": 0 }
+      ]
+    },
+    {
+      "part": "head",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": 0, "interp": "ease" },
+        { "time": 0.15, "value": 0.35, "interp": "step" },
+        { "time": 0.35, "value": 0.2, "interp": "step" },
+        { "time": 0.5, "value": 0.35, "interp": "step" },
+        { "time": 0.65, "value": 0.2, "interp": "step" },
+        { "time": 0.75, "value": 0.35, "interp": "ease" },
+        { "time": 0.9, "value": 0 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "id": "player_land",
+  "length": 0.22,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "body",
+      "channel": "position",
+      "axis": "y",
+      "keyframes": [
+        { "time": 0, "value": -0.14, "interp": "ease" },
+        { "time": 0.22, "value": 0 }
+      ]
+    },
+    {
+      "part": "rightLeg",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": 0.5, "interp": "ease" },
+        { "time": 0.22, "value": 0 }
+      ]
+    },
+    {
+      "part": "leftLeg",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": 0.5, "interp": "ease" },
+        { "time": 0.22, "value": 0 }
+      ]
+    }
+  ]
+}

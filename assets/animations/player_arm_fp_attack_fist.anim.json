@@ -1,0 +1,27 @@
+{
+  "id": "player_arm_fp_attack_fist",
+  "length": 0.35,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "arm",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": 0.3, "interp": "ease" },
+        { "time": 0.12, "value": -1.6, "interp": "ease" },
+        { "time": 0.35, "value": 0 }
+      ]
+    },
+    {
+      "part": "arm",
+      "channel": "rotation",
+      "axis": "z",
+      "keyframes": [
+        { "time": 0, "value": 0.2, "interp": "ease" },
+        { "time": 0.12, "value": -0.3, "interp": "ease" },
+        { "time": 0.35, "value": 0 }
+      ]
+    }
+  ]
+}

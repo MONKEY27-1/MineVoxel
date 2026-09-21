@@ -1,0 +1,15 @@
+{
+  "id": "player_glide",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "body", "channel": "rotation", "axis": "x", "expression": "1.4" },
+    { "part": "head", "channel": "rotation", "axis": "x", "expression": "-1.1" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "-0.4" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "-0.4" },
+    { "part": "rightArm", "channel": "rotation", "axis": "z", "expression": "-0.3" },
+    { "part": "leftArm", "channel": "rotation", "axis": "z", "expression": "0.3" },
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "0.15" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "0.15" }
+  ]
+}

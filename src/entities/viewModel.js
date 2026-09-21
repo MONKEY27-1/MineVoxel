@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import { getItemModel } from './heldItemModel.js';
 import { loadModelDef } from '../models/modelLoader.js';
 import { createModelInstance } from '../models/modelBuilder.js';
+import { loadAnimationClip } from '../models/animationLoader.js';
+import { AnimationController } from '../models/animationController.js';
+import { applyPoseToModel } from '../models/animationApply.js';
 import { getProceduralSkin, loadCustomSkin } from './skinTexture.js';
 import { createSlimVariant } from './playerModelVariant.js';
 
@@ -21,13 +24,27 @@ import { createSlimVariant } from './playerModelVariant.js';
 // pattern as playerModel.js.
 const ARM_MODEL_URL = '/assets/models/player_arm_fp.model.json';
 
-// A fixed forward-pitch pose on the arm's own shoulder bone — its rest
-// pose (see player_arm_fp.model.json) hangs straight down, which reads
-// as "dangling," not "holding something up in front of the camera."
-// Rotating it forward this far is what gets the hand up into frame at
-// all; the exact angle was tuned by eye against the same held-item
-// placement heuristics armMesh's old fixed offset used to hand-tune.
-const ARM_REST_PITCH = 0.5;
+// Phase 5's one-shot arm states carry the exact same rightArm keyframe
+// values as playerModel.js's third-person clips — genuinely mirroring
+// the swing (same shape, timing, easing), per the spec's own explicit
+// requirement — just under their own file (player_arm_fp_*.anim.json,
+// part renamed "arm" to "rightArm") rather than literally the same
+// file: AnimationController deliberately fails loudly when a clip
+// references a part the model doesn't have (a real, tested phase-2
+// safety check — see MODELS.md), and the single-part FP arm model has
+// no "body"/"head" to match the third-person clips' extra flourish
+// tracks. "idle" is this rig's own file too (a fixed forward-pitch rest
+// pose — the arm's true rest, hanging straight down, reads as
+// "dangling" at view-model distance, not "holding something up in
+// front of the camera"), since the FP arm's artistic rest angle is
+// necessarily different from the third-person body's own hanging rest.
+const ARM_STATE_ANIM_URLS = {
+  idle: '/assets/animations/player_arm_fp_idle.anim.json',
+  attackFist: '/assets/animations/player_arm_fp_attack_fist.anim.json',
+  attackTool: '/assets/animations/player_arm_fp_attack_tool.anim.json',
+  place: '/assets/animations/player_arm_fp_place.anim.json',
+  eat: '/assets/animations/player_arm_fp_eat.anim.json',
+};
 
 export class ViewModel {
   constructor(atlasAssets, { seed = 1, armWidth = 'classic', customSkinDataUrl = null } = {}) {
@@ -49,12 +66,6 @@ export class ViewModel {
     this.handSide = 'right'; // 'right' | 'left'
     this.bobStrength = 1; // 0..1, separate from Player.cameraBobStrength
 
-    this._swingT = 0;
-    this._swinging = false;
-    this._placeT = 0;
-    this._placing = false;
-    this._eatT = 0;
-    this._eating = false;
     this._raiseT = 1; // 0 = fully lowered (just switched slots), 1 = fully raised
     this._bobPhase = 0;
 
@@ -71,7 +82,9 @@ export class ViewModel {
     this.armWidth = armWidth;
     this.customSkinDataUrl = customSkinDataUrl;
 
-    const baseDef = await loadModelDef(ARM_MODEL_URL);
+    const stateNames = Object.keys(ARM_STATE_ANIM_URLS);
+    const [baseDef, ...clips] = await Promise.all([loadModelDef(ARM_MODEL_URL), ...stateNames.map((s) => loadAnimationClip(ARM_STATE_ANIM_URLS[s]))]);
+    const stateClips = Object.fromEntries(stateNames.map((s, i) => [s, clips[i]]));
     const def = armWidth === 'slim' ? createSlimVariant(baseDef, ['arm']) : baseDef;
     const skin = customSkinDataUrl ? await loadCustomSkin(customSkinDataUrl) : getProceduralSkin(seed);
 
@@ -100,9 +113,11 @@ export class ViewModel {
     // player_arm_fp model itself, which needs to stay real-world-sized
     // for its skin UV to keep matching the third-person arm exactly.
     this.armModel.mesh.scale.setScalar(0.6);
-    this.armModel.getPart('arm').rotation.x = ARM_REST_PITCH;
     this.group.add(this.armModel.mesh);
     this.rightHand = this.armModel.getAttachment('hand.right');
+
+    this.controller = new AnimationController(this.armModel.restPose, new Map(stateNames.map((s) => [s, { clip: stateClips[s] }])), { defaultCrossfade: 0.15 });
+    this._oneShotActive = false;
 
     const restoreItemId = isFirstBuild ? this._pendingItemId : previousItemId;
     if (restoreItemId !== undefined) this._applyItem(restoreItemId);
@@ -150,26 +165,25 @@ export class ViewModel {
     this._raiseT = 0; // lower-then-raise transition on every slot change
   }
 
-  /** Swing arc — left-click use (mining swing or an attack). */
-  triggerSwing() {
-    this._swinging = true;
-    this._swingT = 0;
+  /** Swing arc — left-click use (mining swing or an attack). `isTool` picks the same tool-vs-fist arc playerModel.triggerAttack uses — see ARM_STATE_ANIM_URLS's own note on genuinely sharing those clips. */
+  triggerSwing(isTool) {
+    if (!this.controller) return;
+    this.controller.setState(isTool ? 'attackTool' : 'attackFist', { crossfade: 0.03 });
+    this._oneShotActive = true;
   }
 
   /** A shorter, more forward thrust — distinct from the mining/attack swing. */
   triggerPlace() {
-    this._placing = true;
-    this._placeT = 0;
+    if (!this.controller) return;
+    this.controller.setState('place', { crossfade: 0.03 });
+    this._oneShotActive = true;
   }
 
-  /**
-   * No food item exists in this build yet (see README's known
-   * simplifications — no hunger system) so nothing calls this today, but
-   * the animation itself is real and ready for whenever one does.
-   */
+  /** This game has no hunger system (README's own documented simplification), but Rift Fruit (phase 8) is a real consumable with an instant-heal effect — main.js calls this (and playerModel's own triggerEat) on eating one. */
   triggerEat() {
-    this._eating = true;
-    this._eatT = 0;
+    if (!this.controller) return;
+    this.controller.setState('eat', { crossfade: 0.08 });
+    this._oneShotActive = true;
   }
 
   /** Held for the whole glide, unlike the trigger* one-shots above — call with true on glide-start, false on glide-end. */
@@ -180,41 +194,11 @@ export class ViewModel {
   update(dt, moveSpeed) {
     this._bobPhase += dt * Math.min(moveSpeed, 6) * 1.3;
 
-    if (this._swinging) {
-      this._swingT += dt / 0.25;
-      if (this._swingT >= 1) {
-        this._swingT = 1;
-        this._swinging = false;
-      }
-    } else {
-      this._swingT = Math.max(0, this._swingT - dt / 0.15);
-    }
-
-    if (this._placing) {
-      this._placeT += dt / 0.3;
-      if (this._placeT >= 1) {
-        this._placeT = 1;
-        this._placing = false;
-      }
-    } else {
-      this._placeT = Math.max(0, this._placeT - dt / 0.15);
-    }
-
-    if (this._eating) {
-      this._eatT += dt / 0.6;
-      if (this._eatT >= 1) {
-        this._eatT = 1;
-        this._eating = false;
-      }
-    } else {
-      this._eatT = Math.max(0, this._eatT - dt / 0.2);
-    }
-
     this._raiseT = Math.min(1, this._raiseT + dt / 0.2);
 
     this._glideT += ((this._gliding ? 1 : -1) * dt) / 0.3;
     this._glideT = Math.max(0, Math.min(1, this._glideT));
-    const glideEase = Math.sin(this._glideT * Math.PI * 0.5); // arms braced out/down against the wind
+    const glideEase = Math.sin(this._glideT * Math.PI * 0.5); // arms braced out/down against the wind — glide has no bone-driven clip of its own (a held pose, not a one-shot), so it stays a group-level effect
 
     const side = this.handSide === 'left' ? -1 : 1;
     const baseX = side * 0.35;
@@ -225,24 +209,25 @@ export class ViewModel {
     const bobX = Math.sin(this._bobPhase) * 0.008 * Math.min(moveSpeed, 6) * this.bobStrength;
     const bobY = Math.abs(Math.cos(this._bobPhase)) * 0.01 * Math.min(moveSpeed, 6) * this.bobStrength;
 
-    const swingCurve = Math.sin(this._swingT * Math.PI); // 0 -> 1 -> 0 over the swing
-    const placeCurve = Math.sin(this._placeT * Math.PI);
-    const eatCurve = Math.sin(this._eatT * Math.PI * 3) * this._eatT; // a few quick bites, fading in/out with _eatT
-
     // Lower-then-raise on hotbar switch: eases back up from below frame.
     const raiseEase = Math.sin(Math.min(1, this._raiseT) * Math.PI * 0.5);
     const lowerOffset = (1 - raiseEase) * 0.45;
 
-    this.group.position.set(
-      baseX + bobX,
-      baseY + bobY - lowerOffset - placeCurve * 0.08 - eatCurve * 0.05 - glideEase * 0.12,
-      baseZ + swingCurve * 0.12 + placeCurve * 0.18 + eatCurve * 0.08 + glideEase * 0.05
-    );
-    this.group.rotation.set(
-      -swingCurve * 0.9 - placeCurve * 0.5 - eatCurve * 0.3 - glideEase * 0.35,
-      side === 1 ? -swingCurve * 0.3 : swingCurve * 0.3,
-      side === 1 ? swingCurve * 0.15 : -swingCurve * 0.15
-    );
+    this.group.position.set(baseX + bobX, baseY + bobY - lowerOffset - glideEase * 0.12, baseZ + glideEase * 0.05);
+    this.group.rotation.set(-glideEase * 0.35, 0, 0);
     this.group.visible = this.enabled && raiseEase > 0.02;
+
+    // The actual swing/place/eat motion is real bone animation now,
+    // genuinely sharing the third-person clips (see ARM_STATE_ANIM_URLS)
+    // rather than a second, independently-tuned curve — this is what
+    // "mirrors the third-person swing" means in practice.
+    if (this.controller) {
+      if (!(this._oneShotActive && !this.controller.hasFinished())) {
+        this._oneShotActive = false;
+        this.controller.setState('idle');
+      }
+      this.controller.update(dt);
+      applyPoseToModel(this.controller.computePose({}), this.armModel);
+    }
   }
 }

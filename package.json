@@ -64,6 +64,7 @@
     "test:model-viewer": "node tools/run-with-server.js tools/test-model-viewer.js",
     "test:player-model-variant": "node tools/test-player-model-variant.js",
     "test:player-model": "node tools/run-with-server.js tools/test-player-model.js",
+    "test:player-animations": "node tools/run-with-server.js tools/test-player-animations.js",
     "test:animation-apply": "node tools/run-with-server.js tools/test-animation-apply.js"
   },
   "devDependencies": {

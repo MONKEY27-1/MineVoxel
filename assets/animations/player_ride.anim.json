@@ -1,0 +1,11 @@
+{
+  "id": "player_ride",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "-1.4" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "-1.4" },
+    { "part": "rightLeg", "channel": "rotation", "axis": "z", "expression": "0.25" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "z", "expression": "-0.25" }
+  ]
+}

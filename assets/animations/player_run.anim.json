@@ -1,0 +1,12 @@
+{
+  "id": "player_run",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 1.3" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 1.3" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 1.1" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 1.1" },
+    { "part": "body", "channel": "rotation", "axis": "x", "expression": "limbSwingAmount * 0.2" }
+  ]
+}

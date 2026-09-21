@@ -1,0 +1,13 @@
+{
+  "id": "player_swim",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "body", "channel": "rotation", "axis": "x", "expression": "1.35" },
+    { "part": "head", "channel": "rotation", "axis": "x", "expression": "-0.9" },
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 0.35" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 0.35" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing) * limbSwingAmount * 1.4 - 0.3" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "sin(limbSwing + PI) * limbSwingAmount * 1.4 - 0.3" }
+  ]
+}

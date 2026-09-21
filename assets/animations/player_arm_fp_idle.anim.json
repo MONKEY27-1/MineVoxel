@@ -1,0 +1,6 @@
+{
+  "id": "player_arm_fp_idle",
+  "length": 1,
+  "loop": true,
+  "tracks": [{ "part": "arm", "channel": "rotation", "axis": "x", "expression": "0.5" }]
+}

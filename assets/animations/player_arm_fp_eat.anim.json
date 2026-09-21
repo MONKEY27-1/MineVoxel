@@ -1,0 +1,21 @@
+{
+  "id": "player_arm_fp_eat",
+  "length": 0.9,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "arm",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": 0, "interp": "ease" },
+        { "time": 0.15, "value": -2.1, "interp": "step" },
+        { "time": 0.35, "value": -1.9, "interp": "step" },
+        { "time": 0.5, "value": -2.1, "interp": "step" },
+        { "time": 0.65, "value": -1.9, "interp": "step" },
+        { "time": 0.75, "value": -2.1, "interp": "ease" },
+        { "time": 0.9, "value": 0 }
+      ]
+    }
+  ]
+}

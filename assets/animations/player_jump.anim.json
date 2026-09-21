@@ -1,0 +1,11 @@
+{
+  "id": "player_jump",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "-0.5" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "-0.5" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "-0.3" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "-0.3" }
+  ]
+}

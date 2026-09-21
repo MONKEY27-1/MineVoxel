@@ -1,0 +1,17 @@
+{
+  "id": "player_mine",
+  "length": 0.3,
+  "loop": true,
+  "tracks": [
+    {
+      "part": "rightArm",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": -1.3, "interp": "ease" },
+        { "time": 0.15, "value": -0.2, "interp": "ease" },
+        { "time": 0.3, "value": -1.3 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "player_death",
+  "length": 0.5,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "body",
+      "channel": "rotation",
+      "axis": "z",
+      "keyframes": [
+        { "time": 0, "value": 0, "interp": "ease" },
+        { "time": 0.5, "value": 1.5 }
+      ]
+    },
+    {
+      "part": "body",
+      "channel": "position",
+      "axis": "y",
+      "keyframes": [
+        { "time": 0, "value": 0, "interp": "ease" },
+        { "time": 0.5, "value": -0.35 }
+      ]
+    }
+  ]
+}

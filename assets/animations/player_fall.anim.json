@@ -1,0 +1,12 @@
+{
+  "id": "player_fall",
+  "length": 1,
+  "loop": true,
+  "tracks": [
+    { "part": "body", "channel": "rotation", "axis": "x", "expression": "0.15" },
+    { "part": "rightLeg", "channel": "rotation", "axis": "x", "expression": "0.2" },
+    { "part": "leftLeg", "channel": "rotation", "axis": "x", "expression": "0.2" },
+    { "part": "rightArm", "channel": "rotation", "axis": "x", "expression": "-0.5" },
+    { "part": "leftArm", "channel": "rotation", "axis": "x", "expression": "-0.5" }
+  ]
+}

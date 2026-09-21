@@ -1,6 +1,9 @@
 {
   "id": "player_idle",
-  "length": 1,
+  "length": 4,
   "loop": true,
-  "tracks": []
+  "tracks": [
+    { "part": "body", "channel": "scale", "axis": "y", "expression": "sin(time * 1.5708) * 0.012" },
+    { "part": "head", "channel": "position", "axis": "y", "expression": "sin(time * 1.5708) * 0.01" }
+  ]
 }

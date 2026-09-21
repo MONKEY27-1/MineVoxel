@@ -1,0 +1,27 @@
+{
+  "id": "player_arm_fp_attack_tool",
+  "length": 0.4,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "arm",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": -1.7, "interp": "ease" },
+        { "time": 0.14, "value": 0.5, "interp": "ease" },
+        { "time": 0.4, "value": 0 }
+      ]
+    },
+    {
+      "part": "arm",
+      "channel": "rotation",
+      "axis": "z",
+      "keyframes": [
+        { "time": 0, "value": 0.1, "interp": "linear" },
+        { "time": 0.14, "value": -0.15, "interp": "ease" },
+        { "time": 0.4, "value": 0 }
+      ]
+    }
+  ]
+}

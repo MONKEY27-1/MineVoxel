@@ -1,0 +1,16 @@
+{
+  "id": "player_arm_fp_place",
+  "length": 0.25,
+  "loop": false,
+  "tracks": [
+    {
+      "part": "arm",
+      "channel": "rotation",
+      "axis": "x",
+      "keyframes": [
+        { "time": 0, "value": -1.2, "interp": "ease" },
+        { "time": 0.25, "value": 0 }
+      ]
+    }
+  ]
+}

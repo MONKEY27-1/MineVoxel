@@ -455,3 +455,135 @@ automated assertions) in third-person (both camera modes), first-person,
 and the debug viewer — this is what actually caught both bugs above.
 Full existing regression suite (smoke, devmenu-player, riding, feel,
 visual, devmenu-integration) re-verified green.
+
+## Phase 5 — Player animations
+
+**Files:** 18 new/rewired `assets/animations/player_*.anim.json` files,
+`src/entities/playerModel.js` and `src/entities/viewModel.js` (both
+substantially extended), plus `src/main.js` (new trigger call sites and
+a richer `playerModel.update()` input) and one new test file.
+
+**Two named animations from the spec's list were deliberately not
+built, and one was folded into another** — all three because the
+underlying game mechanic simply doesn't exist, not as an oversight:
+
+- **Climb**: no ladder block, and vines (`AZURECAP_VINES`/
+  `BLOODCAP_VINES`) are decorative cross-plane blocks, not climbable.
+- **Sleep**: no bed block, no sleep mechanic, anywhere in this codebase.
+- **Sit**: folded into **Ride** — the only thing a player ever sits on
+  in this game is a tamed, saddled mount (`player.riding`), so there's
+  no separate seated-but-not-riding state to distinguish it from.
+
+Building a clip for a mechanic that doesn't exist would be untestable,
+unreachable code — the opposite of this whole pass's own "verify each
+in a browser" discipline. Every one of the 15 states that *were* built
+ties to a real, already-existing player mechanic, confirmed before
+writing a single clip (checked `player.js`, `blocks.js`, and the
+world/item code directly rather than assuming).
+
+**Walk and run share one continuous speed-to-motion mapping, not two
+disconnected curves.** `_limbSwing` now accumulates at a rate that
+scales with real ground speed (previously a fixed `dt * 8` regardless
+of how fast the player was actually moving — a real gap against "leg
+animation respects actual ground speed" that this phase closes), so
+the underlying swing cadence is one smooth function of speed with no
+seam; `walk` and `run` are still separate named states (matching the
+spec's own list, and letting each have its own hand-tuned amplitude/
+lean) but crossfade between each other through the exact same
+mechanism as every other state transition — "the transition between
+walk and run" is just an ordinary crossfade over a continuously-varying
+input, not special-cased.
+
+**One-shot actions (attack/place/eat) use explicit trigger methods,
+not the per-tick priority chain** — `triggerAttack(isTool)`,
+`triggerPlace()`, `triggerEat()` call `setState()` directly (with a
+short crossfade, so they always interrupt cleanly out of whatever
+locomotion state was playing) and set `_oneShotActive`; `update()`'s
+own priority chain is skipped entirely — not merely overridden — while
+`_oneShotActive` is true and `controller.hasFinished()` is false, so a
+locomotion input arriving mid-swing can never cut it short. The instant
+it finishes, the very next tick's priority chain resumes normally, with
+zero extra bookkeeping needed. **Death is a separate, permanent
+override above that**, checked first and never cleared — once
+triggered it holds forever (there is no "un-death" case to handle).
+
+**Attack has a real fist-vs-tool arc**, selected via `itemCategory(...)
+=== 'tool'` (every pickaxe/axe/sword/etc. in this game is `kind: 'tool'`
+already — no new item-side data needed) at the exact moment
+`triggerAttack` is called, not baked into a single blended clip: two
+separate keyframed clips (`player_attack_fist`/`player_attack_tool`),
+because a "real arc" for each reads as a genuinely different shape
+(fist: a rounder hook; tool: a more vertical chop), not just a scaled
+amplitude of the same curve.
+
+**Mining is a continuous state, not a repeated trigger.** `mining`
+(`interaction.breakProgress > 0 && < 1`, already-existing data, no new
+signal plumbed through) feeds the normal priority chain every tick,
+same as `inWater`/`gliding`/etc. — `player_mine.anim.json` is a short,
+`loop: true` clip, so simply staying in the `mine` state for as long as
+`mining` is true already gives "repeated shorter swing, looping while
+held" for free, with no extra one-shot bookkeeping.
+
+**Land and hurt are edge-triggered additive layers, detected
+internally, not new signals from `main.js`.** `playerModel.update()`
+already receives `onGround` and `health` every tick; tracking last
+frame's value and comparing (`onGround` false→true; `health`
+decreasing) is enough to fire `setAdditive('land', ...)` /
+`setAdditive('hurt', ...)` exactly once per real event, with no new
+call sites needed anywhere else in `main.js`. A real, deliberate
+simplification: hurt's actual damage-*direction* recoil (the spec's
+"brief recoil in the direction of damage") is a symmetric flinch
+instead, since no directional-damage vector is currently threaded
+through to `playerModel` — plumbing one through was judged not worth
+it for a single additive layer's fidelity against the five phases still
+ahead.
+
+**Sneak got a real pose this phase** (forward lean baked into the
+clip's own constant-expression tracks, legs bent, arms forward) —
+phase 4 had explicitly deferred this, keeping the old crude
+"lean + drop" as a placeholder specifically so phase 5 could replace it
+properly, which this does.
+
+**First-person mirroring: real shared motion, in a separate file per
+state — not literally the same JSON file.** The first attempt tried
+sharing `player_attack_fist.anim.json` etc. directly between the
+third-person body and the first-person arm, and it failed loudly and
+immediately: `AnimationController`'s constructor validates every
+track's part against the model's actual parts (a real, deliberately
+tested phase-2 safety check), and the single-part FP arm model
+(`player_arm_fp.model.json`, just `arm`) has no `body`/`head` to match
+the third-person clips' extra flourish tracks. Weakening that
+validation to "silently skip unknown-part tracks" was considered and
+rejected — it would quietly undermine a real, tested fail-loud
+guarantee for every future model, not just this one convenience. Fixed
+by giving the FP arm its own `player_arm_fp_*.anim.json` files carrying
+the *exact same keyframe values* as the corresponding third-person
+track (part renamed `arm`), which is what "mirrors" now concretely
+means: identical shape, timing, and easing, with only the file boundary
+different. Verified directly — the test asserts the FP `attackFist`
+clip's length matches the third-person one exactly (0.35s), not just
+"looks similar."
+
+**The FP arm's own rest pose is its own file** (`player_arm_fp_idle.anim.json`,
+a constant-expression rotation), not a leftover hardcoded
+`armModel.getPart('arm').rotation.x = ...` line — needed once the arm
+gained a real `AnimationController` (any base state, even an empty one,
+replaces whatever the bone's raw rotation was), and it's *supposed* to
+differ from the third-person body's own hanging-straight-down rest:
+the FP arm's forward pitch is a deliberate, artistic "hold something up
+where the camera can see it" convention (see phase 4's own notes on
+this), not the arm's "true" neutral.
+
+**Tests:** `npm run test:player-animations`, 25 Playwright assertions —
+the full locomotion priority chain (every one of the 8 base states
+selected correctly from its real trigger condition), one-shot
+attack/place/eat genuinely resisting interruption mid-flight and
+auto-returning afterward, death pre-empting and staying terminal even
+under continued locomotion input, land/hurt firing exactly on their
+real edge (not every tick, not on healing), and the FP arm's shared-clip
+mirroring verified by exact clip-length equality. Also manually
+verified via real in-game screenshots (mid-swing attack, eating) — the
+established discipline from phase 4, which is what actually caught the
+shared-clip validation failure above before it could ship. Full
+existing regression suite (smoke, player-model, devmenu-player, riding,
+feel, visual, devmenu-integration) re-verified green.

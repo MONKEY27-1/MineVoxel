@@ -3257,7 +3257,19 @@ function main() {
         // (same "something big just happened" reasoning as reusing
         // playExplosion for the Rift Gate opening above).
         if (mobManager.justActivated) playMobHit();
-        if (input.wasMousePressed(0)) viewModel.triggerSwing();
+        if (input.wasMousePressed(0)) {
+          const isToolSwing = itemCategory(player.selectedItem?.itemId) === 'tool';
+          viewModel.triggerSwing(isToolSwing);
+          // A click that lands on a breakable block starts mining
+          // instead of a discrete swing — playerModel's own continuous
+          // `mining` input (interaction.breakProgress) takes over the
+          // very next tick either way, but a genuine attack/empty-air
+          // swing should still get its one-shot arc played right away
+          // rather than waiting a tick for that to kick in.
+          if (!(interaction.breakProgress > 0)) {
+            playerModel.triggerAttack(isToolSwing);
+          }
+        }
 
         if (interaction.justBroke) {
           particles.spawnBlockBreak(interaction.justBroke.position, interaction.justBroke.blockId);
@@ -3318,6 +3330,7 @@ function main() {
         if (interaction.justPlaced) {
           playBlockPlace(interaction.justPlaced.blockId);
           viewModel.triggerPlace();
+          playerModel.triggerPlace();
           particles.spawnBlockPlace(interaction.justPlaced.position, interaction.justPlaced.blockId);
 
           // A placed gravity block might have nothing under it (place
@@ -3518,6 +3531,7 @@ function main() {
           if (held.count <= 0) player.inventory.slots[player.selectedHotbar] = null;
           if (player.gameMode === 'survival') player.health = Math.min(player.maxHealth, player.health + 2);
           viewModel.triggerEat();
+          playerModel.triggerEat();
           tryRiftFruitTeleport();
           playUIClick();
         }
@@ -3867,6 +3881,13 @@ function main() {
       pitch: rpitch,
       velocity: player.velocity,
       sneaking: player.sneaking,
+      onGround: player.onGround,
+      sprinting: player.sprinting,
+      inWater: player.inWater,
+      gliding: player.gliding,
+      riding: player.riding,
+      mining: interaction.breakProgress > 0 && interaction.breakProgress < 1,
+      health: player.health,
     });
 
     // --- Atmosphere: biome tint x day/night tint, swapped for a flat
